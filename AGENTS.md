@@ -14,6 +14,17 @@ mutiAI is a visual AI R&D organization system. A user talks to a platform assist
 - Long Runtime work must use submit, checkpoint, wait, event, and resume. Do not keep a graph node blocked for hours.
 - External side effects require stable idempotency keys. Reusing a Codex thread does not provide exactly-once execution.
 
+## Runtime workspace isolation
+
+- Product source repositories under `G:\AI\AI_private\Codex_projects` are control-plane development directories. Never use them as the `cwd` of a managed Codex Runtime thread or turn.
+- Local managed Runtime workspaces must be descendants of `G:\AI\AI_private\mutiAI-runtime-workspaces`.
+- Canonicalize and validate every Runtime `cwd` against the configured root before starting, resuming, deleting, or cleaning a workspace.
+- Store the exact `workspace_id`, canonical workspace path, Codex `thread_id`, and Runtime ownership record in the product database.
+- Resume only Thread IDs created and owned by mutiAI. Never discover an unrelated interactive Thread by directory and adopt it.
+- Keep managed App Server Threads separate from interactive CLI or IDE Threads. Filter and display product Threads by their recorded IDs, managed workspace paths, and App Server source.
+- A Codex Thread may be reused only with its recorded workspace binding. Changing its workspace requires an explicit migration operation.
+- Cleanup must be limited to verified descendants of the managed Runtime root. Never delete or move user source repositories or unrelated Codex workspaces.
+
 ## V1 product rules
 
 - Use the term `organization`, not `department`.

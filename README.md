@@ -27,6 +27,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - The first Runtime implementation uses local Codex on Windows.
 - Linux is the production target and must be validated after the first local vertical slice.
 - Accounts are isolated by owner. The first release has no organization membership, invitations, or collaboration.
+- Managed Codex Runtime sessions use `G:\AI\AI_private\mutiAI-runtime-workspaces`; product source repositories under `Codex_projects` must never be used as Runtime working directories.
 
 ## Documentation
 

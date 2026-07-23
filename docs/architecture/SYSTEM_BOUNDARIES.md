@@ -28,6 +28,38 @@ Owns execution inside one bounded assignment: reading a repository, planning, ru
 
 Own code and file truth. Parallel development eventually requires isolated workspaces or Git worktrees, explicit merge policy, validation, and conflict handling.
 
+## Managed Runtime workspace isolation
+
+The local V1 Runtime root is:
+
+```text
+G:\AI\AI_private\mutiAI-runtime-workspaces
+```
+
+The product source repositories under `G:\AI\AI_private\Codex_projects` are control-plane development directories. They must never become the working directory of a managed Codex Thread or Turn.
+
+The planned managed hierarchy is:
+
+```text
+mutiAI-runtime-workspaces/
+└── users/{user_id}/
+    └── organizations/{organization_id}/
+        └── projects/{project_id}/
+            └── workspaces/{workspace_id}/
+```
+
+The exact hierarchy may evolve, but these invariants do not:
+
+- Every managed workspace has a durable product `workspace_id`.
+- Every Runtime `cwd` resolves to a canonical descendant of the configured managed root.
+- Every Codex Thread belongs to an explicit Runtime binding and workspace record.
+- The Runtime Manager resumes only Thread IDs previously created by mutiAI.
+- A Thread is never adopted from a user's existing interactive history merely because its `cwd` matches.
+- A Thread-to-workspace change is an explicit migration, not an incidental Turn override.
+- Cleanup verifies both root containment and a mutiAI ownership record before touching a directory.
+
+App Server Threads are additionally distinguishable from normal interactive CLI and IDE Threads by their source. Product history views should use recorded Thread IDs, managed workspace paths, and App Server source filters rather than mixing all local Codex history.
+
 ## Long-running task pattern
 
 The intended pattern is:
@@ -72,3 +104,8 @@ Product APIs and persisted product entities must not expose LangGraph-specific c
 ## Windows-to-Linux plan
 
 Windows is the first development environment because it provides the strongest local performance. The migration risk is concentrated in process management, shell execution, paths, permissions, signals, filesystem behavior, and sandboxing. Keep these concerns behind infrastructure and Runtime adapters, then validate the first complete vertical slice in Linux before production hardening.
+
+## Codex references
+
+- [App Server lifecycle](https://learn.chatgpt.com/docs/app-server#lifecycle-overview): `turn/start` can explicitly set `cwd`, while Thread start and resume remain separate lifecycle operations.
+- [Thread list filters](https://learn.chatgpt.com/docs/app-server#list-threads-with-pagination--filters): Thread history can be filtered by exact session `cwd` and source kind.
