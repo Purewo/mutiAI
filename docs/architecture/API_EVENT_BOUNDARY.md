@@ -29,9 +29,12 @@ V1 uses a browser-friendly HttpOnly session. The exact session store and CSRF po
 - `GET /api/v1/organizations`: list organizations owned by the current user.
 - `GET /api/v1/organizations/{organization_id}`: return the organization and current published definition.
 - `GET /api/v1/organizations/{organization_id}/versions`: list proposal and publication versions.
-- `POST /api/v1/organizations/{organization_id}/versions/{version_id}/publish`: confirm and publish a version.
+- `POST /api/v1/organizations/{organization_id}/versions/{version_id}/confirm`: confirm a proposal without publishing it.
+- `POST /api/v1/organizations/{organization_id}/versions/{version_id}/publish`: publish a confirmed version.
 
 Publishing is a product state change. It does not start a Codex Runtime.
+
+During the M1 walking skeleton, the proposal route accepts an already structured and validated `OrganizationSpec`. The future platform-assistant design flow must emit the same contract rather than introduce a second organization format.
 
 ### Tasks and progress
 

@@ -2,23 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, UTC
-from uuid import uuid4
+from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from mutiai.models.base import Base
-
-
-def utc_now() -> datetime:
-    """Return a naive datetime whose value is UTC for SQLite portability."""
-
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def new_id() -> str:
-    return str(uuid4())
+from mutiai.models.base import Base, new_id, utc_now
 
 
 class User(Base):
@@ -35,6 +24,11 @@ class User(Base):
 
     sessions: Mapped[list[BrowserSession]] = relationship(
         back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    organizations = relationship(
+        "Organization",
+        back_populates="owner",
         cascade="all, delete-orphan",
     )
 

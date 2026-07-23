@@ -46,7 +46,7 @@ Reference documents:
 
 ## M1. Build the backend walking skeleton
 
-Status: In progress. The application factory, health boundary, database migration, and development login are implemented.
+Status: In progress. The application factory, health boundary, database migration, development login, and OrganizationSpec publication lifecycle are implemented.
 
 Implement only the minimum product path:
 

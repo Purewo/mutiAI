@@ -11,7 +11,7 @@ from sqlalchemy import select
 from mutiai.api.dependencies import CurrentUser, DbSession, RequestSettings
 from mutiai.api.errors import ApiError, ErrorEnvelope
 from mutiai.models import BrowserSession, User
-from mutiai.models.auth import utc_now
+from mutiai.models.base import utc_now
 from mutiai.security import (
     create_session_token,
     hash_session_token,

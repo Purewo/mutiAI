@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from mutiai.api.errors import ApiError
 from mutiai.config import Settings
 from mutiai.models import BrowserSession, User
-from mutiai.models.auth import utc_now
+from mutiai.models.base import utc_now
 from mutiai.security import hash_session_token
 
 

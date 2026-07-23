@@ -209,4 +209,3 @@ The following do not block writing the boundary, but must be resolved before the
 - Final database migration and connection strategy.
 - Whether a task may have multiple active assignments for the same role.
 - Artifact storage location and retention.
-- OrganizationSpec JSON Schema field names beyond the mandatory lead invariant.

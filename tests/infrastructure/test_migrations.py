@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, inspect, text
 from mutiai.migrations import upgrade_database
 
 
-def test_initial_migration_creates_auth_schema(tmp_path) -> None:
+def test_migrations_create_current_product_schema(tmp_path) -> None:
     database_url = f"sqlite+pysqlite:///{tmp_path / 'migrations.db'}"
 
     upgrade_database(database_url)
@@ -18,5 +18,11 @@ def test_initial_migration_creates_auth_schema(tmp_path) -> None:
     finally:
         engine.dispose()
 
-    assert {"alembic_version", "users", "browser_sessions"} <= tables
-    assert revision == "20260723_0001"
+    assert {
+        "alembic_version",
+        "browser_sessions",
+        "organization_spec_versions",
+        "organizations",
+        "users",
+    } <= tables
+    assert revision == "20260723_0002"

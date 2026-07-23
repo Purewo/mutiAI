@@ -1,4 +1,9 @@
-"""Shared SQLAlchemy model metadata."""
+"""Shared SQLAlchemy model metadata and UTC identifiers."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
@@ -15,3 +20,13 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+def utc_now() -> datetime:
+    """Return a naive datetime whose value is UTC for SQLite portability."""
+
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def new_id() -> str:
+    return str(uuid4())

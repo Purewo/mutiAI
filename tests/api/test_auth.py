@@ -6,7 +6,7 @@ from sqlalchemy import select
 from mutiai.config import Settings
 from mutiai.main import create_app
 from mutiai.models import BrowserSession, User
-from mutiai.models.auth import utc_now
+from mutiai.models.base import utc_now
 from mutiai.security import hash_session_token
 
 
