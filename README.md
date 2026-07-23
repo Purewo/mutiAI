@@ -51,7 +51,15 @@ uv sync
 .\.venv\Scripts\python.exe --version
 ```
 
-Do not add a backend web framework until the first architecture review selects it explicitly.
+The first architecture review selected FastAPI, SQLAlchemy, and Alembic for the initial backend skeleton. Keep the HTTP boundary and persistence adapters replaceable as the product evolves.
+
+Run the local backend during M1 with:
+
+```powershell
+uv run uvicorn mutiai.main:app --reload
+```
+
+The initial health endpoint is `GET http://127.0.0.1:8000/api/v1/health`.
 
 ## Local development account
 

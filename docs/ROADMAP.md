@@ -20,7 +20,7 @@ The first release proves the product's core coordination value. It does not atte
 
 ## M0. Freeze the minimum contracts
 
-Status: In progress.
+Status: Completed for the initial vertical-slice boundary.
 
 Deliverables:
 
@@ -46,7 +46,7 @@ Reference documents:
 
 ## M1. Build the backend walking skeleton
 
-Status: Pending M0 review.
+Status: In progress. The application factory and health boundary are the first implementation step.
 
 Implement only the minimum product path:
 
@@ -110,4 +110,3 @@ Add the first external channel through an adapter that routes messages to the us
 - Production distributed scheduling and sandbox infrastructure.
 - A complete knowledge-base product.
 - Large-scale parallel Git merge automation.
-
