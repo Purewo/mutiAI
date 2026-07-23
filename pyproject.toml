@@ -7,6 +7,7 @@ dependencies = [
     "alembic>=1.16,<2",
     "fastapi>=0.116,<1",
     "langgraph==1.2.9",
+    "langgraph-checkpoint-sqlite>=3,<4",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.10,<3",
     "pwdlib[argon2]>=0.3,<1",

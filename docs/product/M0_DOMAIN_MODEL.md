@@ -129,6 +129,8 @@ pending → submitted → running → completed
 
 The same assignment may be replayed after a graph restart, but the same `execution_id` must not create an untracked duplicate external job.
 
+V1 creates at most one Assignment per existing role for a Task. Assignment and execution IDs are deterministic for the `(task_id, role_key)` pair so graph replay resolves to the same product records.
+
 ### RuntimeExecution
 
 Represents the product's binding to one external Runtime execution.
@@ -204,8 +206,5 @@ Raw Codex event streams remain an adapter concern. Product events must be stable
 
 The following do not block writing the boundary, but must be resolved before the corresponding implementation:
 
-- Exact ID format and generation library.
-- Exact password hashing and session implementation.
 - Final database migration and connection strategy.
-- Whether a task may have multiple active assignments for the same role.
 - Artifact storage location and retention.

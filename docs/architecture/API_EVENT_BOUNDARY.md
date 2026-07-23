@@ -45,6 +45,8 @@ During the M1 walking skeleton, the proposal route accepts an already structured
 
 Task creation must accept an idempotency key. The same key must return the original task identity rather than create a second external execution.
 
+The HTTP header name is `Idempotency-Key`. Reusing a key with a different request payload returns an idempotency conflict.
+
 ### Organization-lead conversation
 
 - `POST /api/v1/organizations/{organization_id}/lead/messages`: submit a user message to the organization lead flow.
@@ -103,6 +105,8 @@ The adapter may receive many Codex-specific events but should normalize only sta
 - The server replays events after the requested cursor before following new events.
 - Duplicate delivery is expected; the frontend and backend consumers must deduplicate by event identity or sequence.
 - A terminal task event closes the logical stream, but the task resource remains queryable.
+
+The current M1 endpoint replays persisted events and then closes. Following newly appended events remains pending until task execution moves out of the request process.
 
 ## Error envelope
 

@@ -1,0 +1,89 @@
+{
+  "properties": {
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "title": "Event Type",
+      "type": "string"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "aggregate_type": {
+      "title": "Aggregate Type",
+      "type": "string"
+    },
+    "aggregate_id": {
+      "title": "Aggregate Id",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "assignment_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Assignment Id"
+    },
+    "runtime_execution_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Runtime Execution Id"
+    },
+    "sequence": {
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "aggregate_type",
+    "aggregate_id",
+    "task_id",
+    "assignment_id",
+    "runtime_execution_id",
+    "sequence",
+    "occurred_at",
+    "source",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "TaskEventResponse",
+  "type": "object"
+}

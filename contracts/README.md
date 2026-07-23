@@ -15,6 +15,7 @@ Generated snapshots currently include:
 
 - `schemas/organization-spec.v1.json` from `src/mutiai/domain/organization.py`.
 - `openapi/openapi.v1.json` from the FastAPI application routes and models.
+- `events/task-event.v1.json` from the persisted and streamed task event envelope.
 
 Regenerate both snapshots with:
 

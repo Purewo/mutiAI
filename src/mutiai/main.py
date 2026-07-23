@@ -14,13 +14,23 @@ from mutiai.bootstrap import seed_development_admin
 from mutiai.config import Settings, get_settings
 from mutiai.db import Database
 from mutiai.migrations import upgrade_database
+from mutiai.orchestration import TaskOrchestrator
+from mutiai.runtime import AgentRuntimeAdapter
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    runtime_adapter: AgentRuntimeAdapter | None = None,
+) -> FastAPI:
     """Build an application with isolated configuration and database state."""
 
     resolved_settings = settings or get_settings()
     database = Database(resolved_settings)
+    task_orchestrator = TaskOrchestrator(
+        database,
+        resolved_settings,
+        runtime_adapter,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -47,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved_settings
     app.state.database = database
+    app.state.task_orchestrator = task_orchestrator
     install_error_handlers(app)
 
     @app.middleware("http")

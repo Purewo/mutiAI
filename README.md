@@ -40,6 +40,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [Two-repository decision](docs/decisions/ADR-0001-two-repository-boundary.md)
 - [V1 technology decision](docs/decisions/ADR-0002-v1-technology-stack.md)
 - [Browser session decision](docs/decisions/ADR-0003-browser-session-authentication.md)
+- [M1 task orchestration decision](docs/decisions/ADR-0004-m1-task-orchestration.md)
 - [M1 vertical-slice acceptance](docs/acceptance/M1_VERTICAL_SLICE.md)
 - [Contract directory](contracts/README.md)
 

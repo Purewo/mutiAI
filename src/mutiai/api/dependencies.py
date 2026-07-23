@@ -13,6 +13,7 @@ from mutiai.api.errors import ApiError
 from mutiai.config import Settings
 from mutiai.models import BrowserSession, User
 from mutiai.models.base import utc_now
+from mutiai.orchestration import TaskOrchestrator
 from mutiai.security import hash_session_token
 
 
@@ -27,6 +28,13 @@ def get_request_settings(request: Request) -> Settings:
 
 DbSession = Annotated[Session, Depends(get_db_session)]
 RequestSettings = Annotated[Settings, Depends(get_request_settings)]
+
+
+def get_task_orchestrator(request: Request) -> TaskOrchestrator:
+    return request.app.state.task_orchestrator
+
+
+TaskRunner = Annotated[TaskOrchestrator, Depends(get_task_orchestrator)]
 
 
 def require_current_user(

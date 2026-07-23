@@ -85,6 +85,8 @@ Must retain durable identities, ownership, organization versions, task records, 
 
 May retain the workflow position, stable product identifiers, current routing information, accumulated delivery summaries, and pending waits. It must not duplicate the full product database or Codex internal history.
 
+M1 stores checkpoints in the separate SQLite file configured by `LANGGRAPH_CHECKPOINT_PATH`; product tables remain in `DATABASE_URL`. Sharing a host or database technology does not merge their ownership boundaries.
+
 ### Codex thread
 
 Retains Runtime conversation and execution context. The product stores the thread ID and selected summaries rather than copying the entire internal session into graph state.

@@ -46,7 +46,7 @@ Reference documents:
 
 ## M1. Build the backend walking skeleton
 
-Status: In progress. The application factory, health boundary, database migration, development login, and OrganizationSpec publication lifecycle are implemented.
+Status: In progress. The walking skeleton now includes authentication, OrganizationSpec publication, idempotent task submission, LangGraph `Send` fan-out, FakeRuntime execution, persisted events, SSE replay, and checkpoint recovery.
 
 Implement only the minimum product path:
 

@@ -1,6 +1,12 @@
 # M1 vertical-slice acceptance checklist
 
-Status: Initial test contract.
+Status: In progress. The immediate FakeRuntime path and failure recovery are implemented.
+
+## Current implementation status
+
+The tested walking skeleton now covers login, proposal validation, publication without Runtime initialization, Task and Assignment persistence, `Send` fan-out to two existing roles, FakeRuntime execution, idempotent replay, persisted SSE events, cursor replay, restart recovery, and a failed parallel branch resuming without replaying its successful sibling.
+
+Explicit Runtime waiting and event-triggered graph wake-up remain pending. Source-repository workspace rejection becomes executable when the managed workspace allocator is introduced. M1 is not complete until those boundaries are tested.
 
 ## Preconditions
 
@@ -41,4 +47,3 @@ Status: Initial test contract.
 ## Exit condition
 
 The M1 path is complete when the product can demonstrate durable product state, idempotent task submission, recoverable orchestration, and a stable event stream without a real Codex dependency.
-

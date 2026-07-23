@@ -538,6 +538,257 @@
           }
         }
       }
+    },
+    "/api/v1/organizations/{organization_id}/tasks": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Submit Task",
+        "operationId": "submit_task_api_v1_organizations__organization_id__tasks_post",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Organization Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task",
+        "operationId": "get_task_api_v1_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/events": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Stream Task Events",
+        "operationId": "stream_task_events_api_v1_tasks__task_id__events_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -595,6 +846,79 @@
         ],
         "title": "AgentRoleSpec",
         "description": "One persistent formal role in an organization definition."
+      },
+      "AssignmentResponse": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "title": "Assignment Id"
+          },
+          "agent_role_key": {
+            "type": "string",
+            "title": "Agent Role Key"
+          },
+          "instructions": {
+            "type": "string",
+            "title": "Instructions"
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "title": "Acceptance Criteria"
+          },
+          "execution_id": {
+            "type": "string",
+            "title": "Execution Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "result_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Summary"
+          },
+          "runtime_execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeExecutionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "agent_role_key",
+          "instructions",
+          "acceptance_criteria",
+          "execution_id",
+          "status",
+          "result_summary",
+          "runtime_execution"
+        ],
+        "title": "AssignmentResponse"
+      },
+      "AssignmentStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "submitted",
+          "running",
+          "waiting",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "AssignmentStatus"
       },
       "ErrorEnvelope": {
         "properties": {
@@ -953,6 +1277,210 @@
           "archived"
         ],
         "title": "OrganizationVersionStatus"
+      },
+      "RuntimeExecutionResponse": {
+        "properties": {
+          "runtime_execution_id": {
+            "type": "string",
+            "title": "Runtime Execution Id"
+          },
+          "execution_id": {
+            "type": "string",
+            "title": "Execution Id"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RuntimeExecutionStatus"
+          },
+          "runtime_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Job Id"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          },
+          "result_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runtime_execution_id",
+          "execution_id",
+          "provider",
+          "status",
+          "runtime_job_id",
+          "thread_id",
+          "turn_id",
+          "workspace_id",
+          "result_summary"
+        ],
+        "title": "RuntimeExecutionResponse"
+      },
+      "RuntimeExecutionStatus": {
+        "type": "string",
+        "enum": [
+          "submitted",
+          "running",
+          "waiting",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "RuntimeExecutionStatus"
+      },
+      "TaskCreateRequest": {
+        "properties": {
+          "request": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Request"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request"
+        ],
+        "title": "TaskCreateRequest"
+      },
+      "TaskResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "organization_id": {
+            "type": "string",
+            "title": "Organization Id"
+          },
+          "organization_spec_version_id": {
+            "type": "string",
+            "title": "Organization Spec Version Id"
+          },
+          "request": {
+            "type": "string",
+            "title": "Request"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "result_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Summary"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentResponse"
+            },
+            "type": "array",
+            "title": "Assignments"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "organization_id",
+          "organization_spec_version_id",
+          "request",
+          "status",
+          "result_summary",
+          "assignments",
+          "created_at",
+          "updated_at",
+          "completed_at"
+        ],
+        "title": "TaskResponse"
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": [
+          "created",
+          "planning",
+          "running",
+          "waiting",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "TaskStatus"
       },
       "UserResponse": {
         "properties": {

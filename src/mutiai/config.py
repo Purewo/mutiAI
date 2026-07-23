@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     app_env: Literal["development", "test", "production"] = "development"
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, ge=1, le=65_535)
     database_url: str = "sqlite+pysqlite:///./var/mutiai.db"
     database_auto_migrate: bool = True
+    langgraph_checkpoint_path: Path = Path("./var/langgraph-checkpoints.db")
     runtime_workspace_root: Path = Field(
         default=Path(r"G:\AI\AI_private\mutiAI-runtime-workspaces"),
         validation_alias=AliasChoices(

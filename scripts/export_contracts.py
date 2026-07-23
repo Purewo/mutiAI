@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from mutiai.api.schemas.tasks import TaskEventResponse
 from mutiai.domain import OrganizationSpec
 from mutiai.config import Settings
 from mutiai.main import create_app
@@ -15,6 +16,9 @@ ORGANIZATION_SCHEMA_PATH = (
     PROJECT_ROOT / "contracts" / "schemas" / "organization-spec.v1.json"
 )
 OPENAPI_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "openapi" / "openapi.v1.json"
+TASK_EVENT_SCHEMA_PATH = (
+    PROJECT_ROOT / "contracts" / "events" / "task-event.v1.json"
+)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -37,6 +41,7 @@ def main() -> None:
         )
     )
     write_json(OPENAPI_SCHEMA_PATH, app.openapi())
+    write_json(TASK_EVENT_SCHEMA_PATH, TaskEventResponse.model_json_schema())
 
 
 if __name__ == "__main__":
