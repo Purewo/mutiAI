@@ -46,7 +46,7 @@ Reference documents:
 
 ## M1. Build the backend walking skeleton
 
-Status: In progress. The walking skeleton now includes authentication, OrganizationSpec publication, idempotent task submission, LangGraph `Send` fan-out, FakeRuntime execution, persisted events, SSE replay, and checkpoint recovery.
+Status: In progress. The walking skeleton now includes authentication, OrganizationSpec publication, idempotent task submission, LangGraph `Send` fan-out, FakeRuntime execution, persisted events, SSE replay, failed-branch recovery, and idempotent event-triggered resume for one or more waiting Runtime branches.
 
 Implement only the minimum product path:
 

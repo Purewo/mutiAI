@@ -1,12 +1,12 @@
 # M1 vertical-slice acceptance checklist
 
-Status: In progress. The immediate FakeRuntime path and failure recovery are implemented.
+Status: In progress. Runtime waiting and event-triggered graph recovery are implemented. Managed workspace enforcement remains pending.
 
 ## Current implementation status
 
-The tested walking skeleton now covers login, proposal validation, publication without Runtime initialization, Task and Assignment persistence, `Send` fan-out to two existing roles, FakeRuntime execution, idempotent replay, persisted SSE events, cursor replay, restart recovery, and a failed parallel branch resuming without replaying its successful sibling.
+The tested walking skeleton now covers login, proposal validation, publication without Runtime initialization, Task and Assignment persistence, `Send` fan-out to two existing roles, FakeRuntime execution, idempotent replay, persisted SSE events, cursor replay, restart recovery, a failed parallel branch resuming without replaying its successful sibling, and one or more waiting Runtime branches resuming from idempotent external completion events.
 
-Explicit Runtime waiting and event-triggered graph wake-up remain pending. Source-repository workspace rejection becomes executable when the managed workspace allocator is introduced. M1 is not complete until those boundaries are tested.
+Source-repository workspace rejection becomes executable when the managed workspace allocator is introduced. M1 is not complete until that boundary is tested.
 
 ## Preconditions
 

@@ -1,13 +1,16 @@
 import json
 import sqlite3
 
+import pytest
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.sqlite import SqliteSaver
 from sqlalchemy import func, select
 
 from mutiai.config import Settings
 from mutiai.main import create_app
 from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task
 from mutiai.models.task import TaskStatus
+from mutiai.orchestration.task_graph import build_task_graph
 from mutiai.runtime import FakeRuntimeAdapter
 
 
@@ -301,4 +304,163 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
         assert events[-1]["event_type"] == "task.completed"
         assert [event["sequence"] for event in events] == list(
             range(1, len(events) + 1)
+        )
+
+
+def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(wait_once_role_keys={"backend"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        task_url = f"/api/v1/organizations/{organization_id}/tasks"
+        submitted = client.post(
+            task_url,
+            headers={"Idempotency-Key": "waiting-task"},
+            json={"request": "Wait for one external Runtime completion event."},
+        )
+
+        assert submitted.status_code == 201
+        payload = submitted.json()
+        task_id = payload["task_id"]
+        assert payload["status"] == "waiting"
+        assignment_by_role = {
+            item["agent_role_key"]: item for item in payload["assignments"]
+        }
+        backend = assignment_by_role["backend"]
+        test_assignment = assignment_by_role["test"]
+        assert backend["status"] == "waiting"
+        assert backend["runtime_execution"]["status"] == "waiting"
+        assert test_assignment["status"] == "completed"
+        assert test_assignment["runtime_execution"]["status"] == "completed"
+        assert adapter.call_count(backend["execution_id"]) == 1
+        assert adapter.call_count(test_assignment["execution_id"]) == 1
+
+        config = {"configurable": {"thread_id": task_id}}
+        with SqliteSaver.from_conn_string(
+            str(settings.langgraph_checkpoint_path)
+        ) as saver:
+            graph = build_task_graph(lambda work: None).compile(checkpointer=saver)
+            snapshot = graph.get_state(config)
+            assert any(
+                interrupt.value.get("execution_id") == backend["execution_id"]
+                for interrupt in snapshot.interrupts
+            )
+
+        completed = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=backend["execution_id"],
+            runtime_event_id="fake-runtime-event-1",
+            runtime_job_id=backend["runtime_execution"]["runtime_job_id"],
+            last_event_position="1",
+            summary="backend completed after external event",
+        )
+
+        assert completed.status == "completed"
+        final = client.get(f"/api/v1/tasks/{task_id}")
+        assert final.status_code == 200
+        final_payload = final.json()
+        assert final_payload["status"] == "completed"
+        assert (
+            "backend completed after external event" in final_payload["result_summary"]
+        )
+        assert adapter.call_count(backend["execution_id"]) == 1
+        assert adapter.call_count(test_assignment["execution_id"]) == 1
+
+        events_before_replay = sse_payloads(
+            client.get(f"/api/v1/tasks/{task_id}/events")
+        )
+        external_completion_events = [
+            event
+            for event in events_before_replay
+            if event["event_type"] == "runtime.execution_completed"
+            and event["payload"].get("runtime_event_id") == "fake-runtime-event-1"
+        ]
+        assert len(external_completion_events) == 1
+
+        replayed = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=backend["execution_id"],
+            runtime_event_id="fake-runtime-event-1",
+            summary="backend completed after external event",
+        )
+        assert replayed.status == "completed"
+        events_after_replay = sse_payloads(
+            client.get(f"/api/v1/tasks/{task_id}/events")
+        )
+        assert len(events_after_replay) == len(events_before_replay)
+
+        with pytest.raises(
+            ValueError,
+            match="already completed with another Runtime event",
+        ):
+            app.state.task_orchestrator.complete_runtime_execution(
+                execution_id=backend["execution_id"],
+                runtime_event_id="fake-runtime-event-2",
+                summary="conflicting completion",
+            )
+
+        with SqliteSaver.from_conn_string(
+            str(settings.langgraph_checkpoint_path)
+        ) as saver:
+            graph = build_task_graph(lambda work: None).compile(checkpointer=saver)
+            assert not graph.get_state(config).interrupts
+
+
+def test_multiple_waiting_runtime_branches_resume_independently(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(wait_once_role_keys={"backend", "test"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "multiple-waiting-branches"},
+            json={"request": "Resume two independent Runtime branches."},
+        )
+
+        assert submitted.status_code == 201
+        payload = submitted.json()
+        task_id = payload["task_id"]
+        assignment_by_role = {
+            item["agent_role_key"]: item for item in payload["assignments"]
+        }
+        assert payload["status"] == "waiting"
+        assert all(
+            assignment["runtime_execution"]["status"] == "waiting"
+            for assignment in assignment_by_role.values()
+        )
+
+        first = assignment_by_role["backend"]
+        still_waiting = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=first["execution_id"],
+            runtime_event_id="multi-runtime-event-1",
+            summary="backend external completion",
+        )
+        assert still_waiting.status == "waiting"
+        assert client.get(f"/api/v1/tasks/{task_id}").json()["status"] == "waiting"
+
+        replayed_first = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=first["execution_id"],
+            runtime_event_id="multi-runtime-event-1",
+            summary="backend external completion",
+        )
+        assert replayed_first.status == "waiting"
+
+        second = assignment_by_role["test"]
+        completed = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=second["execution_id"],
+            runtime_event_id="multi-runtime-event-2",
+            summary="test external completion",
+        )
+        assert completed.status == "completed"
+        final = client.get(f"/api/v1/tasks/{task_id}").json()
+        assert final["status"] == "completed"
+        assert "backend external completion" in final["result_summary"]
+        assert "test external completion" in final["result_summary"]
+        assert all(
+            adapter.call_count(assignment["execution_id"]) == 1
+            for assignment in assignment_by_role.values()
         )

@@ -172,6 +172,9 @@ class RuntimeExecution(Base):
     provider: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(20), index=True)
     runtime_job_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    runtime_event_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, unique=True
+    )
     thread_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     turn_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

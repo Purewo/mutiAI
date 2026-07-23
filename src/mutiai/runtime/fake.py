@@ -11,11 +11,18 @@ from mutiai.runtime.base import RuntimeResult
 class FakeRuntimeAdapter:
     provider = "fake"
 
-    def __init__(self, *, fail_once_role_keys: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_once_role_keys: set[str] | None = None,
+        wait_once_role_keys: set[str] | None = None,
+    ) -> None:
         self._lock = Lock()
         self._calls: Counter[str] = Counter()
         self._fail_once_role_keys = fail_once_role_keys or set()
         self._failed_role_keys: set[str] = set()
+        self._wait_once_role_keys = wait_once_role_keys or set()
+        self._waited_role_keys: set[str] = set()
 
     def execute(
         self,
@@ -33,7 +40,17 @@ class FakeRuntimeAdapter:
             ):
                 self._failed_role_keys.add(role_key)
                 raise RuntimeError(f"simulated failure for role '{role_key}'")
+            if (
+                role_key in self._wait_once_role_keys
+                and role_key not in self._waited_role_keys
+            ):
+                self._waited_role_keys.add(role_key)
+                return RuntimeResult(
+                    status="waiting",
+                    runtime_job_id=f"fake:{execution_id}",
+                )
         return RuntimeResult(
+            status="completed",
             runtime_job_id=f"fake:{execution_id}",
             summary=f"{role_key} completed its bounded assignment.",
         )
