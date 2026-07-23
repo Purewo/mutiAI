@@ -2,7 +2,7 @@
 
 `mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
 
-The repository is currently in the design and bootstrap phase. It intentionally contains no application implementation yet.
+The M1 backend walking skeleton is complete. M2 is implementing the local Codex App Server Runtime boundary.
 
 ## Repository responsibilities
 
@@ -41,6 +41,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [V1 technology decision](docs/decisions/ADR-0002-v1-technology-stack.md)
 - [Browser session decision](docs/decisions/ADR-0003-browser-session-authentication.md)
 - [M1 task orchestration decision](docs/decisions/ADR-0004-m1-task-orchestration.md)
+- [Codex App Server Runtime decision](docs/decisions/ADR-0005-codex-app-server-runtime.md)
 - [M1 vertical-slice acceptance](docs/acceptance/M1_VERTICAL_SLICE.md)
 - [Contract directory](contracts/README.md)
 

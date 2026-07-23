@@ -311,6 +311,10 @@ class TaskOrchestrator:
                 if runtime_result.status == "waiting":
                     execution.status = RuntimeExecutionStatus.WAITING
                     execution.runtime_job_id = runtime_result.runtime_job_id
+                    execution.thread_id = runtime_result.thread_id
+                    execution.turn_id = runtime_result.turn_id
+                    execution.workspace_id = runtime_result.workspace_id
+                    execution.last_event_position = runtime_result.last_event_position
                     assignment.status = AssignmentStatus.WAITING
                     if task.status != TaskStatus.WAITING:
                         task.status = TaskStatus.WAITING
@@ -360,6 +364,10 @@ class TaskOrchestrator:
                 completed_at = utc_now()
                 execution.status = RuntimeExecutionStatus.COMPLETED
                 execution.runtime_job_id = runtime_result.runtime_job_id
+                execution.thread_id = runtime_result.thread_id
+                execution.turn_id = runtime_result.turn_id
+                execution.workspace_id = runtime_result.workspace_id
+                execution.last_event_position = runtime_result.last_event_position
                 execution.result_summary = runtime_result.summary
                 execution.completed_at = completed_at
                 assignment.status = AssignmentStatus.COMPLETED

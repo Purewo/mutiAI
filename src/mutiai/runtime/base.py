@@ -11,6 +11,10 @@ class RuntimeResult:
     status: Literal["completed", "waiting"]
     runtime_job_id: str
     summary: str | None = None
+    thread_id: str | None = None
+    turn_id: str | None = None
+    workspace_id: str | None = None
+    last_event_position: str | None = None
 
 
 class AgentRuntimeAdapter(Protocol):
