@@ -1,0 +1,11 @@
+[project]
+name = "mutiai-core"
+version = "0.1.0"
+description = "Core product, orchestration, and runtime services for mutiAI."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "langgraph==1.2.9",
+]
+
+[tool.uv]
+package = false
