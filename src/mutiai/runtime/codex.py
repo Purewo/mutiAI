@@ -72,6 +72,9 @@ class CodexRuntimeAdapter:
         execution_id: str,
         role_key: str,
         instructions: str,
+        workspace_id: str | None = None,
+        workspace_path: str | None = None,
+        thread_id: str | None = None,
     ) -> RuntimeResult:
         """Start one Thread and Turn, then return their durable identities."""
 
@@ -83,7 +86,17 @@ class CodexRuntimeAdapter:
                     return existing.completion.result
                 return existing.waiting_result
 
-            binding = self.resolve_workspace(execution_id)
+            if workspace_id is not None or workspace_path is not None:
+                if workspace_id is None or workspace_path is None:
+                    raise CodexAppServerError(
+                        "workspace_id and workspace_path must be supplied together"
+                    )
+                binding = RuntimeWorkspaceBinding(
+                    workspace_id=workspace_id,
+                    path=Path(workspace_path),
+                )
+            else:
+                binding = self.resolve_workspace(execution_id)
             workspace = self.workspace_manager.canonicalize(binding.path)
             session = CodexAppServerSession(
                 cwd=workspace,
@@ -92,18 +105,29 @@ class CodexRuntimeAdapter:
             )
             try:
                 session.connect()
-                thread_response = session.start_thread(
-                    model=self.model,
-                    approval_policy=self.approval_policy,
-                )
-                thread_id = self._require_id(
+                if thread_id is None:
+                    thread_response = session.start_thread(
+                        model=self.model,
+                        approval_policy=self.approval_policy,
+                    )
+                else:
+                    thread_response = session.resume_thread(
+                        thread_id,
+                        model=self.model,
+                        approval_policy=self.approval_policy,
+                    )
+                resolved_thread_id = self._require_id(
                     thread_response,
                     container="thread",
                     label="thread",
                 )
+                if thread_id is not None and resolved_thread_id != thread_id:
+                    raise CodexAppServerError(
+                        "Codex App Server resumed a different Thread ID"
+                    )
                 self._require_cwd(thread_response, workspace)
                 turn_response = session.start_turn(
-                    thread_id=thread_id,
+                    thread_id=resolved_thread_id,
                     instructions=instructions,
                     execution_id=execution_id,
                     output_schema=self.output_schema,
@@ -117,7 +141,7 @@ class CodexRuntimeAdapter:
                 waiting_result = RuntimeResult(
                     status="waiting",
                     runtime_job_id=turn_id,
-                    thread_id=thread_id,
+                    thread_id=resolved_thread_id,
                     turn_id=turn_id,
                     workspace_id=binding.workspace_id,
                 )

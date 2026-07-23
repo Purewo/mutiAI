@@ -3,6 +3,7 @@
 from mutiai.models.auth import BrowserSession, User
 from mutiai.models.base import Base
 from mutiai.models.organization import Organization, OrganizationSpecVersion
+from mutiai.models.workspace import Workspace, WorkspaceStatus
 from mutiai.models.task import (
     Assignment,
     ProductEvent,
@@ -20,4 +21,6 @@ __all__ = [
     "RuntimeExecution",
     "Task",
     "User",
+    "Workspace",
+    "WorkspaceStatus",
 ]

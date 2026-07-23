@@ -48,7 +48,12 @@ mutiAI-runtime-workspaces/
             └── workspaces/{workspace_id}/
 ```
 
-The exact hierarchy may evolve, but these invariants do not:
+The exact hierarchy may evolve, but these invariants do not. The current M2 local provisioner uses `users/{user_id}/organizations/{organization_id}/workspaces/{workspace_id}` and keeps the stable `agent_role_key` binding in the product Workspace record:
+
+```text
+mutiAI-runtime-workspaces/
+└── users/{user_id}/organizations/{organization_id}/workspaces/{workspace_id}/
+```
 
 - Every managed workspace has a durable product `workspace_id`.
 - Every Runtime `cwd` resolves to a canonical descendant of the configured managed root.
@@ -58,7 +63,7 @@ The exact hierarchy may evolve, but these invariants do not:
 - A Thread-to-workspace change is an explicit migration, not an incidental Turn override.
 - Cleanup verifies both root containment and a mutiAI ownership record before touching a directory.
 
-The core exposes a WorkspaceManager that canonicalizes an existing or planned Runtime path and rejects any path that is not a strict descendant of the configured root. On the local Windows host it also rejects configurations that overlap `G:\AI\AI_private\Codex_projects`. The manager performs no provisioning or cleanup by itself.
+The core exposes a WorkspaceManager that canonicalizes an existing or planned Runtime path and rejects any path that is not a strict descendant of the configured root. On the local Windows host it also rejects configurations that overlap `G:\AI\AI_private\Codex_projects`. WorkspaceProvisioner performs explicit first-use provisioning and records the canonical path before marking the product Workspace ready. The manager performs no cleanup by itself.
 
 App Server Threads are additionally distinguishable from normal interactive CLI and IDE Threads by their source. Product history views should use recorded Thread IDs, managed workspace paths, and App Server source filters rather than mixing all local Codex history.
 

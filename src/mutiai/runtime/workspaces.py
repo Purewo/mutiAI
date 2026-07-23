@@ -76,6 +76,18 @@ class WorkspaceManager:
             )
         return canonical
 
+    def provision(self, candidate: str | Path) -> Path:
+        """Create a managed directory and revalidate its canonical location."""
+
+        canonical = self.canonicalize(candidate, must_exist=False)
+        try:
+            canonical.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise WorkspaceBoundaryError(
+                "Runtime workspace directory could not be provisioned"
+            ) from exc
+        return self.canonicalize(canonical, must_exist=True)
+
     @staticmethod
     def _paths_overlap(left: Path, right: Path) -> bool:
         return left.is_relative_to(right) or right.is_relative_to(left)

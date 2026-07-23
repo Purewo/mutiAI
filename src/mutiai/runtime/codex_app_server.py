@@ -197,16 +197,23 @@ class CodexAppServerSession:
             params["model"] = model
         return self.request("thread/start", params)
 
-    def resume_thread(self, thread_id: str) -> dict[str, Any]:
+    def resume_thread(
+        self,
+        thread_id: str,
+        *,
+        model: str | None = None,
+        approval_policy: str = "on-request",
+    ) -> dict[str, Any]:
         """Resume a previously recorded thread and check its cwd binding."""
 
-        return self.request(
-            "thread/resume",
-            {
-                "threadId": thread_id,
-                "cwd": str(self.cwd),
-            },
-        )
+        params: dict[str, Any] = {
+            "threadId": thread_id,
+            "cwd": str(self.cwd),
+            "approvalPolicy": approval_policy,
+        }
+        if model is not None:
+            params["model"] = model
+        return self.request("thread/resume", params)
 
     def start_turn(
         self,

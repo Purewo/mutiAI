@@ -26,4 +26,7 @@ class AgentRuntimeAdapter(Protocol):
         execution_id: str,
         role_key: str,
         instructions: str,
+        workspace_id: str | None = None,
+        workspace_path: str | None = None,
+        thread_id: str | None = None,
     ) -> RuntimeResult: ...

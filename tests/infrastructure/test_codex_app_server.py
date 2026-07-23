@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 from mutiai.runtime import (
     CodexAppServerSession,
@@ -8,86 +9,39 @@ from mutiai.runtime import (
 )
 
 
-FAKE_APP_SERVER = r"""
-import json
-import sys
-
-thread = {"id": "thread-test-1", "status": {"type": "idle"}}
-turn = {"id": "turn-test-1", "status": "inProgress", "items": []}
-
-def send(message):
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    if method == "initialize":
-        send({"id": message["id"], "result": {"platformOs": "windows"}})
-    elif method == "initialized":
-        pass
-    elif method == "thread/start":
-        send({
-            "id": message["id"],
-            "result": {"thread": thread, "cwd": message["params"]["cwd"]},
-        })
-        send({"method": "thread/started", "params": {"thread": thread}})
-    elif method == "thread/resume":
-        send({"id": message["id"], "result": {"thread": thread}})
-    elif method == "turn/start":
-        send({"method": "item/started", "params": {"turnId": turn["id"]}})
-        send({"id": message["id"], "result": {"turn": turn}})
-        send({
-            "method": "turn/completed",
-            "params": {
-                "threadId": message["params"]["threadId"],
-                "turn": {
-                    "id": turn["id"],
-                    "status": "completed",
-                    "items": [
-                        {
-                            "id": "message-test-1",
-                            "type": "agentMessage",
-                            "text": "Delivered the bounded assignment.",
-                        }
-                    ],
-                },
-            },
-        })
-"""
+FAKE_APP_SERVER = (
+    Path(__file__).resolve().parents[1] / "support" / "fake_codex_app_server.py"
+)
 
 
 def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> None:
-    fake_server = tmp_path / "fake_app_server.py"
-    fake_server.write_text(FAKE_APP_SERVER, encoding="utf-8")
-
     with CodexAppServerSession(
         cwd=tmp_path,
-        command=(sys.executable, str(fake_server)),
+        command=(sys.executable, str(FAKE_APP_SERVER)),
     ) as session:
         thread = session.start_thread()
-        assert thread["thread"]["id"] == "thread-test-1"
+        thread_id = thread["thread"]["id"]
+        assert thread_id.startswith("thread-test-")
         assert session.next_event()["method"] == "thread/started"
 
-        resumed = session.resume_thread("thread-test-1")
-        assert resumed["thread"]["id"] == "thread-test-1"
+        resumed = session.resume_thread(thread_id)
+        assert resumed["thread"]["id"] == thread_id
         turn = session.start_turn(
-            thread_id="thread-test-1",
+            thread_id=thread_id,
             instructions="Run the bounded assignment.",
             execution_id="execution-test-1",
             output_schema={"type": "object"},
         )
-        assert turn["turn"]["id"] == "turn-test-1"
+        turn_id = turn["turn"]["id"]
+        assert turn_id.startswith("turn-test-")
         completed = session.wait_for_turn(
-            thread_id="thread-test-1",
-            turn_id="turn-test-1",
+            thread_id=thread_id,
+            turn_id=turn_id,
         )
         assert completed["status"] == "completed"
 
 
 def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> None:
-    fake_server = tmp_path / "fake_app_server.py"
-    fake_server.write_text(FAKE_APP_SERVER, encoding="utf-8")
     managed_root = tmp_path / "managed"
     codex_home = managed_root / "codex-home"
     workspace = managed_root / "workspaces" / "workspace-1"
@@ -101,7 +55,7 @@ def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> 
             path=workspace,
         ),
         codex_home=codex_home,
-        command=(sys.executable, str(fake_server)),
+        command=(sys.executable, str(FAKE_APP_SERVER)),
     )
 
     try:
@@ -111,9 +65,11 @@ def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> 
             instructions="Run the bounded assignment.",
         )
         assert waiting.status == "waiting"
-        assert waiting.thread_id == "thread-test-1"
-        assert waiting.turn_id == "turn-test-1"
-        assert waiting.runtime_job_id == "turn-test-1"
+        assert waiting.thread_id is not None
+        assert waiting.thread_id.startswith("thread-test-")
+        assert waiting.turn_id is not None
+        assert waiting.turn_id.startswith("turn-test-")
+        assert waiting.runtime_job_id == waiting.turn_id
         assert waiting.workspace_id == "workspace:execution-test-1"
 
         replayed = adapter.execute(
@@ -125,7 +81,7 @@ def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> 
 
         completion = adapter.wait_for_completion("execution-test-1")
         assert completion.runtime_event_id == (
-            "codex:thread-test-1:turn-test-1:completed"
+            f"codex:{waiting.thread_id}:{waiting.turn_id}:completed"
         )
         assert completion.result.status == "completed"
         assert completion.result.summary == "Delivered the bounded assignment."

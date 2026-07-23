@@ -31,7 +31,8 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 
 ## Current limitations
 
-- The adapter is not the application default until durable Workspace provisioning is implemented.
+- The adapter is not the application default until isolated authentication, event-worker supervision, and approval routing are implemented.
+- Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
 - Product approval routing, cancellation, reconnect supervision, and Runtime event workers remain pending.
 - Isolated Codex authentication must be configured without adopting or polluting existing interactive sessions.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.

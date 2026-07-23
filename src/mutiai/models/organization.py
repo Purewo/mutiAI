@@ -17,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mutiai.models.base import Base, new_id, utc_now
+from mutiai.models.workspace import Workspace
 
 
 class OrganizationVersionStatus(StrEnum):
@@ -49,6 +50,10 @@ class Organization(Base):
     )
 
     owner = relationship("User", back_populates="organizations")
+    workspaces: Mapped[list[Workspace]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
     versions: Mapped[list[OrganizationSpecVersion]] = relationship(
         back_populates="organization",
         cascade="all, delete-orphan",

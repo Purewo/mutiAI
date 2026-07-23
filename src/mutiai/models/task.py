@@ -177,7 +177,10 @@ class RuntimeExecution(Base):
     )
     thread_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     turn_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    workspace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    workspace_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workspaces.workspace_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     last_event_position: Mapped[str | None] = mapped_column(String(100), nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

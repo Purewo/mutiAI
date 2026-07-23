@@ -30,7 +30,11 @@ class FakeRuntimeAdapter:
         execution_id: str,
         role_key: str,
         instructions: str,
+        workspace_id: str | None = None,
+        workspace_path: str | None = None,
+        thread_id: str | None = None,
     ) -> RuntimeResult:
+        del workspace_id, workspace_path, thread_id
         del instructions
         with self._lock:
             self._calls[execution_id] += 1

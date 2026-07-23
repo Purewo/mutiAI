@@ -27,6 +27,7 @@ from mutiai.orchestration.task_graph import (
 from mutiai.runtime import AgentRuntimeAdapter, FakeRuntimeAdapter
 from mutiai.services.events import append_task_event
 from mutiai.services.tasks import prepare_assignments
+from mutiai.services.workspaces import WorkspaceProvisioner
 
 
 class TaskOrchestrator:
@@ -37,10 +38,12 @@ class TaskOrchestrator:
         database: Database,
         settings: Settings,
         runtime_adapter: AgentRuntimeAdapter | None = None,
+        workspace_provisioner: WorkspaceProvisioner | None = None,
     ) -> None:
         self.database = database
         self.settings = settings
         self.runtime_adapter = runtime_adapter or FakeRuntimeAdapter()
+        self.workspace_provisioner = workspace_provisioner
         self._execution_lock = RLock()
 
     def run(self, task_id: str) -> Task:
@@ -230,6 +233,20 @@ class TaskOrchestrator:
                 if execution.status == RuntimeExecutionStatus.WAITING:
                     self._interrupt_for_runtime(task, assignment, execution)
 
+                workspace = None
+                if (
+                    self.runtime_adapter.provider == "codex"
+                    and self.workspace_provisioner is not None
+                ):
+                    workspace = self.workspace_provisioner.ensure_role_workspace(
+                        session,
+                        owner_user_id=task.owner_user_id,
+                        organization_id=task.organization_id,
+                        agent_role_key=assignment.agent_role_key,
+                        runtime_provider=self.runtime_adapter.provider,
+                    )
+                    execution.workspace_id = workspace.workspace_id
+
                 now = utc_now()
                 execution.status = RuntimeExecutionStatus.RUNNING
                 execution.started_at = execution.started_at or now
@@ -265,6 +282,9 @@ class TaskOrchestrator:
                         execution_id=work["execution_id"],
                         role_key=work["role_key"],
                         instructions=work["instructions"],
+                        workspace_id=workspace.workspace_id if workspace else None,
+                        workspace_path=workspace.canonical_path if workspace else None,
+                        thread_id=workspace.codex_thread_id if workspace else None,
                     )
                 except Exception:
                     failed_at = utc_now()
@@ -315,6 +335,16 @@ class TaskOrchestrator:
                     execution.turn_id = runtime_result.turn_id
                     execution.workspace_id = runtime_result.workspace_id
                     execution.last_event_position = runtime_result.last_event_position
+                    if workspace is not None and runtime_result.thread_id is not None:
+                        if (
+                            workspace.codex_thread_id is not None
+                            and workspace.codex_thread_id != runtime_result.thread_id
+                        ):
+                            raise RuntimeError(
+                                "Codex Runtime returned a different Thread for the "
+                                "existing Workspace"
+                            )
+                        workspace.codex_thread_id = runtime_result.thread_id
                     assignment.status = AssignmentStatus.WAITING
                     if task.status != TaskStatus.WAITING:
                         task.status = TaskStatus.WAITING
