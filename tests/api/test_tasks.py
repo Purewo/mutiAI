@@ -464,3 +464,46 @@ def test_multiple_waiting_runtime_branches_resume_independently(tmp_path) -> Non
             adapter.call_count(assignment["execution_id"]) == 1
             for assignment in assignment_by_role.values()
         )
+
+
+def test_waiting_runtime_resumes_after_backend_restart(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    initial_adapter = FakeRuntimeAdapter(wait_once_role_keys={"backend"})
+    initial_app = create_app(settings, runtime_adapter=initial_adapter)
+
+    with TestClient(initial_app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "restart-waiting-task"},
+            json={"request": "Resume this task after restarting the backend."},
+        )
+        assert submitted.status_code == 201
+        payload = submitted.json()
+        assert payload["status"] == "waiting"
+        task_id = payload["task_id"]
+        assignment_by_role = {
+            item["agent_role_key"]: item for item in payload["assignments"]
+        }
+        backend_execution_id = assignment_by_role["backend"]["execution_id"]
+
+    restarted_adapter = FakeRuntimeAdapter()
+    restarted_app = create_app(settings, runtime_adapter=restarted_adapter)
+    with TestClient(restarted_app) as client:
+        login(client)
+        completed = restarted_app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=backend_execution_id,
+            runtime_event_id="restart-runtime-event-1",
+            summary="backend completed after process restart",
+        )
+        final = client.get(f"/api/v1/tasks/{task_id}")
+
+    assert completed.status == "completed"
+    assert final.status_code == 200
+    assert final.json()["status"] == "completed"
+    assert "backend completed after process restart" in final.json()["result_summary"]
+    assert all(
+        restarted_adapter.call_count(assignment["execution_id"]) == 0
+        for assignment in assignment_by_role.values()
+    )

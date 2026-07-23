@@ -1,12 +1,12 @@
 # M1 vertical-slice acceptance checklist
 
-Status: In progress. Runtime waiting and event-triggered graph recovery are implemented. Managed workspace enforcement remains pending.
+Status: Complete for the FakeRuntime vertical slice. Real workspace provisioning remains part of the Codex Runtime milestone.
 
 ## Current implementation status
 
-The tested walking skeleton now covers login, proposal validation, publication without Runtime initialization, Task and Assignment persistence, `Send` fan-out to two existing roles, FakeRuntime execution, idempotent replay, persisted SSE events, cursor replay, restart recovery, a failed parallel branch resuming without replaying its successful sibling, and one or more waiting Runtime branches resuming from idempotent external completion events.
+The tested walking skeleton now covers login, proposal validation, publication without Runtime initialization, Task and Assignment persistence, `Send` fan-out to two existing roles, FakeRuntime execution, idempotent replay, persisted SSE events, cursor replay, restart recovery, a failed parallel branch resuming without replaying its successful sibling, one or more waiting Runtime branches resuming from idempotent external completion events, and canonical Runtime workspace boundary enforcement.
 
-Source-repository workspace rejection becomes executable when the managed workspace allocator is introduced. M1 is not complete until that boundary is tested.
+The WorkspaceManager rejects the managed root itself, traversal outside the root, source repositories, unsafe root configuration, and symlink or junction escapes. It does not provision a directory. FakeRuntime intentionally leaves `workspace_id` empty and creates no Runtime root. Durable Workspace records and directory provisioning begin with the Codex Runtime adapter.
 
 ## Preconditions
 

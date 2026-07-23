@@ -15,7 +15,7 @@ from mutiai.config import Settings, get_settings
 from mutiai.db import Database
 from mutiai.migrations import upgrade_database
 from mutiai.orchestration import TaskOrchestrator
-from mutiai.runtime import AgentRuntimeAdapter
+from mutiai.runtime import AgentRuntimeAdapter, WorkspaceManager
 
 
 def create_app(
@@ -31,6 +31,7 @@ def create_app(
         resolved_settings,
         runtime_adapter,
     )
+    workspace_manager = WorkspaceManager(resolved_settings.runtime_workspace_root)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -58,6 +59,7 @@ def create_app(
     app.state.settings = resolved_settings
     app.state.database = database
     app.state.task_orchestrator = task_orchestrator
+    app.state.workspace_manager = workspace_manager
     install_error_handlers(app)
 
     @app.middleware("http")

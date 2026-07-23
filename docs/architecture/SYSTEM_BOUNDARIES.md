@@ -58,6 +58,8 @@ The exact hierarchy may evolve, but these invariants do not:
 - A Thread-to-workspace change is an explicit migration, not an incidental Turn override.
 - Cleanup verifies both root containment and a mutiAI ownership record before touching a directory.
 
+The core exposes a WorkspaceManager that canonicalizes an existing or planned Runtime path and rejects any path that is not a strict descendant of the configured root. On the local Windows host it also rejects configurations that overlap `G:\AI\AI_private\Codex_projects`. The manager performs no provisioning or cleanup by itself.
+
 App Server Threads are additionally distinguishable from normal interactive CLI and IDE Threads by their source. Product history views should use recorded Thread IDs, managed workspace paths, and App Server source filters rather than mixing all local Codex history.
 
 ## Long-running task pattern
