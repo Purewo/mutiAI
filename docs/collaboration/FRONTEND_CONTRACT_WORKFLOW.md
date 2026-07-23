@@ -3,7 +3,7 @@
 ## Repository roles
 
 - `Purewo/mutiAI` is authoritative for product semantics, backend behavior, OpenAPI, JSON Schema, and event schemas.
-- `Purewo/mutiAI-Gemini` is authoritative for the web frontend implementation and frontend-specific design documentation.
+- `Purewo/mutiAI-aistdio-gemini` is authoritative for the web frontend implementation and frontend-specific design documentation.
 
 The two repositories do not independently define the same resource shapes.
 
@@ -12,7 +12,7 @@ The two repositories do not independently define the same resource shapes.
 1. Define or update a product contract in `mutiAI/contracts`.
 2. Review breaking changes before frontend work begins.
 3. Generate a TypeScript client where practical.
-4. Copy or publish a versioned contract snapshot to `mutiAI-Gemini/contracts`.
+4. Copy or publish a versioned contract snapshot to `mutiAI-aistdio-gemini/contracts`.
 5. Record the source core commit in the snapshot metadata.
 6. Give Gemini a bounded frontend task referencing that contract version.
 7. Gemini submits a feature branch or pull request.

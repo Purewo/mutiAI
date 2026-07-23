@@ -9,7 +9,7 @@ Gemini can access and commit through GitHub from AI Studio but does not share th
 ## Decision
 
 - `Purewo/mutiAI` stores the product core, backend, orchestration, Runtime adapters, and authoritative contracts.
-- `Purewo/mutiAI-Gemini` stores the web frontend and frontend-specific documentation.
+- `Purewo/mutiAI-aistdio-gemini` stores the web frontend and frontend-specific documentation.
 - The core repository is the only source of truth for product and transport contracts.
 - The frontend consumes generated clients or contract snapshots that identify their source core commit.
 - Gemini works through bounded branches or pull requests. Codex performs final local integration and verification.

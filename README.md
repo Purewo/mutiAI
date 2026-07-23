@@ -13,7 +13,7 @@ The repository is currently in the design and bootstrap phase. It intentionally 
 - Publish HTTP and event contracts consumed by the frontend repository.
 - Keep organization, task, permission, runtime, and artifact facts outside LangGraph state.
 
-The companion frontend repository is [Purewo/mutiAI-Gemini](https://github.com/Purewo/mutiAI-Gemini).
+The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://github.com/Purewo/mutiAI-aistdio-gemini).
 
 ## Current product boundary
 
