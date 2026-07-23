@@ -31,10 +31,15 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 
 ## Documentation
 
+- [V1 implementation roadmap](docs/ROADMAP.md)
 - [V1 product definition](docs/product/V1_PRODUCT_DEFINITION.md)
+- [M0 domain model](docs/product/M0_DOMAIN_MODEL.md)
 - [System boundaries](docs/architecture/SYSTEM_BOUNDARIES.md)
+- [M0 API and event boundary](docs/architecture/API_EVENT_BOUNDARY.md)
 - [Frontend contract workflow](docs/collaboration/FRONTEND_CONTRACT_WORKFLOW.md)
 - [Two-repository decision](docs/decisions/ADR-0001-two-repository-boundary.md)
+- [V1 technology decision](docs/decisions/ADR-0002-v1-technology-stack.md)
+- [M1 vertical-slice acceptance](docs/acceptance/M1_VERTICAL_SLICE.md)
 - [Contract directory](contracts/README.md)
 
 ## Python environment

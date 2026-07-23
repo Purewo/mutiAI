@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "AgentRoleSpec": {
+      "additionalProperties": false,
+      "description": "One persistent formal role in an organization definition.",
+      "properties": {
+        "role_key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Role Key",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "responsibility": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Responsibility",
+          "type": "string"
+        },
+        "is_lead": {
+          "default": false,
+          "title": "Is Lead",
+          "type": "boolean"
+        },
+        "reports_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reports To"
+        },
+        "runtime_binding_key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Runtime Binding Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role_key",
+        "name",
+        "responsibility",
+        "runtime_binding_key"
+      ],
+      "title": "AgentRoleSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A versioned, portable organization definition for the V1 tree model.",
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+    },
+    "roles": {
+      "items": {
+        "$ref": "#/$defs/AgentRoleSpec"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Roles",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "roles"
+  ],
+  "title": "OrganizationSpecV1",
+  "type": "object"
+}
