@@ -1,4 +1,4 @@
-"""Export versioned JSON Schema snapshots from product-domain models."""
+"""Export versioned product and HTTP contract snapshots."""
 
 from __future__ import annotations
 
@@ -6,23 +6,38 @@ import json
 from pathlib import Path
 
 from mutiai.domain import OrganizationSpec
+from mutiai.config import Settings
+from mutiai.main import create_app
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ORGANIZATION_SCHEMA_PATH = (
     PROJECT_ROOT / "contracts" / "schemas" / "organization-spec.v1.json"
 )
+OPENAPI_SCHEMA_PATH = PROJECT_ROOT / "contracts" / "openapi" / "openapi.v1.json"
+
+
+def write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {path}")
 
 
 def main() -> None:
-    schema = OrganizationSpec.model_json_schema()
-    ORGANIZATION_SCHEMA_PATH.write_text(
-        json.dumps(schema, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    write_json(ORGANIZATION_SCHEMA_PATH, OrganizationSpec.model_json_schema())
+    app = create_app(
+        Settings(
+            app_env="test",
+            database_url="sqlite+pysqlite:///:memory:",
+            database_auto_migrate=False,
+            bootstrap_admin_enabled=False,
+        )
     )
-    print(f"wrote {ORGANIZATION_SCHEMA_PATH}")
+    write_json(OPENAPI_SCHEMA_PATH, app.openapi())
 
 
 if __name__ == "__main__":
     main()
-

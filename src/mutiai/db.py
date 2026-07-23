@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -29,6 +29,8 @@ class Database:
             connect_args=connect_args,
             pool_pre_ping=True,
         )
+        if settings.database_url.startswith("sqlite"):
+            event.listen(self.engine, "connect", self._enable_sqlite_foreign_keys)
         self.session_factory = sessionmaker(
             bind=self.engine,
             autoflush=False,
@@ -60,3 +62,11 @@ class Database:
             return
 
         Path(url.database).parent.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _enable_sqlite_foreign_keys(dbapi_connection, _) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()

@@ -46,7 +46,7 @@ Reference documents:
 
 ## M1. Build the backend walking skeleton
 
-Status: In progress. The application factory and health boundary are the first implementation step.
+Status: In progress. The application factory, health boundary, database migration, and development login are implemented.
 
 Implement only the minimum product path:
 

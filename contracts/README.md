@@ -11,10 +11,15 @@ Planned categories:
 
 Do not add placeholder payloads that look authoritative. Contract examples must come from approved models and must be validated against their schemas.
 
-The first generated snapshot is `schemas/organization-spec.v1.json`. Its source model is `src/mutiai/domain/organization.py`. Regenerate it with:
+Generated snapshots currently include:
+
+- `schemas/organization-spec.v1.json` from `src/mutiai/domain/organization.py`.
+- `openapi/openapi.v1.json` from the FastAPI application routes and models.
+
+Regenerate both snapshots with:
 
 ```powershell
 uv run python scripts\export_contracts.py
 ```
 
-The schema snapshot is checked by the domain test suite so that model and frontend contracts cannot silently drift.
+The snapshots are checked by the test suite so that backend and frontend contracts cannot silently drift.

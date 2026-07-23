@@ -39,6 +39,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [Frontend contract workflow](docs/collaboration/FRONTEND_CONTRACT_WORKFLOW.md)
 - [Two-repository decision](docs/decisions/ADR-0001-two-repository-boundary.md)
 - [V1 technology decision](docs/decisions/ADR-0002-v1-technology-stack.md)
+- [Browser session decision](docs/decisions/ADR-0003-browser-session-authentication.md)
 - [M1 vertical-slice acceptance](docs/acceptance/M1_VERTICAL_SLICE.md)
 - [Contract directory](contracts/README.md)
 
@@ -49,6 +50,7 @@ The bootstrap environment uses Python 3.12 and LangGraph 1.2.9, matching the ver
 ```powershell
 uv sync
 .\.venv\Scripts\python.exe --version
+uv run alembic upgrade head
 ```
 
 The first architecture review selected FastAPI, SQLAlchemy, and Alembic for the initial backend skeleton. Keep the HTTP boundary and persistence adapters replaceable as the product evolves.
@@ -61,6 +63,10 @@ uv run uvicorn mutiai.main:app --reload
 
 The initial health endpoint is `GET http://127.0.0.1:8000/api/v1/health`.
 
+In development and tests, application startup runs pending migrations when `DATABASE_AUTO_MIGRATE=true`. Production deployments must run migrations as an explicit release step.
+
 ## Local development account
 
 The first local environment may seed an `admin` account with a simple development-only password. Keep the real value in the ignored `.env` file. Never expose that account on a network or reuse it in production.
+
+The browser login uses an opaque HttpOnly session cookie. The database stores only its SHA-256 hash, expiry, and revocation state. See [the browser session decision](docs/decisions/ADR-0003-browser-session-authentication.md).
