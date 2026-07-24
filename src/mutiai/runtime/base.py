@@ -7,6 +7,26 @@ from typing import Any, Literal, Protocol
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeTokenUsage:
+    """Normalized token counts reported by an external Runtime."""
+
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_output_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCapacity:
+    """Provider capacity signal; ``unknown`` is an explicit valid state."""
+
+    status: Literal["available", "limited", "unknown"]
+    reason: str | None = None
+    resets_at: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeResult:
     status: Literal["completed", "waiting"]
     runtime_job_id: str
@@ -15,6 +35,7 @@ class RuntimeResult:
     turn_id: str | None = None
     workspace_id: str | None = None
     last_event_position: str | None = None
+    usage: RuntimeTokenUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +52,8 @@ class RuntimeRecoveryRequest:
 
 class AgentRuntimeAdapter(Protocol):
     provider: str
+
+    def capacity(self) -> RuntimeCapacity: ...
 
     def execute(
         self,

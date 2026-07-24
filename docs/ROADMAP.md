@@ -64,7 +64,7 @@ The FakeRuntimeAdapter is a test seam. It proves the product database, orchestra
 
 ## M2. Replace the fake Runtime with local Codex
 
-Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization, Thread-start handshake, and relay-backed Turn. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output from live `item/completed` notifications. A background supervisor now consumes terminal events outside LangGraph, persists the completion, failure, or cancellation, resumes only eligible waiting branches, and closes the owned App Server connection. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, parallel branch recovery, isolated custom-provider configuration, organization-lead structured review, terminal Turn failure persistence, explicit failed-task retry, App Server owner-loss handling, startup reconciliation of orphaned waiting executions, product-owned command/file approval routing, cross-process Turn reattachment through a persistent App Server endpoint, configuration-driven Codex application assembly, bounded external sidecar process supervision, and task cancellation are covered.
+Status: In progress. The local `codex-cli 0.145.0` protocol client, non-blocking Runtime submission, background completion supervision, durable role Workspaces, Thread reuse, parallel branch recovery, organization-lead review, explicit retry, conservative owner-loss handling, product-owned approvals, cross-process Turn reattachment, external sidecar supervision, and task cancellation are covered. Product-owned Runtime controls now add Provider capacity normalization, a database-backed concurrency queue, token reservations, terminal usage settlement, and an authenticated control snapshot without placing these facts in LangGraph State.
 
 Implement the local Windows Codex adapter through the App Server boundary:
 
@@ -79,6 +79,11 @@ Implement the local Windows Codex adapter through the App Server boundary:
 - Run the App Server as an independent sidecar. The API checks `/readyz` and reconnects to it during startup; API shutdown closes only product client connections.
 - Supervise the local sidecar outside FastAPI with a readiness gate, bounded exponential restart backoff, and a finite restart budget. A sidecar restart restores availability; an execution disconnected by the process exit remains explicit-retry work and is never replayed automatically.
 - Product-owned command and file-change approval requests, one-time user decisions, and normalized approval events.
+- Provider capacity checks before `turn/start`. Treat an explicit limit as unavailable and preserve unsupported custom-relay responses as `unknown` under a documented fail-open policy.
+- Product-owned concurrency admission. Checkpoint branches that exceed the configured limit and resume the oldest eligible waiter when capacity is released.
+- Product-owned token budgets. Reserve before submission, settle terminal executions once, and conservatively charge the reservation when Runtime usage is unavailable.
+- Normalized `thread/tokenUsage/updated` accounting for one Turn. Keep account-level usage summaries outside the product attribution ledger.
+- `GET /api/v1/runtime/controls` for the current owner/provider policy, active count, token totals, and last observed Provider capacity signal.
 - One organization lead delegating to two existing specialist roles.
 - Organization-lead review with a required structured decision, final summary, and issue list. The lead can complete a Task as `completed` or return it as `needs_revision` for user-directed follow-up.
 - Event summaries, artifact records, and delivery summaries.

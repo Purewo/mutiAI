@@ -99,8 +99,11 @@ The first implementation may need these event types:
 - `runtime.execution_started`
 - `runtime.progress`
 - `runtime.execution_waiting`
+- `runtime.execution_deferred`
+- `runtime.execution_capacity_available`
 - `runtime.execution_completed`
 - `runtime.execution_failed`
+- `runtime.execution_rejected`
 - `runtime.execution_cancel_requested`
 - `runtime.execution_interrupt_requested`
 - `runtime.execution_cancel_failed`
@@ -119,6 +122,8 @@ The first implementation may need these event types:
 The adapter may receive many Codex-specific events but should normalize only stable product-relevant facts into this catalog.
 
 `runtime.execution_failed` uses a product-level `reason`. The current Runtime boundary distinguishes a terminal Turn failure (`runtime_terminal_failure`) from loss of the process that owned an in-flight Turn (`runtime_owner_lost`). The browser must not infer recovery policy from raw Codex error text.
+
+`runtime.execution_deferred` records a product concurrency wait before any Runtime job exists. `runtime.execution_capacity_available` records the transition out of that queue. `runtime.execution_rejected` records an explicit Provider limit or product budget rejection before Runtime submission. These events expose product decisions, not raw App Server account payloads.
 
 `runtime.approval_requested` identifies the product approval record, approval kind, and pending status. `runtime.approval_resolved` records the one-time decision, resulting status, and resolution reason. Command details remain available through the owned approval resource rather than being copied into LangGraph State.
 

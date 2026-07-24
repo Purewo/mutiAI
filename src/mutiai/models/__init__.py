@@ -4,6 +4,10 @@ from mutiai.models.approval import ApprovalRequest
 from mutiai.models.auth import BrowserSession, User
 from mutiai.models.base import Base
 from mutiai.models.organization import Organization, OrganizationSpecVersion
+from mutiai.models.runtime_control import (
+    RuntimeControlPolicy,
+    RuntimeProviderCapacityRecord,
+)
 from mutiai.models.task import (
     Assignment,
     ProductEvent,
@@ -20,7 +24,9 @@ __all__ = [
     "Organization",
     "OrganizationSpecVersion",
     "ProductEvent",
+    "RuntimeControlPolicy",
     "RuntimeExecution",
+    "RuntimeProviderCapacityRecord",
     "Task",
     "User",
     "Workspace",

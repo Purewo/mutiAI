@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     database_auto_migrate: bool = True
     langgraph_checkpoint_path: Path = Path("./var/langgraph-checkpoints.db")
     runtime_provider: Literal["fake", "codex"] = "fake"
+    runtime_max_concurrent_executions: int = Field(default=2, ge=1, le=64)
+    runtime_token_budget_limit: int | None = Field(default=None, ge=1)
+    runtime_token_reservation_per_execution: int | None = Field(
+        default=None,
+        ge=1,
+    )
+    runtime_provider_capacity_cache_seconds: float = Field(
+        default=30.0,
+        ge=0,
+        le=300,
+    )
     runtime_workspace_root: Path = Field(
         default=Path(r"G:\AI\AI_private\mutiAI-runtime-workspaces"),
         validation_alias=AliasChoices(
@@ -53,6 +64,24 @@ class Settings(BaseSettings):
             raise ValueError("production requires DATABASE_AUTO_MIGRATE=false")
         if self.app_env == "production" and self.bootstrap_admin_enabled:
             raise ValueError("production requires BOOTSTRAP_ADMIN_ENABLED=false")
+        budget_values = (
+            self.runtime_token_budget_limit,
+            self.runtime_token_reservation_per_execution,
+        )
+        if (budget_values[0] is None) != (budget_values[1] is None):
+            raise ValueError(
+                "RUNTIME_TOKEN_BUDGET_LIMIT and "
+                "RUNTIME_TOKEN_RESERVATION_PER_EXECUTION must be set together"
+            )
+        if (
+            budget_values[0] is not None
+            and budget_values[1] is not None
+            and budget_values[1] > budget_values[0]
+        ):
+            raise ValueError(
+                "RUNTIME_TOKEN_RESERVATION_PER_EXECUTION cannot exceed "
+                "RUNTIME_TOKEN_BUDGET_LIMIT"
+            )
         return self
 
 

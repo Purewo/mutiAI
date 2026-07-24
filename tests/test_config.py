@@ -24,3 +24,23 @@ def test_production_accepts_explicit_release_settings() -> None:
     )
 
     assert settings.app_env == "production"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"runtime_token_budget_limit": 100},
+        {"runtime_token_reservation_per_execution": 25},
+    ],
+)
+def test_runtime_token_budget_settings_must_be_configured_together(override) -> None:
+    with pytest.raises(ValidationError, match="must be set together"):
+        Settings(**override)
+
+
+def test_runtime_token_reservation_cannot_exceed_budget() -> None:
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        Settings(
+            runtime_token_budget_limit=100,
+            runtime_token_reservation_per_execution=101,
+        )

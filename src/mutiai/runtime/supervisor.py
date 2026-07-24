@@ -6,6 +6,7 @@ import logging
 from threading import RLock, Thread
 from typing import Protocol
 
+from mutiai.runtime.base import RuntimeTokenUsage
 from mutiai.runtime.codex import (
     CodexRuntimeAdapter,
     CodexTurnCancelledError,
@@ -27,6 +28,7 @@ class RuntimeCompletionSink(Protocol):
         summary: str,
         runtime_job_id: str | None = None,
         last_event_position: str | None = None,
+        usage: RuntimeTokenUsage | None = None,
     ) -> object: ...
 
     def fail_runtime_execution(
@@ -40,6 +42,7 @@ class RuntimeCompletionSink(Protocol):
         thread_id: str | None = None,
         turn_id: str | None = None,
         reason: str = "runtime_terminal_failure",
+        usage: RuntimeTokenUsage | None = None,
     ) -> object: ...
 
     def cancel_runtime_execution(
@@ -52,6 +55,7 @@ class RuntimeCompletionSink(Protocol):
         thread_id: str | None = None,
         turn_id: str | None = None,
         reason: str = "runtime_cancelled",
+        usage: RuntimeTokenUsage | None = None,
     ) -> object: ...
 
     def record_runtime_watch_error(
@@ -139,6 +143,7 @@ class CodexRuntimeSupervisor:
                     summary=summary,
                     runtime_job_id=completion.result.runtime_job_id,
                     last_event_position=completion.result.last_event_position,
+                    usage=completion.result.usage,
                 )
         except CodexTurnCancelledError as exc:
             with self._lock:
@@ -152,6 +157,7 @@ class CodexRuntimeSupervisor:
                 thread_id=exc.thread_id,
                 turn_id=exc.turn_id,
                 reason=exc.reason,
+                usage=None,
             )
         except CodexTurnLostError as exc:
             with self._lock:
@@ -204,6 +210,7 @@ class CodexRuntimeSupervisor:
                 thread_id=failure.thread_id,
                 turn_id=failure.turn_id,
                 reason=failure.reason,
+                usage=None,
             )
         except Exception:
             logger.exception(

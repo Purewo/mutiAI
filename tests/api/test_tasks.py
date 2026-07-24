@@ -11,7 +11,7 @@ from mutiai.main import create_app
 from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task
 from mutiai.models.task import TaskStatus
 from mutiai.orchestration.task_graph import build_task_graph
-from mutiai.runtime import FakeRuntimeAdapter
+from mutiai.runtime import FakeRuntimeAdapter, RuntimeCapacity, RuntimeTokenUsage
 
 
 def task_spec() -> dict:
@@ -543,6 +543,13 @@ def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None
             runtime_job_id=backend["runtime_execution"]["runtime_job_id"],
             last_event_position="1",
             summary="backend completed after external event",
+            usage=RuntimeTokenUsage(
+                input_tokens=30,
+                cached_input_tokens=10,
+                output_tokens=12,
+                reasoning_output_tokens=2,
+                total_tokens=42,
+            ),
         )
 
         assert completed.status == "completed"
@@ -561,6 +568,18 @@ def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None
         assert "backend completed after external event" in lead["instructions"]
         assert adapter.call_count(backend["execution_id"]) == 1
         assert adapter.call_count(test_assignment["execution_id"]) == 1
+        final_backend = next(
+            item
+            for item in final_payload["assignments"]
+            if item["agent_role_key"] == "backend"
+        )
+        assert final_backend["runtime_execution"]["usage_status"] == "reported"
+        assert final_backend["runtime_execution"]["total_tokens"] == 42
+        assert final_backend["runtime_execution"]["charged_tokens"] == 42
+
+        controls = client.get("/api/v1/runtime/controls")
+        assert controls.status_code == 200
+        assert controls.json()["tokens_consumed"] == 42
 
         events_before_replay = sse_payloads(
             client.get(f"/api/v1/tasks/{task_id}/events")
@@ -602,6 +621,134 @@ def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None
                 lambda task_id, results: None,
             ).compile(checkpointer=saver)
             assert not graph.get_state(config).interrupts
+
+
+def test_runtime_concurrency_defers_and_wakes_one_graph_branch(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    settings.runtime_max_concurrent_executions = 1
+    adapter = FakeRuntimeAdapter(wait_once_role_keys={"backend", "test"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "concurrency-control"},
+            json={"request": "Run two bounded assignments with one Runtime slot."},
+        )
+
+        assert submitted.status_code == 201
+        payload = submitted.json()
+        by_role = {
+            item["agent_role_key"]: item for item in payload["assignments"]
+        }
+        backend = by_role["backend"]
+        test_assignment = by_role["test"]
+        assert backend["runtime_execution"]["wait_reason"] is None
+        assert test_assignment["runtime_execution"]["wait_reason"] == (
+            "concurrency_limit"
+        )
+        assert adapter.call_count(backend["execution_id"]) == 1
+        assert adapter.call_count(test_assignment["execution_id"]) == 0
+
+        app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=backend["execution_id"],
+            runtime_event_id="concurrency-backend-completed",
+            summary="backend completed and released the slot",
+        )
+        after_release = client.get(f"/api/v1/tasks/{payload['task_id']}").json()
+        after_by_role = {
+            item["agent_role_key"]: item for item in after_release["assignments"]
+        }
+        assert after_by_role["test"]["runtime_execution"]["wait_reason"] is None
+        assert adapter.call_count(test_assignment["execution_id"]) == 1
+
+        completed = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=test_assignment["execution_id"],
+            runtime_event_id="concurrency-test-completed",
+            summary="test completed after capacity became available",
+        )
+        assert completed.status == "completed"
+        event_types = {
+            event["event_type"]
+            for event in sse_payloads(
+                client.get(f"/api/v1/tasks/{payload['task_id']}/events")
+            )
+        }
+        assert "runtime.execution_deferred" in event_types
+        assert "runtime.execution_capacity_available" in event_types
+
+
+def test_product_token_budget_rejects_work_before_runtime_submission(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    settings.runtime_token_budget_limit = 32
+    settings.runtime_token_reservation_per_execution = 16
+    adapter = FakeRuntimeAdapter()
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        rejected = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "product-budget"},
+            json={"request": "Respect the product-owned token budget."},
+        )
+
+        assert rejected.status_code == 409
+        assert rejected.json()["code"] == "RUNTIME_BUDGET_EXCEEDED"
+        with app.state.database.session() as session:
+            task_id = session.scalar(select(Task)).task_id
+        task = client.get(f"/api/v1/tasks/{task_id}").json()
+        assert task["status"] == "failed"
+        by_role = {item["agent_role_key"]: item for item in task["assignments"]}
+        assert adapter.call_count(by_role["backend"]["execution_id"]) == 1
+        assert adapter.call_count(by_role["test"]["execution_id"]) == 1
+        assert adapter.call_count(by_role["lead"]["execution_id"]) == 0
+
+        controls = client.get("/api/v1/runtime/controls").json()
+        assert controls["token_budget_limit"] == 32
+        assert controls["tokens_reserved"] == 0
+        assert controls["tokens_consumed"] == 32
+        assert controls["tokens_remaining"] == 0
+
+
+def test_explicit_provider_limit_is_not_treated_as_available(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(
+        capacity=RuntimeCapacity(
+            status="limited",
+            reason="rate_limit_reached",
+            resets_at=2_000_000_000,
+        )
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        rejected = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "provider-rate-limit"},
+            json={"request": "Do not start work while the Provider is limited."},
+        )
+
+        assert rejected.status_code == 429
+        assert rejected.json()["code"] == "PROVIDER_RATE_LIMITED"
+        assert rejected.json()["details"]["resets_at"] == 2_000_000_000
+        with app.state.database.session() as session:
+            execution = session.scalar(select(RuntimeExecution))
+            task = session.scalar(select(Task))
+        assert execution is not None
+        assert execution.status == "failed"
+        assert task is not None
+        assert task.status == "failed"
+        assert adapter.call_count(execution.execution_id) == 0
+
+        controls = client.get("/api/v1/runtime/controls").json()
+        assert controls["provider_capacity_status"] == "limited"
+        assert controls["provider_capacity_reason"] == "rate_limit_reached"
 
 
 def test_multiple_waiting_runtime_branches_resume_independently(tmp_path) -> None:

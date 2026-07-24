@@ -61,6 +61,9 @@ def create_app(
                 codex_home=codex_home,
                 app_server_endpoint=managed_codex_endpoint,
                 model=resolved_settings.codex_model,
+                capacity_cache_seconds=(
+                    resolved_settings.runtime_provider_capacity_cache_seconds
+                ),
             )
         else:
             resolved_runtime_adapter = FakeRuntimeAdapter()
@@ -114,6 +117,7 @@ def create_app(
                     try_recover=resolved_runtime_adapter.recover,
                 )
                 approval_coordinator.recover_orphaned_approvals()
+            task_orchestrator.resume_deferred_runtime_executions()
             yield
         finally:
             approval_coordinator.close()

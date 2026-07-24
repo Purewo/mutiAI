@@ -27,8 +27,10 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "organizations",
         "product_events",
         "runtime_executions",
+        "runtime_control_policies",
+        "runtime_provider_capacities",
         "workspaces",
         "tasks",
         "users",
     } <= tables
-    assert revision == "20260724_0005"
+    assert revision == "20260724_0006"

@@ -29,6 +29,15 @@ class RuntimeExecutionResponse(BaseModel):
     turn_id: str | None
     workspace_id: str | None
     result_summary: str | None
+    wait_reason: str | None
+    reserved_tokens: int
+    charged_tokens: int | None
+    usage_status: str
+    input_tokens: int | None
+    cached_input_tokens: int | None
+    output_tokens: int | None
+    reasoning_output_tokens: int | None
+    total_tokens: int | None
 
     @classmethod
     def from_record(cls, execution: RuntimeExecution) -> "RuntimeExecutionResponse":
@@ -42,6 +51,15 @@ class RuntimeExecutionResponse(BaseModel):
             turn_id=execution.turn_id,
             workspace_id=execution.workspace_id,
             result_summary=execution.result_summary,
+            wait_reason=execution.wait_reason,
+            reserved_tokens=execution.reserved_tokens,
+            charged_tokens=execution.charged_tokens,
+            usage_status=execution.usage_status,
+            input_tokens=execution.input_tokens,
+            cached_input_tokens=execution.cached_input_tokens,
+            output_tokens=execution.output_tokens,
+            reasoning_output_tokens=execution.reasoning_output_tokens,
+            total_tokens=execution.total_tokens,
         )
 
 

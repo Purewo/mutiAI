@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock, RLock
 from typing import Any, Literal
 
-from mutiai.runtime.base import RuntimeRecoveryRequest, RuntimeResult
+from mutiai.runtime.base import (
+    RuntimeCapacity,
+    RuntimeRecoveryRequest,
+    RuntimeResult,
+    RuntimeTokenUsage,
+)
 from mutiai.runtime.codex_app_server import CodexAppServerError, CodexAppServerSession
 from mutiai.runtime.workspaces import WorkspaceManager
 
@@ -58,11 +64,12 @@ class CodexTurnFailedError(CodexAppServerError):
         turn_id: str,
         status: str,
         message: str | None,
+        reason: str = "runtime_terminal_failure",
     ) -> None:
         self.thread_id = thread_id
         self.turn_id = turn_id
         self.status = status
-        self.reason = "runtime_terminal_failure"
+        self.reason = reason
         self.runtime_event_id = self._runtime_event_id(
             thread_id=thread_id,
             turn_id=turn_id,
@@ -95,8 +102,27 @@ class CodexTurnLostError(CodexTurnFailedError):
             turn_id=turn_id,
             status="owner_lost",
             message=message,
+            reason="runtime_owner_lost",
         )
-        self.reason = "runtime_owner_lost"
+
+
+class CodexProviderRateLimitedError(CodexTurnFailedError):
+    """A Codex Turn ended because the Provider rejected more usage."""
+
+    def __init__(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+        message: str | None,
+    ) -> None:
+        super().__init__(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            status="failed",
+            message=message,
+            reason="provider_rate_limited",
+        )
 
 
 class CodexTurnCancelledError(CodexAppServerError):
@@ -156,6 +182,7 @@ class CodexRuntimeAdapter:
             [CodexApprovalRequest], Mapping[str, Any]
         ]
         | None = None,
+        capacity_cache_seconds: float = 30.0,
     ) -> None:
         self.workspace_manager = workspace_manager
         self.resolve_workspace = resolve_workspace
@@ -170,6 +197,46 @@ class CodexRuntimeAdapter:
         self._approval_handler = approval_handler
         self._active: dict[str, _ActiveExecution] = {}
         self._lock = RLock()
+        self._capacity_cache_seconds = capacity_cache_seconds
+        self._capacity_cache: tuple[float, RuntimeCapacity] | None = None
+
+    def capacity(self) -> RuntimeCapacity:
+        """Read and normalize Provider capacity without copying protocol state."""
+
+        with self._lock:
+            cached = self._capacity_cache
+            if (
+                cached is not None
+                and time.monotonic() - cached[0] <= self._capacity_cache_seconds
+            ):
+                return cached[1]
+
+        session = CodexAppServerSession(
+            cwd=self.codex_home,
+            command=self.command,
+            endpoint=self.app_server_endpoint,
+            env={"CODEX_HOME": str(self.codex_home)},
+        )
+        try:
+            session.connect()
+            capacity = self._normalize_capacity(session.read_account_rate_limits())
+        except Exception:  # noqa: BLE001 - custom Providers may not expose this API
+            capacity = RuntimeCapacity(
+                status="unknown",
+                reason="provider_capacity_unavailable",
+            )
+        finally:
+            session.close()
+        with self._lock:
+            self._capacity_cache = (time.monotonic(), capacity)
+        return capacity
+
+    def _mark_rate_limited(self, reason: str) -> None:
+        with self._lock:
+            self._capacity_cache = (
+                time.monotonic(),
+                RuntimeCapacity(status="limited", reason=reason),
+            )
 
     def set_approval_handler(
         self,
@@ -423,6 +490,14 @@ class CodexRuntimeAdapter:
                     message=self._turn_error_message(turn),
                 )
             if status != "completed":
+                codex_error_info = self._turn_error_info(turn)
+                if codex_error_info == "usageLimitExceeded":
+                    self._mark_rate_limited("provider_usage_limit_exceeded")
+                    raise CodexProviderRateLimitedError(
+                        thread_id=waiting.thread_id,
+                        turn_id=waiting.turn_id,
+                        message=self._turn_error_message(turn),
+                    )
                 raise CodexTurnFailedError(
                     thread_id=waiting.thread_id,
                     turn_id=waiting.turn_id,
@@ -437,6 +512,11 @@ class CodexRuntimeAdapter:
                 thread_id=waiting.thread_id,
                 turn_id=waiting.turn_id,
                 workspace_id=waiting.workspace_id,
+                usage=(
+                    turn.get("_mutiai_usage")
+                    if isinstance(turn.get("_mutiai_usage"), RuntimeTokenUsage)
+                    else None
+                ),
             )
             active.completion = CodexCompletion(
                 execution_id=execution_id,
@@ -587,6 +667,83 @@ class CodexRuntimeAdapter:
         if isinstance(message, str) and isinstance(codex_error_info, str):
             return f"{message} ({codex_error_info})"
         return message if isinstance(message, str) else None
+
+    @staticmethod
+    def _turn_error_info(turn: Mapping[str, Any]) -> str | None:
+        error = turn.get("error")
+        if not isinstance(error, Mapping):
+            return None
+        info = error.get("codexErrorInfo")
+        return info if isinstance(info, str) else None
+
+    @staticmethod
+    def _normalize_capacity(payload: Mapping[str, Any]) -> RuntimeCapacity:
+        snapshots: list[Mapping[str, Any]] = []
+        by_limit = payload.get("rateLimitsByLimitId")
+        if isinstance(by_limit, Mapping):
+            codex = by_limit.get("codex")
+            if isinstance(codex, Mapping):
+                snapshots.append(codex)
+        snapshot = payload.get("rateLimits")
+        if isinstance(snapshot, Mapping):
+            snapshots.append(snapshot)
+        if not snapshots:
+            return RuntimeCapacity(
+                status="unknown",
+                reason="provider_capacity_unavailable",
+            )
+
+        for item in snapshots:
+            reached = item.get("rateLimitReachedType")
+            if isinstance(reached, str) and reached:
+                return RuntimeCapacity(
+                    status="limited",
+                    reason=reached,
+                    resets_at=CodexRuntimeAdapter._reset_time(item),
+                )
+            if item.get("spendControlReached") is True:
+                return RuntimeCapacity(
+                    status="limited",
+                    reason="provider_spend_control_reached",
+                    resets_at=CodexRuntimeAdapter._reset_time(item),
+                )
+            credits = item.get("credits")
+            if (
+                isinstance(credits, Mapping)
+                and credits.get("hasCredits") is False
+                and credits.get("unlimited") is False
+            ):
+                return RuntimeCapacity(
+                    status="limited",
+                    reason="provider_credits_depleted",
+                    resets_at=CodexRuntimeAdapter._reset_time(item),
+                )
+            for key in ("primary", "secondary"):
+                window = item.get(key)
+                if (
+                    isinstance(window, Mapping)
+                    and isinstance(window.get("usedPercent"), int)
+                    and window["usedPercent"] >= 100
+                ):
+                    return RuntimeCapacity(
+                        status="limited",
+                        reason=f"provider_{key}_window_exhausted",
+                        resets_at=CodexRuntimeAdapter._reset_time(item),
+                    )
+        return RuntimeCapacity(status="available")
+
+    @staticmethod
+    def _reset_time(snapshot: Mapping[str, Any]) -> int | None:
+        values = [
+            snapshot.get("primary"),
+            snapshot.get("secondary"),
+        ]
+        resets = [
+            item.get("resetsAt")
+            for item in values
+            if isinstance(item, Mapping) and isinstance(item.get("resetsAt"), int)
+        ]
+        return min(resets) if resets else None
 
     @staticmethod
     def _handle_approval_request(

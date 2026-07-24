@@ -132,6 +132,20 @@ def persistent_fake_endpoint(
                         }
                     )
                 )
+            elif method == "account/rateLimits/read":
+                websocket.send(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "result": {
+                                "rateLimits": {
+                                    "limitId": "codex",
+                                    "primary": {"usedPercent": 0},
+                                }
+                            },
+                        }
+                    )
+                )
             elif method == "turn/start":
                 state["turn_status"] = "inProgress"
                 websocket.send(
@@ -217,6 +231,8 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
     ) as session:
         account = session.read_account()
         assert account == {"account": None, "requiresOpenaiAuth": True}
+        rate_limits = session.read_account_rate_limits()
+        assert rate_limits["rateLimits"]["limitId"] == "codex"
         login = session.start_device_code_login()
         assert login["type"] == "chatgptDeviceCode"
         assert login["verificationUrl"] == "https://auth.openai.com/codex/device"
@@ -253,6 +269,7 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
                 "text": "Delivered the bounded assignment.",
             }
         ]
+        assert completed["_mutiai_usage"].total_tokens == 16
 
 
 def test_codex_app_server_session_interrupts_active_turn(tmp_path) -> None:
@@ -495,6 +512,7 @@ def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> 
     )
 
     try:
+        assert adapter.capacity().status == "available"
         waiting = adapter.execute(
             execution_id="execution-test-1",
             role_key="backend",
@@ -521,9 +539,81 @@ def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> 
         )
         assert completion.result.status == "completed"
         assert completion.result.summary == "Delivered the bounded assignment."
+        assert completion.result.usage is not None
+        assert completion.result.usage.total_tokens == 16
         assert adapter.wait_for_completion("execution-test-1") == completion
     finally:
         adapter.close()
+
+
+def test_codex_capacity_normalizes_available_and_limited_snapshots() -> None:
+    available = CodexRuntimeAdapter._normalize_capacity(
+        {
+            "rateLimits": {
+                "limitId": "codex",
+                "primary": {"usedPercent": 42, "resetsAt": 2_000_000_000},
+            }
+        }
+    )
+    limited = CodexRuntimeAdapter._normalize_capacity(
+        {
+            "rateLimitsByLimitId": {
+                "codex": {
+                    "rateLimitReachedType": "primary",
+                    "primary": {
+                        "usedPercent": 100,
+                        "resetsAt": 2_000_000_000,
+                    },
+                }
+            }
+        }
+    )
+
+    assert available.status == "available"
+    assert available.reason is None
+    assert limited.status == "limited"
+    assert limited.reason == "primary"
+    assert limited.resets_at == 2_000_000_000
+
+
+def test_codex_capacity_is_unknown_when_custom_provider_omits_api(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class UnsupportedRateLimitsSession:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def connect(self) -> None:
+            raise CodexAppServerError("method not found")
+
+        def close(self) -> None:
+            pass
+
+    managed_root = tmp_path / "managed"
+    codex_home = managed_root / "codex-home"
+    workspace = managed_root / "workspaces" / "workspace-1"
+    codex_home.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    manager = WorkspaceManager(managed_root, protected_roots=())
+    monkeypatch.setattr(
+        "mutiai.runtime.codex.CodexAppServerSession",
+        UnsupportedRateLimitsSession,
+    )
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=lambda execution_id: RuntimeWorkspaceBinding(
+            workspace_id=f"workspace:{execution_id}",
+            path=workspace,
+        ),
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+
+    capacity = adapter.capacity()
+
+    assert capacity.status == "unknown"
+    assert capacity.reason == "provider_capacity_unavailable"
 
 
 def test_codex_runtime_adapter_exposes_terminal_turn_failure(tmp_path) -> None:

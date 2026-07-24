@@ -539,6 +539,27 @@
         }
       }
     },
+    "/api/v1/runtime/controls": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Get Runtime Controls",
+        "operationId": "get_runtime_controls_api_v1_runtime_controls_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeControlResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/organizations/{organization_id}/tasks": {
       "post": {
         "tags": [
@@ -619,6 +640,16 @@
             },
             "description": "Conflict"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -690,6 +721,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "422": {
             "content": {
@@ -763,6 +804,16 @@
             },
             "description": "Conflict"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -834,6 +885,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "422": {
             "content": {
@@ -910,6 +971,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "422": {
             "content": {
@@ -1002,6 +1073,16 @@
             },
             "description": "Conflict"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1087,6 +1168,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "422": {
             "content": {
@@ -1768,6 +1859,118 @@
         ],
         "title": "OrganizationVersionStatus"
       },
+      "RuntimeControlResponse": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "max_concurrent_executions": {
+            "type": "integer",
+            "title": "Max Concurrent Executions"
+          },
+          "active_executions": {
+            "type": "integer",
+            "title": "Active Executions"
+          },
+          "token_budget_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Budget Limit"
+          },
+          "token_reservation_per_execution": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Reservation Per Execution"
+          },
+          "tokens_reserved": {
+            "type": "integer",
+            "title": "Tokens Reserved"
+          },
+          "tokens_consumed": {
+            "type": "integer",
+            "title": "Tokens Consumed"
+          },
+          "tokens_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Remaining"
+          },
+          "provider_capacity_status": {
+            "type": "string",
+            "title": "Provider Capacity Status"
+          },
+          "provider_capacity_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Capacity Reason"
+          },
+          "provider_capacity_resets_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Capacity Resets At"
+          },
+          "provider_capacity_observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Capacity Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "max_concurrent_executions",
+          "active_executions",
+          "token_budget_limit",
+          "token_reservation_per_execution",
+          "tokens_reserved",
+          "tokens_consumed",
+          "tokens_remaining",
+          "provider_capacity_status",
+          "provider_capacity_reason",
+          "provider_capacity_resets_at",
+          "provider_capacity_observed_at"
+        ],
+        "title": "RuntimeControlResponse"
+      },
       "RuntimeExecutionResponse": {
         "properties": {
           "runtime_execution_id": {
@@ -1839,6 +2042,91 @@
               }
             ],
             "title": "Result Summary"
+          },
+          "wait_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wait Reason"
+          },
+          "reserved_tokens": {
+            "type": "integer",
+            "title": "Reserved Tokens"
+          },
+          "charged_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charged Tokens"
+          },
+          "usage_status": {
+            "type": "string",
+            "title": "Usage Status"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "cached_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "reasoning_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Output Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
           }
         },
         "type": "object",
@@ -1851,7 +2139,16 @@
           "thread_id",
           "turn_id",
           "workspace_id",
-          "result_summary"
+          "result_summary",
+          "wait_reason",
+          "reserved_tokens",
+          "charged_tokens",
+          "usage_status",
+          "input_tokens",
+          "cached_input_tokens",
+          "output_tokens",
+          "reasoning_output_tokens",
+          "total_tokens"
         ],
         "title": "RuntimeExecutionResponse"
       },

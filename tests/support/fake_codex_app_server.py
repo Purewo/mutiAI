@@ -113,6 +113,22 @@ for line in sys.stdin:
                 },
             }
         )
+    elif method == "account/rateLimits/read":
+        send(
+            {
+                "id": message["id"],
+                "result": {
+                    "rateLimits": {
+                        "limitId": "codex",
+                        "primary": {
+                            "usedPercent": 0,
+                            "resetsAt": None,
+                            "windowDurationMins": 60,
+                        },
+                    }
+                },
+            }
+        )
     elif method == "account/login/start":
         login_id = f"login-test-{run_id}"
         account = {"type": "chatgpt", "planType": "plus"}
@@ -335,6 +351,31 @@ for line in sys.stdin:
                     "turnId": turn["id"],
                     "item": item,
                     "completedAtMs": 0,
+                },
+            }
+        )
+        send(
+            {
+                "method": "thread/tokenUsage/updated",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn["id"],
+                    "tokenUsage": {
+                        "last": {
+                            "inputTokens": 11,
+                            "cachedInputTokens": 3,
+                            "outputTokens": 5,
+                            "reasoningOutputTokens": 2,
+                            "totalTokens": 16,
+                        },
+                        "total": {
+                            "inputTokens": 111,
+                            "cachedInputTokens": 13,
+                            "outputTokens": 25,
+                            "reasoningOutputTokens": 7,
+                            "totalTokens": 136,
+                        },
+                    },
                 },
             }
         )

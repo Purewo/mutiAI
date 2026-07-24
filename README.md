@@ -2,7 +2,7 @@
 
 `mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
 
-The M1 backend walking skeleton is complete. M2 is implementing the local Codex App Server Runtime boundary.
+The M1 backend walking skeleton is complete. M2 now includes the local Codex App Server boundary, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting.
 
 ## Repository responsibilities
 
@@ -100,6 +100,26 @@ uv run uvicorn mutiai.main:app --reload
 ```
 
 The API checks `/readyz` before recovering waiting Runtime executions. The sidecar uses the isolated managed `CODEX_HOME`; it does not use the interactive Codex session directory. A sidecar restart restores service availability but does not claim that an in-flight Turn survived the process exit. The disconnected execution becomes `runtime_owner_lost`; after the sidecar is ready, the existing task retry endpoint reuses the recorded Thread and Workspace and starts a new Turn. Plain WebSocket transport is restricted to loopback. Linux production should prefer a Unix socket and an external service manager.
+
+### Configure Runtime controls
+
+Runtime admission is owned by the product database, not LangGraph or the Provider account API:
+
+- `RUNTIME_MAX_CONCURRENT_EXECUTIONS` limits active executions for one owner and Runtime provider. The default is `2`.
+- `RUNTIME_PROVIDER_CAPACITY_CACHE_SECONDS` controls how long the Codex Adapter caches `account/rateLimits/read`. A custom relay that does not support this method is recorded as `unknown` and admitted under the current fail-open policy.
+- `RUNTIME_TOKEN_BUDGET_LIMIT` and `RUNTIME_TOKEN_RESERVATION_PER_EXECUTION` enable a product token budget only when both are set. A reservation cannot exceed the total budget.
+
+The backend reserves the configured token amount before Runtime submission and settles it once on completion, failure, or cancellation. When `thread/tokenUsage/updated` is available, settlement uses the observed Turn usage. When usage is unavailable, settlement conservatively charges the reservation. `account/usage/read` is an account activity summary and never replaces the product task ledger.
+
+When the concurrency limit is full, the database records a `concurrency_limit` wait and LangGraph checkpoints the branch. Releasing capacity resumes the oldest eligible branch; graph nodes do not sleep or hold a worker while waiting. An explicit Provider limit returns HTTP `429` with `PROVIDER_RATE_LIMITED`, and an exhausted product budget returns HTTP `409` with `RUNTIME_BUDGET_EXCEEDED`, both before `turn/start`.
+
+Authenticated clients can inspect the current product policy and last normalized Provider signal with:
+
+```text
+GET /api/v1/runtime/controls
+```
+
+The current admission lock is process-local around database transactions. It is correct for the single API process used in V1 local development. A multi-instance deployment must replace it with database row locking or a dedicated scheduler before sharing one budget and concurrency pool.
 
 ## Local development account
 

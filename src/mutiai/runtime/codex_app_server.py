@@ -21,11 +21,100 @@ from urllib.request import Request, urlopen
 from websockets.sync.client import connect as websocket_connect
 from websockets.sync.client import unix_connect
 
+from mutiai.runtime.base import RuntimeTokenUsage
+
 logger = logging.getLogger(__name__)
 
 
 class CodexAppServerError(RuntimeError):
     """Raised when the App Server process or JSON-RPC request fails."""
+
+
+class _RuntimeUsageAccumulator:
+    """Convert cumulative Thread updates into usage observed for one Turn."""
+
+    def __init__(self) -> None:
+        self._baseline: RuntimeTokenUsage | None = None
+        self._latest_total: RuntimeTokenUsage | None = None
+        self._fallback = RuntimeTokenUsage()
+        self._observed = False
+
+    def add(self, payload: Mapping[str, Any]) -> None:
+        last = self._parse(payload.get("last"))
+        total = self._parse(payload.get("total"))
+        if last is None and total is None:
+            return
+        self._observed = True
+        if total is not None and last is not None:
+            if (
+                self._latest_total is not None
+                and total.total_tokens < self._latest_total.total_tokens
+            ) or self._baseline is None:
+                self._baseline = self._subtract(total, last)
+            self._latest_total = total
+            return
+        if last is not None:
+            self._fallback = self._add(self._fallback, last)
+        elif total is not None:
+            self._baseline = RuntimeTokenUsage()
+            self._latest_total = total
+
+    def result(self) -> RuntimeTokenUsage | None:
+        if not self._observed:
+            return None
+        if self._latest_total is not None and self._baseline is not None:
+            return self._subtract(self._latest_total, self._baseline)
+        return self._fallback
+
+    @staticmethod
+    def _parse(value: Any) -> RuntimeTokenUsage | None:
+        if not isinstance(value, Mapping):
+            return None
+
+        def count(name: str) -> int:
+            item = value.get(name, 0)
+            return item if isinstance(item, int) and not isinstance(item, bool) else 0
+
+        return RuntimeTokenUsage(
+            input_tokens=count("inputTokens"),
+            cached_input_tokens=count("cachedInputTokens"),
+            output_tokens=count("outputTokens"),
+            reasoning_output_tokens=count("reasoningOutputTokens"),
+            total_tokens=count("totalTokens"),
+        )
+
+    @staticmethod
+    def _add(left: RuntimeTokenUsage, right: RuntimeTokenUsage) -> RuntimeTokenUsage:
+        return RuntimeTokenUsage(
+            input_tokens=left.input_tokens + right.input_tokens,
+            cached_input_tokens=(
+                left.cached_input_tokens + right.cached_input_tokens
+            ),
+            output_tokens=left.output_tokens + right.output_tokens,
+            reasoning_output_tokens=(
+                left.reasoning_output_tokens + right.reasoning_output_tokens
+            ),
+            total_tokens=left.total_tokens + right.total_tokens,
+        )
+
+    @staticmethod
+    def _subtract(
+        left: RuntimeTokenUsage,
+        right: RuntimeTokenUsage,
+    ) -> RuntimeTokenUsage:
+        return RuntimeTokenUsage(
+            input_tokens=max(0, left.input_tokens - right.input_tokens),
+            cached_input_tokens=max(
+                0,
+                left.cached_input_tokens - right.cached_input_tokens,
+            ),
+            output_tokens=max(0, left.output_tokens - right.output_tokens),
+            reasoning_output_tokens=max(
+                0,
+                left.reasoning_output_tokens - right.reasoning_output_tokens,
+            ),
+            total_tokens=max(0, left.total_tokens - right.total_tokens),
+        )
 
 
 def validate_codex_app_server_endpoint(endpoint: str) -> SplitResult:
@@ -254,7 +343,7 @@ class CodexAppServerSession:
                 {
                     "method": method,
                     "id": request_id,
-                    "params": dict(params or {}),
+                    "params": None if params is None else dict(params),
                 }
             )
             message = self._get_response(timeout)
@@ -290,6 +379,16 @@ class CodexAppServerSession:
             "account/read",
             {"refreshToken": refresh_token},
         )
+
+    def read_account_rate_limits(self) -> dict[str, Any]:
+        """Read ChatGPT account rate limits when this auth mode provides them."""
+
+        return self.request("account/rateLimits/read", None)
+
+    def read_account_usage(self) -> dict[str, Any]:
+        """Read account token-activity summaries, not product-attributed usage."""
+
+        return self.request("account/usage/read", None)
 
     def start_device_code_login(self) -> dict[str, Any]:
         """Start a managed ChatGPT device-code login ceremony."""
@@ -433,6 +532,7 @@ class CodexAppServerSession:
 
         deadline = time.monotonic() + timeout if timeout is not None else None
         completed_items: list[dict[str, Any]] = []
+        usage = _RuntimeUsageAccumulator()
         while True:
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
@@ -450,6 +550,16 @@ class CodexAppServerSession:
                     self.respond_server_request(event["id"], result)
                 continue
             params = event.get("params")
+            if (
+                event.get("method") == "thread/tokenUsage/updated"
+                and isinstance(params, dict)
+                and params.get("threadId") == thread_id
+                and params.get("turnId") == turn_id
+            ):
+                token_usage = params.get("tokenUsage")
+                if isinstance(token_usage, Mapping):
+                    usage.add(token_usage)
+                continue
             if (
                 event.get("method") == "item/completed"
                 and isinstance(params, dict)
@@ -492,6 +602,10 @@ class CodexAppServerSession:
                             and item.get("id") in seen_ids
                         )
                     ]
+                observed_usage = usage.result()
+                if observed_usage is not None:
+                    turn = dict(turn)
+                    turn["_mutiai_usage"] = observed_usage
                 return turn
 
     def respond_server_request(

@@ -35,8 +35,15 @@ from mutiai.runtime import (
     AgentRuntimeAdapter,
     FakeRuntimeAdapter,
     RuntimeRecoveryRequest,
+    RuntimeTokenUsage,
 )
 from mutiai.services.events import append_task_event
+from mutiai.services.runtime_controls import (
+    CONCURRENCY_WAIT_REASON,
+    RuntimeBudgetExceededError,
+    RuntimeControlService,
+    RuntimeProviderRateLimitedError,
+)
 from mutiai.services.tasks import prepare_assignments, prepare_lead_review
 from mutiai.services.workspaces import WorkspaceProvisioner
 
@@ -71,6 +78,10 @@ class TaskOrchestrator:
         self._approval_canceller: Callable[..., list[str]] | None = None
         self._execution_lock = mutation_lock or RLock()
         self._graph_resume_lock = RLock()
+        self.runtime_controls = RuntimeControlService(
+            settings,
+            self.runtime_adapter,
+        )
 
     def set_runtime_watch(self, watch: Callable[[str], None]) -> None:
         """Register the post-checkpoint Runtime completion watcher."""
@@ -268,6 +279,7 @@ class TaskOrchestrator:
 
         failures = self._dispatch_runtime_cancellations(task_id, targets)
         self._cancel_pending_approvals(task_id)
+        self._resume_capacity_waiters_for_task(task_id)
         if failures:
             raise TaskCancellationIncompleteError(task_id, failures)
         return self._load_task(task_id)
@@ -316,6 +328,7 @@ class TaskOrchestrator:
         thread_id: str | None = None,
         turn_id: str | None = None,
         reason: str = "runtime_cancelled",
+        usage: RuntimeTokenUsage | None = None,
     ) -> Task:
         """Persist a terminal Runtime interruption without resuming LangGraph."""
 
@@ -343,10 +356,30 @@ class TaskOrchestrator:
             thread_id=thread_id,
             turn_id=turn_id,
             reason=reason,
+            terminal_usage=usage,
         )
         self._dispatch_runtime_cancellations(task_id, targets)
         self._cancel_pending_approvals(task_id)
+        self._resume_capacity_waiters_for_task(task_id)
         return task
+
+    def _resume_capacity_waiters_for_task(self, task_id: str) -> None:
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return
+            owner_user_id = task.owner_user_id
+            providers = session.scalars(
+                select(RuntimeExecution.provider)
+                .join(Assignment)
+                .where(Assignment.task_id == task_id)
+                .distinct()
+            ).all()
+        for provider in providers:
+            self._drain_capacity_waiters(
+                owner_user_id=owner_user_id,
+                provider=provider,
+            )
 
     def _persist_task_cancellation(
         self,
@@ -359,6 +392,7 @@ class TaskOrchestrator:
         thread_id: str | None = None,
         turn_id: str | None = None,
         reason: str = "task_cancelled",
+        terminal_usage: RuntimeTokenUsage | None = None,
     ) -> tuple[Task, list[str], bool]:
         targets: list[str] = []
         with self._execution_lock, self.database.session() as session:
@@ -402,6 +436,17 @@ class TaskOrchestrator:
                         execution.execution_id == terminal_execution_id
                     )
                     if execution.status != RuntimeExecutionStatus.COMPLETED:
+                        self.runtime_controls.settle(
+                            session,
+                            task=task,
+                            execution=execution,
+                            usage=(
+                                terminal_usage
+                                if execution.execution_id
+                                == terminal_execution_id
+                                else None
+                            ),
+                        )
                         execution.status = RuntimeExecutionStatus.CANCELLED
                         execution.completed_at = execution.completed_at or cancelled_at
                     if is_terminal_confirmation and (
@@ -443,6 +488,7 @@ class TaskOrchestrator:
                             RuntimeExecutionStatus.RUNNING,
                             RuntimeExecutionStatus.WAITING,
                         }
+                        and execution.wait_reason != CONCURRENCY_WAIT_REASON
                     ):
                         targets.append(execution.execution_id)
                         append_task_event(
@@ -618,10 +664,129 @@ class TaskOrchestrator:
                 .where(
                     Assignment.task_id == task_id,
                     RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
+                    RuntimeExecution.wait_reason.is_(None),
+                    RuntimeExecution.turn_id.is_not(None),
                 )
             ).all()
         for execution_id in execution_ids:
             self._runtime_watch(execution_id)
+
+    def resume_deferred_runtime_executions(self) -> None:
+        """Wake capacity-deferred executions after an application restart."""
+
+        with self.database.session() as session:
+            keys = session.execute(
+                select(Task.owner_user_id, RuntimeExecution.provider)
+                .join(Assignment, Assignment.task_id == Task.task_id)
+                .join(
+                    RuntimeExecution,
+                    RuntimeExecution.assignment_id == Assignment.assignment_id,
+                )
+                .where(
+                    Task.status == TaskStatus.WAITING,
+                    RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
+                    RuntimeExecution.wait_reason == CONCURRENCY_WAIT_REASON,
+                )
+                .distinct()
+            ).all()
+        for owner_user_id, provider in keys:
+            self._drain_capacity_waiters(
+                owner_user_id=owner_user_id,
+                provider=provider,
+            )
+
+    def _drain_capacity_waiters(self, *, owner_user_id: str, provider: str) -> None:
+        """Resume the oldest queued branches whenever a Runtime slot is free."""
+
+        while True:
+            with self._execution_lock, self.database.session() as session:
+                policy = self.runtime_controls.ensure_policy(
+                    session,
+                    owner_user_id=owner_user_id,
+                    provider=provider,
+                )
+                active = self.runtime_controls.active_execution_count(
+                    session,
+                    owner_user_id=owner_user_id,
+                    provider=provider,
+                )
+                if active >= policy.max_concurrent_executions:
+                    return
+                candidate = session.scalar(
+                    select(RuntimeExecution)
+                    .join(Assignment)
+                    .join(Task)
+                    .where(
+                        Task.owner_user_id == owner_user_id,
+                        Task.status == TaskStatus.WAITING,
+                        Assignment.status == AssignmentStatus.WAITING,
+                        RuntimeExecution.provider == provider,
+                        RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
+                        RuntimeExecution.wait_reason == CONCURRENCY_WAIT_REASON,
+                    )
+                    .order_by(
+                        RuntimeExecution.created_at,
+                        RuntimeExecution.execution_id,
+                    )
+                )
+                if candidate is None:
+                    return
+                assignment = session.get(Assignment, candidate.assignment_id)
+                if assignment is None:
+                    return
+                task = session.get(Task, assignment.task_id)
+                if task is None:
+                    return
+                candidate.status = RuntimeExecutionStatus.SUBMITTED
+                candidate.wait_reason = None
+                assignment.status = AssignmentStatus.SUBMITTED
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="runtime.execution_capacity_available",
+                    aggregate_type="runtime_execution",
+                    aggregate_id=candidate.runtime_execution_id,
+                    assignment_id=assignment.assignment_id,
+                    runtime_execution_id=candidate.runtime_execution_id,
+                    source="product",
+                    payload={
+                        "execution_id": candidate.execution_id,
+                        "status": RuntimeExecutionStatus.SUBMITTED,
+                        "reason": CONCURRENCY_WAIT_REASON,
+                    },
+                )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="assignment.status_changed",
+                    aggregate_type="assignment",
+                    aggregate_id=assignment.assignment_id,
+                    assignment_id=assignment.assignment_id,
+                    source="product",
+                    payload={
+                        "status": AssignmentStatus.SUBMITTED,
+                        "reason": CONCURRENCY_WAIT_REASON,
+                    },
+                )
+                session.commit()
+                task_id = task.task_id
+                execution_id = candidate.execution_id
+
+            try:
+                self._resume_runtime_interrupt(
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    runtime_event_id=f"product:capacity:{execution_id}",
+                )
+            except (RuntimeProviderRateLimitedError, RuntimeBudgetExceededError):
+                # Admission already persisted the explicit rejection. Continue
+                # draining other queued work without sleeping in a graph node.
+                continue
+            except Exception as exc:  # noqa: BLE001 - wake-up boundary
+                self.record_runtime_watch_error(
+                    execution_id=execution_id,
+                    error=str(exc)[:1000],
+                )
 
     def complete_runtime_execution(
         self,
@@ -631,6 +796,7 @@ class TaskOrchestrator:
         summary: str,
         runtime_job_id: str | None = None,
         last_event_position: str | None = None,
+        usage: RuntimeTokenUsage | None = None,
     ) -> Task:
         """Persist one external completion event and resume its waiting graph node."""
 
@@ -678,6 +844,12 @@ class TaskOrchestrator:
                 execution.last_event_position = last_event_position
                 execution.result_summary = summary
                 execution.completed_at = completed_at
+                charged_tokens = self.runtime_controls.settle(
+                    session,
+                    task=task,
+                    execution=execution,
+                    usage=usage,
+                )
                 assignment.status = AssignmentStatus.COMPLETED
                 assignment.result_summary = summary
                 assignment.completed_at = completed_at
@@ -696,6 +868,9 @@ class TaskOrchestrator:
                         "runtime_job_id": execution.runtime_job_id,
                         "status": RuntimeExecutionStatus.COMPLETED,
                         "summary": summary,
+                        "usage_status": execution.usage_status,
+                        "total_tokens": execution.total_tokens,
+                        "charged_tokens": charged_tokens,
                     },
                 )
                 append_task_event(
@@ -713,6 +888,8 @@ class TaskOrchestrator:
                 )
             session.commit()
             task_id = task.task_id
+            owner_user_id = task.owner_user_id
+            provider = execution.provider
             should_resume = task.status not in {
                 TaskStatus.FAILED,
                 TaskStatus.COMPLETED,
@@ -720,14 +897,17 @@ class TaskOrchestrator:
                 TaskStatus.CANCELLED,
             }
 
-        if not should_resume:
-            return task
-
-        return self._resume_runtime_interrupt(
-            task_id=task_id,
-            execution_id=execution_id,
-            runtime_event_id=runtime_event_id,
+        if should_resume:
+            task = self._resume_runtime_interrupt(
+                task_id=task_id,
+                execution_id=execution_id,
+                runtime_event_id=runtime_event_id,
+            )
+        self._drain_capacity_waiters(
+            owner_user_id=owner_user_id,
+            provider=provider,
         )
+        return task
 
     def fail_runtime_execution(
         self,
@@ -741,6 +921,7 @@ class TaskOrchestrator:
         turn_id: str | None = None,
         reason: str = "runtime_terminal_failure",
         source: str | None = None,
+        usage: RuntimeTokenUsage | None = None,
     ) -> Task:
         """Persist one terminal Runtime failure without resuming the graph."""
 
@@ -779,6 +960,12 @@ class TaskOrchestrator:
                 )
 
             failed_at = utc_now()
+            charged_tokens = self.runtime_controls.settle(
+                session,
+                task=task,
+                execution=execution,
+                usage=usage,
+            )
             execution.status = RuntimeExecutionStatus.FAILED
             execution.runtime_event_id = runtime_event_id
             execution.runtime_job_id = runtime_job_id or execution.runtime_job_id
@@ -810,6 +997,9 @@ class TaskOrchestrator:
                     "status": RuntimeExecutionStatus.FAILED,
                     "reason": reason,
                     "error": error[:1000],
+                    "usage_status": execution.usage_status,
+                    "total_tokens": execution.total_tokens,
+                    "charged_tokens": charged_tokens,
                 },
             )
             append_task_event(
@@ -840,7 +1030,14 @@ class TaskOrchestrator:
             )
             session.commit()
             session.refresh(task)
-            return task
+            owner_user_id = task.owner_user_id
+            provider = execution.provider
+
+        self._drain_capacity_waiters(
+            owner_user_id=owner_user_id,
+            provider=provider,
+        )
+        return task
 
     def recover_orphaned_runtime_executions(
         self,
@@ -880,6 +1077,9 @@ class TaskOrchestrator:
                 ).where(
                     RuntimeExecution.provider == self.runtime_adapter.provider,
                     RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
+                    RuntimeExecution.wait_reason.is_(None),
+                    RuntimeExecution.thread_id.is_not(None),
+                    RuntimeExecution.turn_id.is_not(None),
                 )
             ).all()
 
@@ -1225,8 +1425,119 @@ class TaskOrchestrator:
                 }
             if execution.status == RuntimeExecutionStatus.FAILED:
                 self._interrupt_for_runtime_retry(task, assignment, execution)
+            resumed_from_capacity_wait = (
+                execution.status == RuntimeExecutionStatus.WAITING
+                and execution.wait_reason == CONCURRENCY_WAIT_REASON
+            )
             if execution.status == RuntimeExecutionStatus.WAITING:
-                self._interrupt_for_runtime(task, assignment, execution)
+                if execution.wait_reason != CONCURRENCY_WAIT_REASON:
+                    self._interrupt_for_runtime(task, assignment, execution)
+                execution.status = RuntimeExecutionStatus.SUBMITTED
+                execution.wait_reason = None
+                assignment.status = AssignmentStatus.SUBMITTED
+
+            try:
+                admission = self.runtime_controls.admit(
+                    session,
+                    task=task,
+                    execution=execution,
+                )
+            except (RuntimeProviderRateLimitedError, RuntimeBudgetExceededError) as exc:
+                self._record_admission_failure(
+                    session=session,
+                    task=task,
+                    assignment=assignment,
+                    execution=execution,
+                    error=exc,
+                )
+                raise
+            if not admission.admitted:
+                execution.status = RuntimeExecutionStatus.WAITING
+                execution.wait_reason = CONCURRENCY_WAIT_REASON
+                assignment.status = AssignmentStatus.WAITING
+                if task.status != TaskStatus.WAITING:
+                    task.status = TaskStatus.WAITING
+                    task.updated_at = utc_now()
+                    append_task_event(
+                        session,
+                        task=task,
+                        event_type="task.status_changed",
+                        aggregate_type="task",
+                        aggregate_id=task.task_id,
+                        source="product",
+                        payload={
+                            "status": TaskStatus.WAITING,
+                            "reason": CONCURRENCY_WAIT_REASON,
+                        },
+                    )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="runtime.execution_deferred",
+                    aggregate_type="runtime_execution",
+                    aggregate_id=execution.runtime_execution_id,
+                    assignment_id=assignment.assignment_id,
+                    runtime_execution_id=execution.runtime_execution_id,
+                    source="product",
+                    payload={
+                        "execution_id": execution.execution_id,
+                        "reason": CONCURRENCY_WAIT_REASON,
+                        "active_executions": admission.active_executions,
+                        "max_concurrent_executions": (
+                            admission.max_concurrent_executions
+                        ),
+                        "status": RuntimeExecutionStatus.WAITING,
+                    },
+                )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="assignment.status_changed",
+                    aggregate_type="assignment",
+                    aggregate_id=assignment.assignment_id,
+                    assignment_id=assignment.assignment_id,
+                    source="product",
+                    payload={
+                        "status": AssignmentStatus.WAITING,
+                        "reason": CONCURRENCY_WAIT_REASON,
+                    },
+                )
+                session.commit()
+                self._interrupt_for_capacity(task, assignment, execution)
+
+            if resumed_from_capacity_wait:
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="runtime.execution_capacity_available",
+                    aggregate_type="runtime_execution",
+                    aggregate_id=execution.runtime_execution_id,
+                    assignment_id=assignment.assignment_id,
+                    runtime_execution_id=execution.runtime_execution_id,
+                    source="product",
+                    payload={
+                        "execution_id": execution.execution_id,
+                        "status": RuntimeExecutionStatus.SUBMITTED,
+                        "reason": CONCURRENCY_WAIT_REASON,
+                        "active_executions": admission.active_executions,
+                        "max_concurrent_executions": (
+                            admission.max_concurrent_executions
+                        ),
+                    },
+                )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="assignment.status_changed",
+                    aggregate_type="assignment",
+                    aggregate_id=assignment.assignment_id,
+                    assignment_id=assignment.assignment_id,
+                    source="product",
+                    payload={
+                        "status": AssignmentStatus.SUBMITTED,
+                        "reason": CONCURRENCY_WAIT_REASON,
+                    },
+                )
 
             workspace = None
             if (
@@ -1257,6 +1568,12 @@ class TaskOrchestrator:
                 source=f"runtime.{self.runtime_adapter.provider}",
                 payload={
                     "execution_id": execution.execution_id,
+                    "reserved_tokens": admission.reserved_tokens,
+                    "provider_capacity": (
+                        admission.provider_capacity.status
+                        if admission.provider_capacity is not None
+                        else "unknown"
+                    ),
                     "status": RuntimeExecutionStatus.RUNNING,
                 },
             )
@@ -1282,8 +1599,14 @@ class TaskOrchestrator:
                     thread_id=workspace.codex_thread_id if workspace else None,
                     output_schema=work["output_schema"],
                 )
-            except Exception:
+            except Exception as exc:
                 failed_at = utc_now()
+                charged_tokens = self.runtime_controls.settle(
+                    session,
+                    task=task,
+                    execution=execution,
+                    usage=None,
+                )
                 execution.status = RuntimeExecutionStatus.FAILED
                 assignment.status = AssignmentStatus.FAILED
                 task.status = TaskStatus.FAILED
@@ -1300,6 +1623,13 @@ class TaskOrchestrator:
                     payload={
                         "execution_id": execution.execution_id,
                         "status": RuntimeExecutionStatus.FAILED,
+                        "reason": getattr(
+                            exc,
+                            "reason",
+                            "runtime_submission_failed",
+                        ),
+                        "error": str(exc)[:1000],
+                        "charged_tokens": charged_tokens,
                     },
                 )
                 append_task_event(
@@ -1310,7 +1640,14 @@ class TaskOrchestrator:
                     aggregate_id=assignment.assignment_id,
                     assignment_id=assignment.assignment_id,
                     source="langgraph",
-                    payload={"status": AssignmentStatus.FAILED},
+                    payload={
+                        "status": AssignmentStatus.FAILED,
+                        "reason": getattr(
+                            exc,
+                            "reason",
+                            "runtime_submission_failed",
+                        ),
+                    },
                 )
                 append_task_event(
                     session,
@@ -1319,7 +1656,14 @@ class TaskOrchestrator:
                     aggregate_type="task",
                     aggregate_id=task.task_id,
                     source="langgraph",
-                    payload={"status": TaskStatus.FAILED},
+                    payload={
+                        "status": TaskStatus.FAILED,
+                        "reason": getattr(
+                            exc,
+                            "reason",
+                            "runtime_submission_failed",
+                        ),
+                    },
                 )
                 session.commit()
                 raise
@@ -1331,6 +1675,7 @@ class TaskOrchestrator:
                 execution.turn_id = runtime_result.turn_id
                 execution.workspace_id = runtime_result.workspace_id
                 execution.last_event_position = runtime_result.last_event_position
+                execution.wait_reason = None
                 if workspace is not None and runtime_result.thread_id is not None:
                     if (
                         workspace.codex_thread_id is not None
@@ -1388,6 +1733,12 @@ class TaskOrchestrator:
                 )
 
             completed_at = utc_now()
+            charged_tokens = self.runtime_controls.settle(
+                session,
+                task=task,
+                execution=execution,
+                usage=runtime_result.usage,
+            )
             execution.status = RuntimeExecutionStatus.COMPLETED
             execution.runtime_job_id = runtime_result.runtime_job_id
             execution.thread_id = runtime_result.thread_id
@@ -1413,6 +1764,9 @@ class TaskOrchestrator:
                     "runtime_job_id": runtime_result.runtime_job_id,
                     "status": RuntimeExecutionStatus.COMPLETED,
                     "summary": runtime_result.summary,
+                    "usage_status": execution.usage_status,
+                    "total_tokens": execution.total_tokens,
+                    "charged_tokens": charged_tokens,
                 },
             )
             append_task_event(
@@ -1435,6 +1789,108 @@ class TaskOrchestrator:
                 "role_key": assignment.agent_role_key,
                 "summary": runtime_result.summary,
             }
+
+    @staticmethod
+    def _interrupt_for_capacity(
+        task: Task,
+        assignment: Assignment,
+        execution: RuntimeExecution,
+    ) -> None:
+        interrupt(
+            {
+                "kind": "runtime.capacity_waiting",
+                "task_id": task.task_id,
+                "assignment_id": assignment.assignment_id,
+                "execution_id": execution.execution_id,
+                "runtime_execution_id": execution.runtime_execution_id,
+                "reason": CONCURRENCY_WAIT_REASON,
+            }
+        )
+        raise RuntimeError(
+            f"execution '{execution.execution_id}' is waiting for Runtime capacity"
+        )
+
+    def _record_admission_failure(
+        self,
+        *,
+        session,
+        task: Task,
+        assignment: Assignment,
+        execution: RuntimeExecution,
+        error: RuntimeError,
+    ) -> None:
+        reason = getattr(error, "reason", None)
+        if reason is None:
+            reason = (
+                "provider_rate_limited"
+                if isinstance(error, RuntimeProviderRateLimitedError)
+                else "runtime_budget_exceeded"
+            )
+        runtime_event_id = f"product:admission:{execution.execution_id}:{reason}"
+        execution.status = RuntimeExecutionStatus.FAILED
+        execution.runtime_event_id = runtime_event_id
+        execution.completed_at = utc_now()
+        assignment.status = AssignmentStatus.FAILED
+        assignment.completed_at = execution.completed_at
+        task.status = TaskStatus.FAILED
+        task.result_summary = None
+        task.completed_at = None
+        task.updated_at = execution.completed_at
+        payload = {
+            "execution_id": execution.execution_id,
+            "runtime_event_id": runtime_event_id,
+            "status": RuntimeExecutionStatus.FAILED,
+            "reason": reason,
+            "error": str(error)[:1000],
+        }
+        if isinstance(error, RuntimeProviderRateLimitedError):
+            payload["provider"] = error.provider
+            payload["resets_at"] = error.resets_at
+        if isinstance(error, RuntimeBudgetExceededError):
+            payload.update(
+                {
+                    "provider": error.provider,
+                    "budget_limit": error.limit,
+                    "tokens_consumed": error.consumed,
+                    "tokens_reserved": error.reserved,
+                    "requested_tokens": error.requested,
+                }
+            )
+        append_task_event(
+            session,
+            task=task,
+            event_type="runtime.execution_rejected",
+            aggregate_type="runtime_execution",
+            aggregate_id=execution.runtime_execution_id,
+            assignment_id=assignment.assignment_id,
+            runtime_execution_id=execution.runtime_execution_id,
+            source="product",
+            payload=payload,
+        )
+        append_task_event(
+            session,
+            task=task,
+            event_type="assignment.status_changed",
+            aggregate_type="assignment",
+            aggregate_id=assignment.assignment_id,
+            assignment_id=assignment.assignment_id,
+            source="product",
+            payload={"status": AssignmentStatus.FAILED, "reason": reason},
+        )
+        append_task_event(
+            session,
+            task=task,
+            event_type="task.failed",
+            aggregate_type="task",
+            aggregate_id=task.task_id,
+            source="langgraph",
+            payload={
+                "status": TaskStatus.FAILED,
+                "reason": reason,
+                "execution_id": execution.execution_id,
+            },
+        )
+        session.commit()
 
     @staticmethod
     def _interrupt_for_runtime(

@@ -23,6 +23,13 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Set `clientUserMessageId` to the product `execution_id` when starting a Turn.
 - Return `waiting` with the App Server Thread ID, Turn ID, Runtime job ID, and product Workspace ID as soon as submission succeeds. Do not wait for `turn/completed` inside LangGraph.
 - Consume streamed notifications in a Runtime worker. Convert a terminal Turn into one deterministic product Runtime event, persist it, then resume LangGraph through the existing idempotent completion boundary.
+- Read `account/rateLimits/read` as a Provider capacity signal before `turn/start`. Normalize the response to `available`, `limited`, or `unknown`, cache it briefly, and persist only the normalized observation in the product database.
+- Reject an explicit Provider limit before Runtime submission. If a custom relay does not implement the account method, preserve `unknown` and use the current fail-open policy instead of claiming that capacity is available.
+- Do not use `account/usage/read` as a product cost or task-attribution ledger. It summarizes ChatGPT account activity and cannot replace product-owned execution records.
+- Collect public `thread/tokenUsage/updated` notifications and normalize input, cached input, output, reasoning output, and total tokens for the current Turn. Do not depend on internal-only raw response notifications.
+- Own concurrency and token budgets in the product database. LangGraph State stores neither Provider snapshots nor the budget ledger.
+- Reserve the configured product token amount before Runtime submission and settle it once at a terminal outcome. Charge observed Turn usage when available and the full reservation when usage is unavailable.
+- Queue work that exceeds the product concurrency limit as `concurrency_limit`, checkpoint the branch with `interrupt`, and resume the oldest eligible waiter after capacity is released. Do not sleep inside a LangGraph node.
 - Treat a `turn/completed` notification with status `failed` as a terminal Runtime failure. Treat `interrupted` as a cancellation terminal state, persist it without resuming the graph, and never convert it into a generic failure event.
 - Request task cancellation through `turn/interrupt` with the recorded Thread and Turn IDs. Persist product cancellation before the network request, preserve completed sibling Assignments, wake pending approval waiters, and record whether each Runtime interrupt was accepted or remained unconfirmed.
 - Retry only through an explicit product command. Reset failed Assignments, reuse their recorded Workspace and Thread, start a new Turn, and keep completed sibling Assignments unchanged.
@@ -61,19 +68,27 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Fake App Server integration covers command and file-change approval requests plus `accept`, `decline`, and `cancel` responses. API integration verifies authenticated ownership, durable request and resolution events, same-decision idempotency, conflicting-decision rejection, and continued or interrupted Turn outcomes.
 - The local relay rejected an optional lead schema when its default-valued `issues` property was not listed as required. The product contract now requires every lead response property, matching the relay's `response_format` validation rules.
 - A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread, so recovery was validated with a real in-flight Turn and a long-lived external App Server instead of treating an empty Thread as evidence.
+- App Server integration tests verify `account/rateLimits/read` request shape, available and explicit-limit normalization, and `unknown` fallback for a custom Provider that omits the method.
+- API tests verify that an explicit Provider limit returns `429 PROVIDER_RATE_LIMITED` and that product budget exhaustion returns `409 RUNTIME_BUDGET_EXCEEDED`, both without calling the Runtime adapter's execution method.
+- A concurrency limit of one defers the second parallel specialist, checkpoints it, releases capacity after the first completion, persists the capacity transition, and starts the second specialist exactly once.
+- Runtime usage is attached to terminal execution records and settled once. Duplicate completion delivery does not double-charge the product ledger, and the control snapshot reports consumed, reserved, and remaining tokens.
 
 ## Current limitations
 
-- The adapter is not the application default until provider rate-limit controls are implemented.
-- Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
-- Provider rate-limit handling remains pending. Approval routing is implemented for command and file-change requests with one-time decisions only; approval-waiting executions remain conservative across owner restart.
+- The application defaults to FakeRuntime so development and contract tests remain self-contained. A deployment must opt into Codex explicitly and pass the App Server readiness gate.
+- Provider capacity can remain `unknown` for custom relays. V1 fails open for compatibility; each production deployment must choose whether its Provider policy requires a supported signal.
+- Approval routing is implemented for command and file-change requests with one-time decisions only; approval-waiting executions remain conservative across owner restart.
 - Explicit retry handles terminal Turn failure and owner loss. Per-execution stdio remains conservative because its owner process cannot be rejoined after a backend restart. External App Server reattachment is available only when that server remains alive, identities and Workspace binding validate, and no approval request is pending. External side effects must remain idempotent.
 - Custom-provider API-key authentication is verified through the isolated home. Production must move the credential source to a dedicated secret store or environment injection rather than copying a personal home.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.
+- The current concurrency admission critical section is process-local. A multi-instance deployment requires database row locking or a dedicated scheduler before sharing one concurrency limit and budget ledger.
+- Product token budgeting currently measures token units only. Provider-specific monetary pricing, currency, billing periods, and price-table versioning remain separate future product concerns.
 
 ## References
 
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server)
+- [App Server API overview](https://learn.chatgpt.com/docs/app-server#api-overview-1)
+- [App Server Turn events](https://learn.chatgpt.com/docs/app-server#turn-events)
 - [App Server lifecycle](https://learn.chatgpt.com/docs/app-server#lifecycle-overview)
 - [App Server approvals](https://learn.chatgpt.com/docs/app-server#approvals)
 - [Custom model providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers)

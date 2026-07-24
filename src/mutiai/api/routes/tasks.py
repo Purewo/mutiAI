@@ -29,6 +29,10 @@ from mutiai.api.schemas.tasks import (
 from mutiai.models import ApprovalRequest, ProductEvent, Task
 from mutiai.models.task import TaskStatus
 from mutiai.orchestration import TaskCancellationIncompleteError
+from mutiai.services.runtime_controls import (
+    RuntimeBudgetExceededError,
+    RuntimeProviderRateLimitedError,
+)
 from mutiai.services.tasks import create_task, get_owned_task
 
 router = APIRouter(tags=["tasks"])
@@ -36,6 +40,7 @@ ERROR_RESPONSES = {
     401: {"model": ErrorEnvelope},
     404: {"model": ErrorEnvelope},
     409: {"model": ErrorEnvelope},
+    429: {"model": ErrorEnvelope},
     422: {"model": ErrorEnvelope},
 }
 
@@ -77,7 +82,28 @@ def submit_task(
         request_text=payload.request,
         idempotency_key=idempotency_key,
     )
-    orchestrator.run(task.task_id)
+    try:
+        orchestrator.run(task.task_id)
+    except RuntimeProviderRateLimitedError as exc:
+        raise ApiError(
+            429,
+            "PROVIDER_RATE_LIMITED",
+            "The Runtime Provider is rate limited. Try again after it resets.",
+            details={"provider": exc.provider, "resets_at": exc.resets_at},
+        ) from exc
+    except RuntimeBudgetExceededError as exc:
+        raise ApiError(
+            409,
+            "RUNTIME_BUDGET_EXCEEDED",
+            "The configured Runtime token budget cannot admit this execution.",
+            details={
+                "provider": exc.provider,
+                "budget_limit": exc.limit,
+                "tokens_consumed": exc.consumed,
+                "tokens_reserved": exc.reserved,
+                "requested_tokens": exc.requested,
+            },
+        ) from exc
     if not created:
         response.status_code = 200
     return load_task_response(session, task.task_id)

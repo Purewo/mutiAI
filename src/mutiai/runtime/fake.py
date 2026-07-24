@@ -7,7 +7,7 @@ from collections import Counter
 from threading import Lock
 from typing import Any, Literal
 
-from mutiai.runtime.base import RuntimeRecoveryRequest, RuntimeResult
+from mutiai.runtime.base import RuntimeCapacity, RuntimeRecoveryRequest, RuntimeResult
 
 
 class FakeRuntimeAdapter:
@@ -23,6 +23,7 @@ class FakeRuntimeAdapter:
             "The organization lead accepted the specialist deliveries."
         ),
         lead_review_issues: tuple[str, ...] = (),
+        capacity: RuntimeCapacity | None = None,
     ) -> None:
         self._lock = Lock()
         self._calls: Counter[str] = Counter()
@@ -35,6 +36,12 @@ class FakeRuntimeAdapter:
         self._lead_review_decision = lead_review_decision
         self._lead_review_final_summary = lead_review_final_summary
         self._lead_review_issues = lead_review_issues
+        self._capacity = capacity or RuntimeCapacity(status="available")
+
+    def capacity(self) -> RuntimeCapacity:
+        """Return the deterministic Provider capacity used by tests."""
+
+        return self._capacity
 
     def execute(
         self,

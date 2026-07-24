@@ -7,6 +7,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -159,6 +160,14 @@ class RuntimeExecution(Base):
             "'failed', 'cancelled')",
             name="valid_status",
         ),
+        CheckConstraint(
+            "usage_status IN ('pending', 'reported', 'unavailable')",
+            name="valid_usage_status",
+        ),
+        CheckConstraint(
+            "reserved_tokens >= 0",
+            name="nonnegative_reserved_tokens",
+        ),
     )
 
     runtime_execution_id: Mapped[str] = mapped_column(
@@ -184,6 +193,29 @@ class RuntimeExecution(Base):
     )
     last_event_position: Mapped[str | None] = mapped_column(String(100), nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wait_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reserved_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    charged_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    usage_status: Mapped[str] = mapped_column(String(20), default="pending")
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cached_input_tokens: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reasoning_output_tokens: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+    total_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    admitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False),
+        nullable=True,
+    )
+    budget_settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=utc_now
     )

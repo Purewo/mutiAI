@@ -144,9 +144,14 @@ Important facts:
 - Codex `thread_id` and current `turn_id`, when available.
 - `workspace_id`.
 - Runtime status and last event position.
+- Product concurrency wait reason and admission timestamp.
+- Reserved and charged token totals plus normalized Turn usage, when available.
+- Idempotent budget-settlement timestamp.
 - Start, completion, failure, cancellation, and reconnect metadata.
 
 This entity is not a copy of Codex history. It is the product's operational index into the external Runtime.
+
+Provider capacity observations and owner/provider Runtime control policies are separate product records. They own concurrency limits, product token budgets, reservations, consumption, and the last normalized Provider signal. LangGraph State does not own or mirror this ledger.
 
 ### Workspace
 

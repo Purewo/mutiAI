@@ -2,12 +2,15 @@
 
 from mutiai.runtime.base import (
     AgentRuntimeAdapter,
+    RuntimeCapacity,
     RuntimeRecoveryRequest,
     RuntimeResult,
+    RuntimeTokenUsage,
 )
 from mutiai.runtime.codex import (
     CodexApprovalRequest,
     CodexCompletion,
+    CodexProviderRateLimitedError,
     CodexRuntimeAdapter,
     CodexTurnCancelledError,
     CodexTurnFailedError,
@@ -35,6 +38,7 @@ __all__ = [
     "CodexAppServerSidecar",
     "CodexApprovalRequest",
     "CodexCompletion",
+    "CodexProviderRateLimitedError",
     "CodexRuntimeAdapter",
     "CodexRuntimeSupervisor",
     "CodexSidecarRestartPolicy",
@@ -42,8 +46,10 @@ __all__ = [
     "CodexTurnFailedError",
     "CodexTurnLostError",
     "FakeRuntimeAdapter",
+    "RuntimeCapacity",
     "RuntimeRecoveryRequest",
     "RuntimeResult",
+    "RuntimeTokenUsage",
     "RuntimeWorkspaceBinding",
     "WorkspaceBoundaryError",
     "WorkspaceManager",
