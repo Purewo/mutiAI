@@ -8,7 +8,6 @@ from mutiai.runtime import (
     WorkspaceManager,
 )
 
-
 FAKE_APP_SERVER = (
     Path(__file__).resolve().parents[1] / "support" / "fake_codex_app_server.py"
 )
@@ -50,6 +49,13 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
             turn_id=turn_id,
         )
         assert completed["status"] == "completed"
+        assert completed["items"] == [
+            {
+                "id": "message-test-1",
+                "type": "agentMessage",
+                "text": "Delivered the bounded assignment.",
+            }
+        ]
 
 
 def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> None:

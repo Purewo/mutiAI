@@ -20,6 +20,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Use `workspaceWrite` for the managed workspace with network access disabled by default.
 - Use `on-request` approval behavior by default. Reject unhandled App Server requests rather than silently approving them.
 - Require an isolated product Codex home under the managed Runtime root. Do not write product App Server sessions into the user's interactive Codex home.
+- For the current local relay setup, bootstrap that home by copying only `config.toml` and `auth.json`. Do not copy `sessions`, history, SQLite state, or other interactive-home data. Official ChatGPT device-code login remains an optional alternative, not a prerequisite for custom-provider API-key authentication.
 - Resolve the Windows command shim through `PATH` before starting the process. Python cannot directly launch the PowerShell `codex` shim on this host, while the resolved `codex.cmd` works.
 
 ## Verified behavior
@@ -28,14 +29,16 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - A real `thread/start` returned a UUID Thread ID and the isolated canonical working directory.
 - The fake App Server integration verifies initialization, Thread start, Thread resume request shape, Turn start, notifications arriving before responses, terminal result extraction, and idempotent in-process submission.
 - The background Runtime supervisor waits outside LangGraph, delivers terminal results through the product completion boundary, serializes parallel checkpoint resumes, deduplicates workers, and closes each execution's App Server session.
-- A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread. Cross-process resume therefore requires a submitted Turn and remains an M2 acceptance item.
+- A real relay-backed Turn completed from the isolated home and produced a file inside the managed workspace.
+- A real two-specialist product Task completed through the API, LangGraph wait/resume path, Runtime supervisor, product database, and role-specific managed Workspaces.
+- A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread. Cross-process resume therefore remains an M2 acceptance item.
 
 ## Current limitations
 
-- The adapter is not the application default until isolated authentication and approval routing are implemented.
+- The adapter is not the application default until approval routing and recovery controls are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
 - Product approval routing, cancellation, and reconnect supervision remain pending.
-- Isolated Codex authentication must be configured without adopting or polluting existing interactive sessions.
+- Custom-provider API-key authentication is verified through the isolated home. Production must move the credential source to a dedicated secret store or environment injection rather than copying a personal home.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.
 
 ## References
@@ -43,3 +46,4 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server)
 - [App Server lifecycle](https://learn.chatgpt.com/docs/app-server#lifecycle-overview)
 - [App Server approvals](https://learn.chatgpt.com/docs/app-server#approvals)
+- [Custom model providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers)

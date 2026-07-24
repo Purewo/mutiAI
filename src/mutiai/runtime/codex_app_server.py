@@ -11,7 +11,7 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from threading import Lock, Thread
-from typing import Any
+from typing import Any, Self
 
 
 class CodexAppServerError(RuntimeError):
@@ -54,7 +54,7 @@ class CodexAppServerSession:
         self._write_lock = Lock()
         self._next_request_id = 1
 
-    def __enter__(self) -> "CodexAppServerSession":
+    def __enter__(self) -> Self:
         self.connect()
         return self
 
@@ -295,19 +295,55 @@ class CodexAppServerSession:
         """Wait for the terminal notification for one turn."""
 
         deadline = time.monotonic() + timeout if timeout is not None else None
+        completed_items: list[dict[str, Any]] = []
         while True:
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 raise CodexAppServerError("timed out waiting for Codex turn")
             event = self.next_event(timeout=remaining)
+            params = event.get("params")
+            if (
+                event.get("method") == "item/completed"
+                and isinstance(params, dict)
+                and params.get("threadId") == thread_id
+                and params.get("turnId") == turn_id
+            ):
+                item = params.get("item")
+                if isinstance(item, dict):
+                    completed_items.append(item)
+                continue
+            turn_payload = params.get("turn") if isinstance(params, dict) else None
             if (
                 event.get("method") == "turn/completed"
-                and event.get("params", {}).get("threadId") == thread_id
-                and event.get("params", {}).get("turn", {}).get("id") == turn_id
+                and isinstance(params, dict)
+                and params.get("threadId") == thread_id
+                and isinstance(turn_payload, dict)
+                and turn_payload.get("id") == turn_id
             ):
-                turn = event["params"]["turn"]
-                if not isinstance(turn, dict):
-                    raise CodexAppServerError("turn/completed did not contain a Turn")
+                turn = turn_payload
+                # The live App Server protocol emits completed response items
+                # as notifications and may leave turn.items empty. Preserve
+                # those items only inside the Runtime worker so the adapter
+                # can extract a final summary without copying Codex history
+                # into LangGraph state.
+                existing_items = turn.get("items")
+                if not isinstance(existing_items, list):
+                    existing_items = []
+                if completed_items:
+                    seen_ids = {
+                        item.get("id")
+                        for item in existing_items
+                        if isinstance(item, dict) and isinstance(item.get("id"), str)
+                    }
+                    turn = dict(turn)
+                    turn["items"] = existing_items + [
+                        item
+                        for item in completed_items
+                        if not (
+                            isinstance(item.get("id"), str)
+                            and item.get("id") in seen_ids
+                        )
+                    ]
                 return turn
 
     def next_event(self, *, timeout: float | None = None) -> dict[str, Any]:

@@ -68,6 +68,18 @@ The initial health endpoint is `GET http://127.0.0.1:8000/api/v1/health`.
 
 In development and tests, application startup runs pending migrations when `DATABASE_AUTO_MIGRATE=true`. Production deployments must run migrations as an explicit release step.
 
+### Isolated local Codex configuration
+
+The local Codex adapter uses a dedicated `CODEX_HOME` below the managed Runtime root. To reuse a local custom-provider relay without adopting existing interactive sessions, copy only the provider configuration and API-key auth file:
+
+```powershell
+uv run python scripts/bootstrap_codex_home.py
+```
+
+The bootstrap copies `config.toml` and `auth.json` only. It does not copy `sessions`, `history.jsonl`, SQLite state, or existing Threads. Use `--replace` only when the source home is the intended provider configuration source. Official ChatGPT device-code login is optional and is not required for the current custom-provider setup.
+
+The current Windows test root is `G:\AI\AI_private\mutiAI-runtime-workspaces`. Linux deployment should inject provider credentials through a dedicated secret mechanism instead of copying a developer Codex home.
+
 ## Local development account
 
 The first local environment may seed an `admin` account with a simple development-only password. Keep the real value in the ignored `.env` file. Never expose that account on a network or reuse it in production.

@@ -85,23 +85,39 @@ for line in sys.stdin:
             }
         )
     elif method == "turn/start":
-        send({"method": "item/started", "params": {"turnId": turn["id"]}})
+        thread_id = message["params"]["threadId"]
+        item = {
+            "id": "message-test-1",
+            "type": "agentMessage",
+            "text": "Delivered the bounded assignment.",
+        }
+        send(
+            {
+                "method": "item/started",
+                "params": {"threadId": thread_id, "turnId": turn["id"]},
+            }
+        )
         send({"id": message["id"], "result": {"turn": turn}})
+        send(
+            {
+                "method": "item/completed",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn["id"],
+                    "item": item,
+                    "completedAtMs": 0,
+                },
+            }
+        )
         send(
             {
                 "method": "turn/completed",
                 "params": {
-                    "threadId": message["params"]["threadId"],
+                    "threadId": thread_id,
                     "turn": {
                         "id": turn["id"],
                         "status": "completed",
-                        "items": [
-                            {
-                                "id": "message-test-1",
-                                "type": "agentMessage",
-                                "text": "Delivered the bounded assignment.",
-                            }
-                        ],
+                        "items": [],
                     },
                 },
             }

@@ -1,4 +1,8 @@
-"""Authenticate the isolated mutiAI Codex home with a device code."""
+"""Optionally authenticate an isolated home through official ChatGPT OAuth.
+
+This script is not required for custom model providers backed by an API key.
+Use bootstrap_codex_home.py for the current local relay configuration.
+"""
 
 from __future__ import annotations
 

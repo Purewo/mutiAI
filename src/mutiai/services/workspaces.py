@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from uuid import NAMESPACE_URL, uuid5
@@ -12,6 +16,15 @@ from sqlalchemy.orm import Session
 from mutiai.models import Workspace, WorkspaceStatus
 from mutiai.models.base import utc_now
 from mutiai.runtime import WorkspaceBoundaryError, WorkspaceManager
+
+
+@dataclass(frozen=True, slots=True)
+class CodexHomeBootstrapResult:
+    """Files copied or intentionally retained in an isolated Codex home."""
+
+    codex_home: Path
+    copied: tuple[str, ...]
+    skipped: tuple[str, ...]
 
 
 class WorkspaceProvisioner:
@@ -113,6 +126,57 @@ class WorkspaceProvisioner:
         with self._lock:
             return self.manager.provision(Path("system") / "codex-home")
 
+    def bootstrap_codex_home(
+        self,
+        source_home: str | Path,
+        *,
+        replace: bool = False,
+    ) -> CodexHomeBootstrapResult:
+        """Copy provider configuration without adopting interactive sessions."""
+
+        source = Path(source_home).expanduser().resolve(strict=True)
+        if not source.is_dir():
+            raise WorkspaceBoundaryError("Codex configuration source must be a directory")
+        codex_home = self.ensure_codex_home()
+        if source == codex_home:
+            raise WorkspaceBoundaryError(
+                "Codex configuration source and managed home must differ"
+            )
+
+        copied: list[str] = []
+        skipped: list[str] = []
+        with self._lock:
+            for name in ("config.toml", "auth.json"):
+                source_file = source / name
+                if not source_file.is_file():
+                    raise WorkspaceBoundaryError(
+                        f"Codex configuration source has no {name}"
+                    )
+                target_file = codex_home / name
+                if target_file.exists() and not replace:
+                    skipped.append(name)
+                    continue
+
+                descriptor, temporary_name = tempfile.mkstemp(
+                    dir=codex_home,
+                    prefix=f".{name}.",
+                    suffix=".tmp",
+                )
+                os.close(descriptor)
+                temporary_file = Path(temporary_name)
+                try:
+                    shutil.copy2(source_file, temporary_file)
+                    os.replace(temporary_file, target_file)
+                finally:
+                    temporary_file.unlink(missing_ok=True)
+                copied.append(name)
+
+        return CodexHomeBootstrapResult(
+            codex_home=codex_home,
+            copied=tuple(copied),
+            skipped=tuple(skipped),
+        )
+
     @staticmethod
     def deterministic_workspace_id(
         *,
@@ -121,15 +185,9 @@ class WorkspaceProvisioner:
         agent_role_key: str,
         runtime_provider: str,
     ) -> str:
-        identity = ":".join(
-            (
-                "mutiai",
-                "workspace",
-                owner_user_id,
-                organization_id,
-                agent_role_key,
-                runtime_provider,
-            )
+        identity = (
+            f"mutiai:workspace:{owner_user_id}:{organization_id}:"
+            f"{agent_role_key}:{runtime_provider}"
         )
         return str(uuid5(NAMESPACE_URL, identity))
 

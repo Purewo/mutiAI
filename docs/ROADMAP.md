@@ -64,7 +64,7 @@ The FakeRuntimeAdapter is a test seam. It proves the product database, orchestra
 
 ## M2. Replace the fake Runtime with local Codex
 
-Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization and Thread-start handshake. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output. A background supervisor now consumes terminal events outside LangGraph, persists the completion, resumes each waiting branch, and closes the owned App Server process. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, and parallel branch recovery are covered; isolated authentication, approvals, real streamed events, and real Turn recovery remain pending.
+Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization, Thread-start handshake, and relay-backed Turn. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output from live `item/completed` notifications. A background supervisor now consumes terminal events outside LangGraph, persists the completion, resumes each waiting branch, and closes the owned App Server process. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, parallel branch recovery, and isolated custom-provider configuration are covered; approvals and real Turn recovery remain pending.
 
 Implement the local Windows Codex adapter through the App Server boundary:
 
