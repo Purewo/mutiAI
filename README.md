@@ -85,12 +85,21 @@ The current Windows test root is `G:\AI\AI_private\mutiAI-runtime-workspaces`. L
 The default `RUNTIME_PROVIDER=fake` keeps the backend self-contained for contract and orchestration tests. To run the real local Codex Runtime, start the App Server in a separate process so it survives an API restart:
 
 ```powershell
-$env:RUNTIME_PROVIDER="codex"
 $env:CODEX_APP_SERVER_ENDPOINT="ws://127.0.0.1:4500"
 uv run python scripts/run_codex_app_server.py
 ```
 
-In another terminal, start the API with the same environment. The API checks `/readyz` before recovering waiting Runtime executions. The sidecar uses the isolated managed `CODEX_HOME`; it does not use the interactive Codex session directory. Plain WebSocket transport is restricted to loopback. Linux production should prefer a Unix socket and an external service manager.
+The wrapper requires `/readyz` for each process start and restarts unexpected exits with bounded exponential backoff. The defaults allow 10 restarts, starting at 0.5 seconds and capping the delay at 5 seconds. Run `uv run python scripts/run_codex_app_server.py --help` to change the local supervision policy.
+
+In another terminal, select Codex and start the API:
+
+```powershell
+$env:RUNTIME_PROVIDER="codex"
+$env:CODEX_APP_SERVER_ENDPOINT="ws://127.0.0.1:4500"
+uv run uvicorn mutiai.main:app --reload
+```
+
+The API checks `/readyz` before recovering waiting Runtime executions. The sidecar uses the isolated managed `CODEX_HOME`; it does not use the interactive Codex session directory. A sidecar restart restores service availability but does not claim that an in-flight Turn survived the process exit. The disconnected execution becomes `runtime_owner_lost`; after the sidecar is ready, the existing task retry endpoint reuses the recorded Thread and Workspace and starts a new Turn. Plain WebSocket transport is restricted to loopback. Linux production should prefer a Unix socket and an external service manager.
 
 ## Local development account
 

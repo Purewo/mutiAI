@@ -22,6 +22,8 @@ Owns Runtime process lifecycle, task submission, event collection, reconnection,
 
 The local Codex App Server runs as an independent sidecar. FastAPI owns client connections and recovery coordination, but it does not own the sidecar lifetime. This separation lets Codex continue an active Turn while the API process restarts.
 
+The local sidecar supervisor owns process readiness and bounded restart. A process restart does not change product task state or replay a Turn. The API records the disconnected execution as owner-lost, and only an explicit product retry may create the replacement Turn.
+
 ### Codex Runtime
 
 Owns execution inside one bounded assignment: reading a repository, planning, running commands, modifying files, running tests, and maintaining its own thread context.

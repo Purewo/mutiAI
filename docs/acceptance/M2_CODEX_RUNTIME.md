@@ -1,6 +1,6 @@
 # M2 local Codex Runtime acceptance
 
-Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, product-owned approval routing, and cross-process Turn reattachment are implemented.
+Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, product-owned approval routing, cross-process Turn reattachment, and external sidecar process supervision are implemented.
 
 ## Verified locally
 
@@ -37,14 +37,16 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - Recovery emits `runtime.execution_reconnected` before the supervisor consumes the terminal Turn. Repeated startup reconciliation does not create a second worker for an active execution.
 - The per-execution stdio App Server remains intentionally conservative: when its owner process exits there is no rejoinable owner, so the product records `runtime_owner_lost` and requires explicit retry.
 - Windows development uses a loopback WebSocket endpoint for a long-lived App Server. Linux production should prefer a Unix socket. Remote unauthenticated WebSocket endpoints are rejected by the adapter.
-- `RUNTIME_PROVIDER=codex` assembles the Codex Adapter from application settings, requires the configured App Server `/readyz` check during startup, and keeps the sidecar outside the FastAPI lifespan. The default provider remains `fake` until the local sidecar and production supervision are operationalized.
+- `RUNTIME_PROVIDER=codex` assembles the Codex Adapter from application settings, requires the configured App Server `/readyz` check during startup, and keeps the sidecar outside the FastAPI lifespan. The default provider remains `fake` until the remaining cancellation and rate-limit controls are complete.
+- The local sidecar wrapper requires `/readyz` on every process start, restarts unexpected exits with bounded exponential backoff, and stops after a finite restart budget. FastAPI still owns no sidecar process.
+- Sidecar restart restores Runtime service availability only. The disconnected execution is persisted as `runtime_owner_lost`; after readiness returns, the existing explicit retry path reuses its product-recorded Thread and Workspace and creates a new Turn. The official lifecycle does not guarantee continuation of an in-flight Turn across App Server process death, so the product never replays or marks that Turn recovered automatically.
 - V1 intentionally excludes `acceptForSession`, exec-policy amendments, and network-policy amendments. It never broadens approval policy beyond the current request.
 - `bootstrap_codex_home.py` copies only `config.toml` and `auth.json`. It never copies `sessions`, history, state databases, or existing Threads.
 
 ## Not yet accepted
 
 - Reattach an approval-waiting Turn across owner loss. V1 requires explicit retry until the App Server guarantees redelivery of an unanswered server request to the new client connection.
-- Handle task cancellation, provider rate limits, external App Server process supervision, and recovery after the App Server itself exits.
-- Make the Codex adapter the application default after sidecar supervision, cancellation, and rate-limit controls are complete.
+- Handle task cancellation and provider rate limits.
+- Make the Codex adapter the application default after cancellation and rate-limit controls are complete.
 
 The web frontend does not need changes for this milestone. Its existing task and SSE contracts remain product-level and do not expose App Server protocol details.
