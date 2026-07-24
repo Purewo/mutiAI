@@ -1,9 +1,12 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from mutiai.runtime import (
     CodexAppServerSession,
     CodexRuntimeAdapter,
+    CodexTurnFailedError,
     RuntimeWorkspaceBinding,
     WorkspaceManager,
 )
@@ -103,5 +106,44 @@ def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> 
         assert completion.result.status == "completed"
         assert completion.result.summary == "Delivered the bounded assignment."
         assert adapter.wait_for_completion("execution-test-1") == completion
+    finally:
+        adapter.close()
+
+
+def test_codex_runtime_adapter_exposes_terminal_turn_failure(tmp_path) -> None:
+    managed_root = tmp_path / "managed"
+    codex_home = managed_root / "codex-home"
+    workspace = managed_root / "workspaces" / "workspace-1"
+    codex_home.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    manager = WorkspaceManager(managed_root, protected_roots=())
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=lambda execution_id: RuntimeWorkspaceBinding(
+            workspace_id=f"workspace:{execution_id}",
+            path=workspace,
+        ),
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    execution_id = "execution-terminal-failure"
+
+    try:
+        waiting = adapter.execute(
+            execution_id=execution_id,
+            role_key="backend",
+            instructions="Implement backend behavior: fail-runtime-once",
+        )
+
+        with pytest.raises(CodexTurnFailedError) as captured:
+            adapter.wait_for_completion(execution_id)
+
+        failure = captured.value
+        assert failure.thread_id == waiting.thread_id
+        assert failure.turn_id == waiting.turn_id
+        assert failure.status == "failed"
+        assert failure.runtime_event_id.endswith(":failed")
+        assert "simulated terminal Turn failure" in str(failure)
+        assert "test_failure" in str(failure)
     finally:
         adapter.close()

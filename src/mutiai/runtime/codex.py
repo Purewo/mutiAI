@@ -30,6 +30,28 @@ class CodexCompletion:
     result: RuntimeResult
 
 
+class CodexTurnFailedError(CodexAppServerError):
+    """Terminal App Server Turn failure with stable Runtime identities."""
+
+    def __init__(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+        status: str,
+        message: str | None,
+    ) -> None:
+        self.thread_id = thread_id
+        self.turn_id = turn_id
+        self.status = status
+        self.runtime_event_id = f"codex:{thread_id}:{turn_id}:{status}"
+        self.failure_message = message or "Codex Turn ended without an error message"
+        super().__init__(
+            f"Codex turn '{turn_id}' ended with status '{status}': "
+            f"{self.failure_message}"
+        )
+
+
 @dataclass(slots=True)
 class _ActiveExecution:
     session: CodexAppServerSession
@@ -163,6 +185,7 @@ class CodexRuntimeAdapter:
         self,
         execution_id: str,
         *,
+        expected_turn_id: str | None = None,
         timeout: float | None = None,
     ) -> CodexCompletion:
         """Wait outside LangGraph and normalize one terminal Turn notification."""
@@ -179,6 +202,13 @@ class CodexRuntimeAdapter:
                 raise CodexAppServerError(
                     "active Codex execution has no Thread or Turn ID"
                 )
+            if (
+                expected_turn_id is not None
+                and waiting.turn_id != expected_turn_id
+            ):
+                raise LookupError(
+                    f"Codex execution '{execution_id}' now owns another Turn"
+                )
             turn = active.session.wait_for_turn(
                 thread_id=waiting.thread_id,
                 turn_id=waiting.turn_id,
@@ -186,8 +216,11 @@ class CodexRuntimeAdapter:
             )
             status = turn.get("status")
             if status != "completed":
-                raise CodexAppServerError(
-                    f"Codex turn '{waiting.turn_id}' ended with status '{status}'"
+                raise CodexTurnFailedError(
+                    thread_id=waiting.thread_id,
+                    turn_id=waiting.turn_id,
+                    status=str(status),
+                    message=self._turn_error_message(turn),
                 )
             summary = self._last_agent_message(turn)
             result = RuntimeResult(
@@ -207,10 +240,35 @@ class CodexRuntimeAdapter:
             )
             return active.completion
 
-    def close_execution(self, execution_id: str) -> None:
+    def is_active(self, execution_id: str) -> bool:
+        """Return whether this adapter currently owns the execution process."""
+
+        with self._lock:
+            return execution_id in self._active
+
+    def active_turn_id(self, execution_id: str) -> str | None:
+        """Return the Turn currently owned for one execution, if any."""
+
+        with self._lock:
+            active = self._active.get(execution_id)
+            return active.waiting_result.turn_id if active is not None else None
+
+    def close_execution(
+        self,
+        execution_id: str,
+        *,
+        expected_turn_id: str | None = None,
+    ) -> None:
         """Close the owned App Server process for one execution."""
 
         with self._lock:
+            active = self._active.get(execution_id)
+            if (
+                active is not None
+                and expected_turn_id is not None
+                and active.waiting_result.turn_id != expected_turn_id
+            ):
+                return
             active = self._active.pop(execution_id, None)
         if active is not None:
             active.session.close()
@@ -268,3 +326,14 @@ class CodexRuntimeAdapter:
         if not summary:
             raise CodexAppServerError("completed Codex turn has no agent summary")
         return summary
+
+    @staticmethod
+    def _turn_error_message(turn: Mapping[str, Any]) -> str | None:
+        error = turn.get("error")
+        if not isinstance(error, Mapping):
+            return None
+        message = error.get("message")
+        codex_error_info = error.get("codexErrorInfo")
+        if isinstance(message, str) and isinstance(codex_error_info, str):
+            return f"{message} ({codex_error_info})"
+        return message if isinstance(message, str) else None

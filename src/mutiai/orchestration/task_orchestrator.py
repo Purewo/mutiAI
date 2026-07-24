@@ -67,6 +67,7 @@ class TaskOrchestrator:
             if task.status in {
                 TaskStatus.COMPLETED,
                 TaskStatus.NEEDS_REVISION,
+                TaskStatus.FAILED,
             }:
                 return task
             if task.status == TaskStatus.WAITING:
@@ -77,19 +78,6 @@ class TaskOrchestrator:
                     task=task,
                     runtime_provider=self.runtime_adapter.provider,
                 )
-                if task.status == TaskStatus.FAILED:
-                    task.status = TaskStatus.RUNNING
-                    task.updated_at = utc_now()
-                    append_task_event(
-                        session,
-                        task=task,
-                        event_type="task.status_changed",
-                        aggregate_type="task",
-                        aggregate_id=task.task_id,
-                        source="langgraph",
-                        payload={"status": TaskStatus.RUNNING, "reason": "retry"},
-                    )
-                    session.commit()
                 initial_state: TaskGraphState = {
                     "task_id": task.task_id,
                     "assignments": [
@@ -140,6 +128,109 @@ class TaskOrchestrator:
             raise RuntimeError(f"task '{task_id}' graph completed without a review")
         return self._finish_task(task_id, review)
 
+    def retry(self, task_id: str) -> Task:
+        """Reset only failed assignments, then resume the persisted graph."""
+
+        with self._execution_lock, self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status != TaskStatus.FAILED:
+                raise ValueError(f"task '{task_id}' is not failed")
+
+            failed_assignments = session.scalars(
+                select(Assignment).where(
+                    Assignment.task_id == task_id,
+                    Assignment.status == AssignmentStatus.FAILED,
+                )
+            ).all()
+            if not failed_assignments:
+                raise RuntimeError(
+                    f"task '{task_id}' has no failed assignment to retry"
+                )
+
+            retry_payload: list[dict[str, str]] = []
+            for assignment in failed_assignments:
+                execution = assignment.runtime_execution
+                if execution is None:
+                    raise RuntimeError(
+                        f"assignment '{assignment.assignment_id}' has no execution"
+                    )
+                previous_runtime_event_id = execution.runtime_event_id
+                previous_turn_id = execution.turn_id
+                execution.status = RuntimeExecutionStatus.SUBMITTED
+                execution.runtime_job_id = None
+                execution.runtime_event_id = None
+                execution.turn_id = None
+                execution.last_event_position = None
+                execution.result_summary = None
+                execution.started_at = None
+                execution.completed_at = None
+                assignment.status = AssignmentStatus.SUBMITTED
+                assignment.result_summary = None
+                assignment.completed_at = None
+                retry_payload.append(
+                    {
+                        "assignment_id": assignment.assignment_id,
+                        "execution_id": execution.execution_id,
+                    }
+                )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="runtime.execution_retry_requested",
+                    aggregate_type="runtime_execution",
+                    aggregate_id=execution.runtime_execution_id,
+                    assignment_id=assignment.assignment_id,
+                    runtime_execution_id=execution.runtime_execution_id,
+                    source="product",
+                    payload={
+                        "execution_id": execution.execution_id,
+                        "previous_runtime_event_id": previous_runtime_event_id,
+                        "previous_turn_id": previous_turn_id,
+                        "status": RuntimeExecutionStatus.SUBMITTED,
+                    },
+                )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="assignment.status_changed",
+                    aggregate_type="assignment",
+                    aggregate_id=assignment.assignment_id,
+                    assignment_id=assignment.assignment_id,
+                    source="product",
+                    payload={
+                        "status": AssignmentStatus.SUBMITTED,
+                        "reason": "retry",
+                    },
+                )
+
+            task.status = TaskStatus.RUNNING
+            task.result_summary = None
+            task.completed_at = None
+            task.updated_at = utc_now()
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.retry_requested",
+                aggregate_type="task",
+                aggregate_id=task.task_id,
+                source="product",
+                payload={"assignments": retry_payload},
+            )
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.status_changed",
+                aggregate_type="task",
+                aggregate_id=task.task_id,
+                source="langgraph",
+                payload={"status": TaskStatus.RUNNING, "reason": "retry"},
+            )
+            session.commit()
+
+        return self.run(task_id)
+
     def _watch_waiting_executions(self, task_id: str) -> None:
         if self._runtime_watch is None:
             return
@@ -166,6 +257,7 @@ class TaskOrchestrator:
     ) -> Task:
         """Persist one external completion event and resume its waiting graph node."""
 
+        should_resume = True
         with self._execution_lock, self.database.session() as session:
             execution = session.scalar(
                 select(RuntimeExecution).where(
@@ -238,12 +330,124 @@ class TaskOrchestrator:
                 )
             session.commit()
             task_id = task.task_id
+            should_resume = task.status not in {
+                TaskStatus.FAILED,
+                TaskStatus.COMPLETED,
+                TaskStatus.NEEDS_REVISION,
+            }
+
+        if not should_resume:
+            return task
 
         return self._resume_runtime_interrupt(
             task_id=task_id,
             execution_id=execution_id,
             runtime_event_id=runtime_event_id,
         )
+
+    def fail_runtime_execution(
+        self,
+        *,
+        execution_id: str,
+        runtime_event_id: str,
+        terminal_status: str,
+        error: str,
+        runtime_job_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+    ) -> Task:
+        """Persist one terminal Runtime failure without resuming the graph."""
+
+        with self._execution_lock, self.database.session() as session:
+            execution = session.scalar(
+                select(RuntimeExecution).where(
+                    RuntimeExecution.execution_id == execution_id
+                )
+            )
+            if execution is None:
+                raise LookupError(f"execution '{execution_id}' does not exist")
+            assignment = session.get(Assignment, execution.assignment_id)
+            if assignment is None:
+                raise LookupError(
+                    f"assignment '{execution.assignment_id}' does not exist"
+                )
+            task = session.get(Task, assignment.task_id)
+            if task is None:
+                raise LookupError(f"task '{assignment.task_id}' does not exist")
+
+            if execution.status == RuntimeExecutionStatus.FAILED:
+                if execution.runtime_event_id != runtime_event_id:
+                    raise ValueError(
+                        "execution already failed with another Runtime event"
+                    )
+                return task
+            if execution.status != RuntimeExecutionStatus.WAITING:
+                raise ValueError(
+                    f"cannot fail execution in state '{execution.status}'"
+                )
+
+            failed_at = utc_now()
+            execution.status = RuntimeExecutionStatus.FAILED
+            execution.runtime_event_id = runtime_event_id
+            execution.runtime_job_id = runtime_job_id or execution.runtime_job_id
+            execution.thread_id = thread_id or execution.thread_id
+            execution.turn_id = turn_id or execution.turn_id
+            execution.completed_at = failed_at
+            assignment.status = AssignmentStatus.FAILED
+            assignment.completed_at = failed_at
+            task.status = TaskStatus.FAILED
+            task.result_summary = None
+            task.completed_at = None
+            task.updated_at = failed_at
+            append_task_event(
+                session,
+                task=task,
+                event_type="runtime.execution_failed",
+                aggregate_type="runtime_execution",
+                aggregate_id=execution.runtime_execution_id,
+                assignment_id=assignment.assignment_id,
+                runtime_execution_id=execution.runtime_execution_id,
+                source=f"runtime.{execution.provider}",
+                payload={
+                    "execution_id": execution.execution_id,
+                    "runtime_event_id": runtime_event_id,
+                    "runtime_job_id": execution.runtime_job_id,
+                    "thread_id": execution.thread_id,
+                    "turn_id": execution.turn_id,
+                    "terminal_status": terminal_status,
+                    "status": RuntimeExecutionStatus.FAILED,
+                    "error": error[:1000],
+                },
+            )
+            append_task_event(
+                session,
+                task=task,
+                event_type="assignment.status_changed",
+                aggregate_type="assignment",
+                aggregate_id=assignment.assignment_id,
+                assignment_id=assignment.assignment_id,
+                source="langgraph",
+                payload={
+                    "status": AssignmentStatus.FAILED,
+                    "reason": "runtime_terminal_failure",
+                },
+            )
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.failed",
+                aggregate_type="task",
+                aggregate_id=task.task_id,
+                source="langgraph",
+                payload={
+                    "status": TaskStatus.FAILED,
+                    "reason": "runtime_terminal_failure",
+                    "execution_id": execution.execution_id,
+                },
+            )
+            session.commit()
+            session.refresh(task)
+            return task
 
     def record_runtime_watch_error(
         self,
@@ -374,6 +578,11 @@ class TaskOrchestrator:
             assignment = session.get(Assignment, assignment_id)
             if task is None or assignment is None:
                 raise LookupError("lead review records are unavailable")
+            execution = assignment.runtime_execution
+            if execution is None:
+                raise LookupError("lead review execution is unavailable")
+            assignment.status = AssignmentStatus.FAILED
+            assignment.completed_at = utc_now()
             task.status = TaskStatus.FAILED
             task.updated_at = utc_now()
             append_task_event(
@@ -385,6 +594,19 @@ class TaskOrchestrator:
                 assignment_id=assignment.assignment_id,
                 source="langgraph",
                 payload={"error": error[:1000]},
+            )
+            append_task_event(
+                session,
+                task=task,
+                event_type="assignment.status_changed",
+                aggregate_type="assignment",
+                aggregate_id=assignment.assignment_id,
+                assignment_id=assignment.assignment_id,
+                source="langgraph",
+                payload={
+                    "status": AssignmentStatus.FAILED,
+                    "reason": "invalid_lead_review",
+                },
             )
             append_task_event(
                 session,
@@ -422,6 +644,8 @@ class TaskOrchestrator:
                     "role_key": assignment.agent_role_key,
                     "summary": execution.result_summary or "",
                 }
+            if execution.status == RuntimeExecutionStatus.FAILED:
+                self._interrupt_for_runtime_retry(task, assignment, execution)
             if execution.status == RuntimeExecutionStatus.WAITING:
                 self._interrupt_for_runtime(task, assignment, execution)
 
@@ -653,6 +877,25 @@ class TaskOrchestrator:
             f"execution '{execution.execution_id}' resumed before completion"
         )
 
+    @staticmethod
+    def _interrupt_for_runtime_retry(
+        task: Task,
+        assignment: Assignment,
+        execution: RuntimeExecution,
+    ) -> None:
+        interrupt(
+            {
+                "kind": "runtime.retry_required",
+                "task_id": task.task_id,
+                "assignment_id": assignment.assignment_id,
+                "execution_id": execution.execution_id,
+                "runtime_execution_id": execution.runtime_execution_id,
+            }
+        )
+        raise RuntimeError(
+            f"execution '{execution.execution_id}' resumed before retry"
+        )
+
     def _resume_runtime_interrupt(
         self,
         *,
@@ -661,6 +904,17 @@ class TaskOrchestrator:
         runtime_event_id: str,
     ) -> Task:
         with self._graph_resume_lock:
+            with self.database.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise LookupError(f"task '{task_id}' does not exist")
+                if task.status in {
+                    TaskStatus.FAILED,
+                    TaskStatus.COMPLETED,
+                    TaskStatus.NEEDS_REVISION,
+                }:
+                    return task
+
             checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
             config = {"configurable": {"thread_id": task_id}}
             with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:

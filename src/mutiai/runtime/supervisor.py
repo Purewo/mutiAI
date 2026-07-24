@@ -6,8 +6,7 @@ import logging
 from threading import RLock, Thread
 from typing import Protocol
 
-from mutiai.runtime.codex import CodexRuntimeAdapter
-
+from mutiai.runtime.codex import CodexRuntimeAdapter, CodexTurnFailedError
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,18 @@ class RuntimeCompletionSink(Protocol):
         summary: str,
         runtime_job_id: str | None = None,
         last_event_position: str | None = None,
+    ) -> object: ...
+
+    def fail_runtime_execution(
+        self,
+        *,
+        execution_id: str,
+        runtime_event_id: str,
+        terminal_status: str,
+        error: str,
+        runtime_job_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
     ) -> object: ...
 
     def record_runtime_watch_error(
@@ -43,7 +54,7 @@ class CodexRuntimeSupervisor:
     ) -> None:
         self.adapter = adapter
         self.orchestrator = orchestrator
-        self._threads: dict[str, Thread] = {}
+        self._threads: dict[str, tuple[str | None, Thread]] = {}
         self._errors: dict[str, str] = {}
         self._lock = RLock()
         self._closed = False
@@ -54,18 +65,20 @@ class CodexRuntimeSupervisor:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Codex Runtime supervisor is closed")
+            active_turn_id = self.adapter.active_turn_id(execution_id)
             existing = self._threads.get(execution_id)
             if existing is not None:
-                # Keep the completed worker marker so a late duplicate event
-                # cannot start a second waiter for an already closed execution.
-                return
+                watched_turn_id, _ = existing
+                if active_turn_id is None or watched_turn_id == active_turn_id:
+                    return
+            self._errors.pop(execution_id, None)
             worker = Thread(
                 target=self._wait_and_resume,
-                args=(execution_id,),
+                args=(execution_id, active_turn_id),
                 name=f"mutiai-codex-runtime-{execution_id}",
                 daemon=True,
             )
-            self._threads[execution_id] = worker
+            self._threads[execution_id] = (active_turn_id, worker)
             worker.start()
 
     def error_for(self, execution_id: str) -> str | None:
@@ -81,14 +94,21 @@ class CodexRuntimeSupervisor:
             if self._closed:
                 return
             self._closed = True
-            workers = list(self._threads.values())
+            workers = [worker for _, worker in self._threads.values()]
         self.adapter.close()
         for worker in workers:
             worker.join(timeout=2)
 
-    def _wait_and_resume(self, execution_id: str) -> None:
+    def _wait_and_resume(
+        self,
+        execution_id: str,
+        expected_turn_id: str | None,
+    ) -> None:
         try:
-            completion = self.adapter.wait_for_completion(execution_id)
+            completion = self.adapter.wait_for_completion(
+                execution_id,
+                expected_turn_id=expected_turn_id,
+            )
             summary = completion.result.summary
             if not summary:
                 raise RuntimeError("Codex completion did not contain a summary")
@@ -99,7 +119,40 @@ class CodexRuntimeSupervisor:
                 runtime_job_id=completion.result.runtime_job_id,
                 last_event_position=completion.result.last_event_position,
             )
-        except Exception as exc:
+        except CodexTurnFailedError as exc:
+            message = str(exc)[:1000]
+            with self._lock:
+                self._errors[execution_id] = message
+            self.adapter.close_execution(
+                execution_id,
+                expected_turn_id=exc.turn_id,
+            )
+            try:
+                self.orchestrator.fail_runtime_execution(
+                    execution_id=execution_id,
+                    runtime_event_id=exc.runtime_event_id,
+                    terminal_status=exc.status,
+                    error=message,
+                    runtime_job_id=exc.turn_id,
+                    thread_id=exc.thread_id,
+                    turn_id=exc.turn_id,
+                )
+            except Exception:
+                logger.exception(
+                    "failed to persist terminal Codex Runtime failure",
+                    extra={"execution_id": execution_id},
+                )
+                try:
+                    self.orchestrator.record_runtime_watch_error(
+                        execution_id=execution_id,
+                        error=message,
+                    )
+                except Exception:
+                    logger.exception(
+                        "failed to persist Codex Runtime failure fallback",
+                        extra={"execution_id": execution_id},
+                    )
+        except Exception as exc:  # noqa: BLE001 - supervisor boundary
             message = str(exc)[:1000]
             with self._lock:
                 self._errors[execution_id] = message
@@ -116,4 +169,7 @@ class CodexRuntimeSupervisor:
                     extra={"execution_id": execution_id},
                 )
         finally:
-            self.adapter.close_execution(execution_id)
+            self.adapter.close_execution(
+                execution_id,
+                expected_turn_id=expected_turn_id,
+            )

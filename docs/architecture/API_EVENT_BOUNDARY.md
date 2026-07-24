@@ -40,6 +40,7 @@ During the M1 walking skeleton, the proposal route accepts an already structured
 
 - `POST /api/v1/organizations/{organization_id}/tasks`: create a task for a published organization.
 - `GET /api/v1/tasks/{task_id}`: return current task, assignment, Runtime summary, and result summary.
+- `POST /api/v1/tasks/{task_id}/retry`: explicitly retry failed Assignments without replaying completed siblings.
 - `POST /api/v1/tasks/{task_id}/cancel`: request cancellation.
 - `GET /api/v1/tasks/{task_id}/events`: stream normalized task events through SSE.
 
@@ -92,6 +93,8 @@ The first implementation may need these event types:
 - `runtime.execution_waiting`
 - `runtime.execution_completed`
 - `runtime.execution_failed`
+- `runtime.execution_retry_requested`
+- `task.retry_requested`
 - `artifact.created`
 - `task.completed`
 - `task.failed`

@@ -18,8 +18,8 @@ from mutiai.api.schemas.tasks import (
     TaskResponse,
 )
 from mutiai.models import ProductEvent, Task
+from mutiai.models.task import TaskStatus
 from mutiai.services.tasks import create_task, get_owned_task
-
 
 router = APIRouter(tags=["tasks"])
 ERROR_RESPONSES = {
@@ -89,6 +89,32 @@ def get_task(
         owner_user_id=user.user_id,
     )
     return TaskResponse.from_record(task)
+
+
+@router.post(
+    "/tasks/{task_id}/retry",
+    response_model=TaskResponse,
+    responses=ERROR_RESPONSES,
+)
+def retry_failed_task(
+    task_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    orchestrator: TaskRunner,
+) -> TaskResponse:
+    task = get_owned_task(
+        session,
+        task_id=task_id,
+        owner_user_id=user.user_id,
+    )
+    if task.status != TaskStatus.FAILED:
+        raise ApiError(
+            409,
+            "TASK_NOT_RETRYABLE",
+            "Only a failed task can be retried.",
+        )
+    orchestrator.retry(task_id)
+    return load_task_response(session, task_id)
 
 
 @router.get(

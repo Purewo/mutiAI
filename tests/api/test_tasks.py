@@ -293,11 +293,18 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
         assert adapter.call_count(execution_by_role["backend"]) == 1
         assert adapter.call_count(execution_by_role["test"]) == 1
 
-        resumed = client.post(
+        replay = client.post(
             task_url,
             headers={"Idempotency-Key": "retry-task"},
             json={"request": "Verify pending writes recovery."},
         )
+
+        assert replay.status_code == 200
+        assert replay.json()["status"] == "failed"
+        assert adapter.call_count(execution_by_role["backend"]) == 1
+        assert adapter.call_count(execution_by_role["test"]) == 1
+
+        resumed = client.post(f"/api/v1/tasks/{task.task_id}/retry")
 
         assert resumed.status_code == 200
         assert resumed.json()["status"] == "completed"
@@ -309,10 +316,36 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
             client.get(f"/api/v1/tasks/{resumed.json()['task_id']}/events")
         )
         assert "runtime.execution_failed" in {event["event_type"] for event in events}
+        assert "runtime.execution_retry_requested" in {
+            event["event_type"] for event in events
+        }
+        assert "task.retry_requested" in {event["event_type"] for event in events}
         assert events[-1]["event_type"] == "task.completed"
         assert [event["sequence"] for event in events] == list(
             range(1, len(events) + 1)
         )
+
+
+def test_retry_rejects_non_failed_task(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "completed-task-retry"},
+            json={"request": "Complete before retry is requested."},
+        )
+
+        assert submitted.status_code == 201
+        assert submitted.json()["status"] == "completed"
+        rejected = client.post(
+            f"/api/v1/tasks/{submitted.json()['task_id']}/retry"
+        )
+        assert rejected.status_code == 409
+        assert rejected.json()["code"] == "TASK_NOT_RETRYABLE"
 
 
 def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None:

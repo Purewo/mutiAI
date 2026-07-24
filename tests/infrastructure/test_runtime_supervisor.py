@@ -8,10 +8,10 @@ import pytest
 from mutiai.runtime import (
     CodexRuntimeAdapter,
     CodexRuntimeSupervisor,
+    CodexTurnFailedError,
     RuntimeWorkspaceBinding,
     WorkspaceManager,
 )
-
 
 FAKE_APP_SERVER = (
     Path(__file__).resolve().parents[1] / "support" / "fake_codex_app_server.py"
@@ -21,8 +21,10 @@ FAKE_APP_SERVER = (
 class RecordingOrchestrator:
     def __init__(self) -> None:
         self.completions: list[dict] = []
+        self.failures: list[dict] = []
         self.errors: list[dict] = []
         self.completion_recorded = Event()
+        self.failure_recorded = Event()
         self.error_recorded = Event()
         self._lock = Lock()
 
@@ -30,6 +32,11 @@ class RecordingOrchestrator:
         with self._lock:
             self.completions.append(payload)
         self.completion_recorded.set()
+
+    def fail_runtime_execution(self, **payload) -> None:
+        with self._lock:
+            self.failures.append(payload)
+        self.failure_recorded.set()
 
     def record_runtime_watch_error(self, **payload) -> None:
         with self._lock:
@@ -67,6 +74,8 @@ def wait_until_execution_closed(
             adapter.wait_for_completion(execution_id)
         except LookupError:
             return
+        except CodexTurnFailedError:
+            pass
         time.sleep(0.01)
     raise AssertionError(f"execution '{execution_id}' App Server was not closed")
 
@@ -118,5 +127,38 @@ def test_supervisor_keeps_worker_error_queryable_and_deduplicated(tmp_path) -> N
         time.sleep(0.05)
         assert len(orchestrator.errors) == 1
         assert orchestrator.errors[0]["execution_id"] == execution_id
+    finally:
+        supervisor.close()
+
+
+def test_supervisor_delivers_terminal_turn_failure_once(tmp_path) -> None:
+    adapter = build_adapter(tmp_path)
+    orchestrator = RecordingOrchestrator()
+    supervisor = CodexRuntimeSupervisor(adapter, orchestrator)
+    execution_id = "execution-terminal-failure"
+
+    try:
+        waiting = adapter.execute(
+            execution_id=execution_id,
+            role_key="backend",
+            instructions="Implement backend behavior: fail-runtime-once",
+        )
+        supervisor.watch(execution_id)
+        supervisor.watch(execution_id)
+
+        assert orchestrator.failure_recorded.wait(timeout=5)
+        wait_until_execution_closed(adapter, execution_id)
+        supervisor.watch(execution_id)
+        time.sleep(0.05)
+
+        assert len(orchestrator.failures) == 1
+        failure = orchestrator.failures[0]
+        assert failure["execution_id"] == execution_id
+        assert failure["terminal_status"] == "failed"
+        assert failure["thread_id"] == waiting.thread_id
+        assert failure["turn_id"] == waiting.turn_id
+        assert failure["runtime_event_id"].endswith(":failed")
+        assert "simulated terminal Turn failure" in failure["error"]
+        assert orchestrator.errors == []
     finally:
         supervisor.close()

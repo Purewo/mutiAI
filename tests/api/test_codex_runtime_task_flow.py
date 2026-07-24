@@ -85,16 +85,31 @@ def wait_for_completed_task(
     *,
     timeout: float = 5,
 ) -> dict:
+    return wait_for_task_status(
+        client,
+        task_id,
+        statuses={"completed"},
+        timeout=timeout,
+    )
+
+
+def wait_for_task_status(
+    client: TestClient,
+    task_id: str,
+    *,
+    statuses: set[str],
+    timeout: float = 5,
+) -> dict:
     deadline = time.monotonic() + timeout
     last_payload = None
     while time.monotonic() < deadline:
         response = client.get(f"/api/v1/tasks/{task_id}")
         assert response.status_code == 200
         last_payload = response.json()
-        if last_payload["status"] == "completed":
+        if last_payload["status"] in statuses:
             return last_payload
         time.sleep(0.01)
-    raise AssertionError(f"task did not complete: {last_payload}")
+    raise AssertionError(f"task did not reach {statuses}: {last_payload}")
 
 
 def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) -> None:
@@ -227,5 +242,93 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 )
                 == 6
             )
+    finally:
+        adapter.close()
+
+
+def test_codex_terminal_failure_can_retry_same_thread_without_replaying_success(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'codex-retry.db'}",
+        langgraph_checkpoint_path=tmp_path / "retry-checkpoints.db",
+        runtime_workspace_root=tmp_path / "managed-retry-runtime",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+    manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+    provisioner = WorkspaceProvisioner(manager)
+    codex_home = provisioner.ensure_codex_home()
+
+    def unexpected_resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+        raise AssertionError(f"resolver should not be used for {execution_id}")
+
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=unexpected_resolver,
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    try:
+        with TestClient(app) as client:
+            login(client)
+            organization_id = publish_organization(client)
+            submitted = client.post(
+                f"/api/v1/organizations/{organization_id}/tasks",
+                headers={"Idempotency-Key": "codex-terminal-retry"},
+                json={"request": "fail-runtime-once, then complete on retry."},
+            )
+            assert submitted.status_code == 201
+            task_id = submitted.json()["task_id"]
+            failed = wait_for_task_status(
+                client,
+                task_id,
+                statuses={"failed"},
+            )
+            failed_by_role = {
+                item["agent_role_key"]: item for item in failed["assignments"]
+            }
+            assert failed_by_role["backend"]["status"] == "failed"
+            failed_backend_runtime = failed_by_role["backend"]["runtime_execution"]
+            first_thread_id = failed_backend_runtime["thread_id"]
+            first_turn_id = failed_backend_runtime["turn_id"]
+            first_workspace_id = failed_backend_runtime["workspace_id"]
+            assert first_thread_id and first_turn_id and first_workspace_id
+
+            retried = client.post(f"/api/v1/tasks/{task_id}/retry")
+            assert retried.status_code == 200
+            assert retried.json()["status"] in {"running", "waiting", "completed"}
+            completed = wait_for_completed_task(client, task_id)
+            completed_by_role = {
+                item["agent_role_key"]: item
+                for item in completed["assignments"]
+            }
+            assert set(completed_by_role) == {"backend", "lead", "test"}
+            retried_backend = completed_by_role["backend"]["runtime_execution"]
+            assert retried_backend["thread_id"] == first_thread_id
+            assert retried_backend["workspace_id"] == first_workspace_id
+            assert retried_backend["turn_id"] != first_turn_id
+            assert all(
+                app.state.runtime_supervisor.error_for(item["execution_id"])
+                is None
+                for item in completed_by_role.values()
+            )
+
+            events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+            assert events_response.status_code == 200
+            event_types = [
+                line.removeprefix("event: ")
+                for line in events_response.text.splitlines()
+                if line.startswith("event: ")
+            ]
+            assert event_types.count("runtime.execution_failed") == 1
+            assert event_types.count("runtime.execution_retry_requested") == 1
+            assert event_types.count("task.retry_requested") == 1
+            assert "runtime.execution_watch_failed" not in event_types
+            assert event_types[-1] == "task.completed"
     finally:
         adapter.close()

@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import uuid
+from pathlib import Path
 
 run_id = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
 thread = {"id": f"thread-test-{run_id}", "status": {"type": "idle"}}
@@ -85,6 +86,39 @@ for line in sys.stdin:
         )
     elif method == "turn/start":
         thread_id = message["params"]["threadId"]
+        input_items = message["params"].get("input", [])
+        instructions = "\n".join(
+            item.get("text", "")
+            for item in input_items
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+        failure_marker = Path.cwd() / ".fake-codex-terminal-failure-seen"
+        should_fail_once = (
+            "fail-runtime-once" in instructions
+            and "Implement backend behavior" in instructions
+            and not failure_marker.exists()
+        )
+        if should_fail_once:
+            failure_marker.write_text("failed", encoding="utf-8")
+            send({"id": message["id"], "result": {"turn": turn}})
+            send(
+                {
+                    "method": "turn/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turn": {
+                            "id": turn["id"],
+                            "status": "failed",
+                            "items": [],
+                            "error": {
+                                "message": "simulated terminal Turn failure",
+                                "codexErrorInfo": "test_failure",
+                            },
+                        },
+                    },
+                }
+            )
+            continue
         output_schema = message["params"].get("outputSchema")
         is_lead_review = (
             isinstance(output_schema, dict)
