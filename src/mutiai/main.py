@@ -15,7 +15,12 @@ from mutiai.config import Settings, get_settings
 from mutiai.db import Database
 from mutiai.migrations import upgrade_database
 from mutiai.orchestration import TaskOrchestrator
-from mutiai.runtime import AgentRuntimeAdapter, WorkspaceManager
+from mutiai.runtime import (
+    AgentRuntimeAdapter,
+    CodexRuntimeAdapter,
+    CodexRuntimeSupervisor,
+    WorkspaceManager,
+)
 from mutiai.services.workspaces import WorkspaceProvisioner
 
 
@@ -35,6 +40,13 @@ def create_app(
         runtime_adapter,
         workspace_provisioner,
     )
+    runtime_supervisor = (
+        CodexRuntimeSupervisor(runtime_adapter, task_orchestrator)
+        if isinstance(runtime_adapter, CodexRuntimeAdapter)
+        else None
+    )
+    if runtime_supervisor is not None:
+        task_orchestrator.set_runtime_watch(runtime_supervisor.watch)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -49,6 +61,8 @@ def create_app(
         try:
             yield
         finally:
+            if runtime_supervisor is not None:
+                runtime_supervisor.close()
             database.dispose()
 
     app = FastAPI(
@@ -64,6 +78,7 @@ def create_app(
     app.state.task_orchestrator = task_orchestrator
     app.state.workspace_manager = workspace_manager
     app.state.workspace_provisioner = workspace_provisioner
+    app.state.runtime_supervisor = runtime_supervisor
     install_error_handlers(app)
 
     @app.middleware("http")

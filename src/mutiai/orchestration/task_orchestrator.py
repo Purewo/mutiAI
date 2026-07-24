@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from threading import RLock
 
@@ -44,9 +45,17 @@ class TaskOrchestrator:
         self.settings = settings
         self.runtime_adapter = runtime_adapter or FakeRuntimeAdapter()
         self.workspace_provisioner = workspace_provisioner
+        self._runtime_watch: Callable[[str], None] | None = None
         self._execution_lock = RLock()
+        self._graph_resume_lock = RLock()
+
+    def set_runtime_watch(self, watch: Callable[[str], None]) -> None:
+        """Register the post-checkpoint Runtime completion watcher."""
+
+        self._runtime_watch = watch
 
     def run(self, task_id: str) -> Task:
+        waiting_task: Task | None = None
         with self.database.session() as session:
             task = session.get(Task, task_id)
             if task is None:
@@ -54,31 +63,39 @@ class TaskOrchestrator:
             if task.status == TaskStatus.COMPLETED:
                 return task
             if task.status == TaskStatus.WAITING:
-                return task
-            assignments = prepare_assignments(
-                session,
-                task=task,
-                runtime_provider=self.runtime_adapter.provider,
-            )
-            if task.status == TaskStatus.FAILED:
-                task.status = TaskStatus.RUNNING
-                task.updated_at = utc_now()
-                append_task_event(
+                waiting_task = task
+            else:
+                assignments = prepare_assignments(
                     session,
                     task=task,
-                    event_type="task.status_changed",
-                    aggregate_type="task",
-                    aggregate_id=task.task_id,
-                    source="langgraph",
-                    payload={"status": TaskStatus.RUNNING, "reason": "retry"},
+                    runtime_provider=self.runtime_adapter.provider,
                 )
-                session.commit()
-            initial_state: TaskGraphState = {
-                "task_id": task.task_id,
-                "assignments": [self._work(assignment) for assignment in assignments],
-                "results": [],
-                "summary": "",
-            }
+                if task.status == TaskStatus.FAILED:
+                    task.status = TaskStatus.RUNNING
+                    task.updated_at = utc_now()
+                    append_task_event(
+                        session,
+                        task=task,
+                        event_type="task.status_changed",
+                        aggregate_type="task",
+                        aggregate_id=task.task_id,
+                        source="langgraph",
+                        payload={"status": TaskStatus.RUNNING, "reason": "retry"},
+                    )
+                    session.commit()
+                initial_state: TaskGraphState = {
+                    "task_id": task.task_id,
+                    "assignments": [
+                        self._work(assignment) for assignment in assignments
+                    ],
+                    "results": [],
+                    "summary": "",
+                }
+
+        if waiting_task is not None:
+            # Start workers only after the waiting state is durably checkpointed.
+            self._watch_waiting_executions(waiting_task.task_id)
+            return waiting_task
 
         checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,12 +117,34 @@ class TaskOrchestrator:
             if task is None:
                 raise LookupError(f"task '{task_id}' does not exist")
             if task.status == TaskStatus.WAITING:
-                return task
+                waiting_task = task
+            else:
+                waiting_task = None
+
+        if waiting_task is not None:
+            # This is the first transition into waiting for a new graph run.
+            self._watch_waiting_executions(task_id)
+            return waiting_task
 
         summary = result.get("summary")
         if not summary:
             raise RuntimeError(f"task '{task_id}' graph completed without a summary")
         return self._complete_task(task_id, summary)
+
+    def _watch_waiting_executions(self, task_id: str) -> None:
+        if self._runtime_watch is None:
+            return
+        with self.database.session() as session:
+            execution_ids = session.scalars(
+                select(RuntimeExecution.execution_id)
+                .join(Assignment)
+                .where(
+                    Assignment.task_id == task_id,
+                    RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
+                )
+            ).all()
+        for execution_id in execution_ids:
+            self._runtime_watch(execution_id)
 
     def complete_runtime_execution(
         self,
@@ -189,14 +228,56 @@ class TaskOrchestrator:
                             "summary": summary,
                         },
                     )
-                    session.commit()
-                    task_id = task.task_id
+                session.commit()
+                task_id = task.task_id
 
         return self._resume_runtime_interrupt(
             task_id=task_id,
             execution_id=execution_id,
             runtime_event_id=runtime_event_id,
         )
+
+    def record_runtime_watch_error(
+        self,
+        *,
+        execution_id: str,
+        error: str,
+    ) -> None:
+        """Persist a supervisor error without copying Runtime internals to State."""
+
+        with self._execution_lock:
+            with self.database.session() as session:
+                execution = session.scalar(
+                    select(RuntimeExecution).where(
+                        RuntimeExecution.execution_id == execution_id
+                    )
+                )
+                if execution is None:
+                    raise LookupError(f"execution '{execution_id}' does not exist")
+                assignment = session.get(Assignment, execution.assignment_id)
+                if assignment is None:
+                    raise LookupError(
+                        f"assignment '{execution.assignment_id}' does not exist"
+                    )
+                task = session.get(Task, assignment.task_id)
+                if task is None:
+                    raise LookupError(f"task '{assignment.task_id}' does not exist")
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="runtime.execution_watch_failed",
+                    aggregate_type="runtime_execution",
+                    aggregate_id=execution.runtime_execution_id,
+                    assignment_id=assignment.assignment_id,
+                    runtime_execution_id=execution.runtime_execution_id,
+                    source="runtime.supervisor",
+                    payload={
+                        "execution_id": execution.execution_id,
+                        "status": execution.status,
+                        "error": error[:1000],
+                    },
+                )
+                session.commit()
 
     @staticmethod
     def _work(assignment: Assignment) -> AssignmentWork:
@@ -467,55 +548,56 @@ class TaskOrchestrator:
         execution_id: str,
         runtime_event_id: str,
     ) -> Task:
-        checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
-        config = {"configurable": {"thread_id": task_id}}
-        with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
-            graph = build_task_graph(self._execute_assignment).compile(
-                checkpointer=saver
-            )
-            snapshot = graph.get_state(config)
-            matching_interrupts = [
-                item
-                for item in snapshot.interrupts
-                if isinstance(item.value, dict)
-                and item.value.get("execution_id") == execution_id
-            ]
-            if matching_interrupts:
-                resume_payload = {
-                    item.id: {
-                        "runtime_event_id": runtime_event_id,
-                        "execution_id": execution_id,
+        with self._graph_resume_lock:
+            checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
+            config = {"configurable": {"thread_id": task_id}}
+            with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
+                graph = build_task_graph(self._execute_assignment).compile(
+                    checkpointer=saver
+                )
+                snapshot = graph.get_state(config)
+                matching_interrupts = [
+                    item
+                    for item in snapshot.interrupts
+                    if isinstance(item.value, dict)
+                    and item.value.get("execution_id") == execution_id
+                ]
+                if matching_interrupts:
+                    resume_payload = {
+                        item.id: {
+                            "runtime_event_id": runtime_event_id,
+                            "execution_id": execution_id,
+                        }
+                        for item in matching_interrupts
                     }
-                    for item in matching_interrupts
-                }
-                result = graph.invoke(
-                    Command(resume=resume_payload),
-                    config=config,
-                )
-            elif snapshot.values and snapshot.values.get("summary"):
-                result = snapshot.values
-            elif snapshot.interrupts:
-                result = None
-            else:
-                raise RuntimeError(
-                    f"task '{task_id}' has no matching Runtime interrupt"
-                )
+                    result = graph.invoke(
+                        Command(resume=resume_payload),
+                        config=config,
+                    )
+                elif snapshot.values and snapshot.values.get("summary"):
+                    result = snapshot.values
+                elif snapshot.interrupts:
+                    result = None
+                else:
+                    raise RuntimeError(
+                        f"task '{task_id}' has no matching Runtime interrupt"
+                    )
 
-            remaining_interrupts = graph.get_state(config).interrupts
+                remaining_interrupts = graph.get_state(config).interrupts
 
-        with self.database.session() as session:
-            task = session.get(Task, task_id)
-            if task is None:
-                raise LookupError(f"task '{task_id}' does not exist")
-            if remaining_interrupts:
-                return task
+            with self.database.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise LookupError(f"task '{task_id}' does not exist")
+                if remaining_interrupts:
+                    return task
 
-        if result is None:
-            raise RuntimeError(f"task '{task_id}' resumed without a result")
-        summary = result.get("summary")
-        if not summary:
-            raise RuntimeError(f"task '{task_id}' resumed without a summary")
-        return self._complete_task(task_id, summary)
+            if result is None:
+                raise RuntimeError(f"task '{task_id}' resumed without a result")
+            summary = result.get("summary")
+            if not summary:
+                raise RuntimeError(f"task '{task_id}' resumed without a summary")
+            return self._complete_task(task_id, summary)
 
     def _complete_task(self, task_id: str, summary: str) -> Task:
         with self.database.session() as session:

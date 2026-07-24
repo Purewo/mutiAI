@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import time
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -79,6 +80,24 @@ def publish_organization(client: TestClient) -> str:
     return version["organization_id"]
 
 
+def wait_for_completed_task(
+    client: TestClient,
+    task_id: str,
+    *,
+    timeout: float = 5,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    last_payload = None
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/v1/tasks/{task_id}")
+        assert response.status_code == 200
+        last_payload = response.json()
+        if last_payload["status"] == "completed":
+            return last_payload
+        time.sleep(0.01)
+    raise AssertionError(f"task did not complete: {last_payload}")
+
+
 def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) -> None:
     settings = Settings(
         app_env="test",
@@ -115,13 +134,13 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
             )
             assert submitted.status_code == 201
             payload = submitted.json()
-            assert payload["status"] == "waiting"
+            assert payload["status"] in {"waiting", "completed"}
             assignments = {
                 item["agent_role_key"]: item for item in payload["assignments"]
             }
             assert set(assignments) == {"backend", "test"}
             assert all(
-                item["runtime_execution"]["status"] == "waiting"
+                item["runtime_execution"]["status"] in {"waiting", "completed"}
                 and item["runtime_execution"]["thread_id"]
                 and item["runtime_execution"]["turn_id"]
                 and item["runtime_execution"]["workspace_id"]
@@ -140,30 +159,15 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 for role_key, item in assignments.items()
             }
 
-            for role_key in ("backend", "test"):
-                assignment = assignments[role_key]
-                completion = adapter.wait_for_completion(assignment["execution_id"])
-                resumed = app.state.task_orchestrator.complete_runtime_execution(
-                    execution_id=assignment["execution_id"],
-                    runtime_event_id=completion.runtime_event_id,
-                    summary=completion.result.summary or "",
-                    runtime_job_id=completion.result.runtime_job_id,
-                )
-                if role_key == "backend":
-                    assert resumed.status == "waiting"
-                else:
-                    assert resumed.status == "completed"
-
-            task = client.get(f"/api/v1/tasks/{payload['task_id']}")
-            assert task.status_code == 200
-            assert task.json()["status"] == "completed"
+            task = wait_for_completed_task(client, payload["task_id"])
             assert (
-                task.json()["result_summary"].count("Delivered the bounded assignment.")
-                == 2
+                task["result_summary"].count("Delivered the bounded assignment.") == 2
             )
-
-            for assignment in assignments.values():
-                adapter.close_execution(assignment["execution_id"])
+            assert all(
+                app.state.runtime_supervisor.error_for(assignment["execution_id"])
+                is None
+                for assignment in assignments.values()
+            )
 
             second_submitted = client.post(
                 f"/api/v1/organizations/{organization_id}/tasks",
@@ -172,7 +176,7 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
             )
             assert second_submitted.status_code == 201
             second_payload = second_submitted.json()
-            assert second_payload["status"] == "waiting"
+            assert second_payload["status"] in {"waiting", "completed"}
             second_assignments = {
                 item["agent_role_key"]: item for item in second_payload["assignments"]
             }
@@ -182,19 +186,16 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 assert runtime["turn_id"] != first_turn_by_role[role_key]
                 assert runtime["workspace_id"] == first_workspace_by_role[role_key]
 
-            for role_key in ("backend", "test"):
-                assignment = second_assignments[role_key]
-                completion = adapter.wait_for_completion(assignment["execution_id"])
-                resumed = app.state.task_orchestrator.complete_runtime_execution(
-                    execution_id=assignment["execution_id"],
-                    runtime_event_id=completion.runtime_event_id,
-                    summary=completion.result.summary or "",
-                    runtime_job_id=completion.result.runtime_job_id,
-                )
-            assert resumed.status == "completed"
-            second_task = client.get(f"/api/v1/tasks/{second_payload['task_id']}")
-            assert second_task.status_code == 200
-            assert second_task.json()["status"] == "completed"
+            second_task = wait_for_completed_task(
+                client,
+                second_payload["task_id"],
+            )
+            assert second_task["status"] == "completed"
+            assert all(
+                app.state.runtime_supervisor.error_for(assignment["execution_id"])
+                is None
+                for assignment in second_assignments.values()
+            )
 
         with app.state.database.session() as session:
             assert session.scalar(select(func.count()).select_from(Workspace)) == 2

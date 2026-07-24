@@ -8,6 +8,7 @@ from mutiai.runtime.codex import (
 )
 from mutiai.runtime.codex_app_server import CodexAppServerError, CodexAppServerSession
 from mutiai.runtime.fake import FakeRuntimeAdapter
+from mutiai.runtime.supervisor import CodexRuntimeSupervisor
 from mutiai.runtime.workspaces import WorkspaceBoundaryError, WorkspaceManager
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "CodexAppServerSession",
     "CodexCompletion",
     "CodexRuntimeAdapter",
+    "CodexRuntimeSupervisor",
     "FakeRuntimeAdapter",
     "RuntimeResult",
     "RuntimeWorkspaceBinding",
