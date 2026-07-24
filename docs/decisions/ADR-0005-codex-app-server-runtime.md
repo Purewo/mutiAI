@@ -31,6 +31,8 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - The background Runtime supervisor waits outside LangGraph, delivers terminal results through the product completion boundary, serializes parallel checkpoint resumes, deduplicates workers, and closes each execution's App Server session.
 - A real relay-backed Turn completed from the isolated home and produced a file inside the managed workspace.
 - A real two-specialist product Task completed through the API, LangGraph wait/resume path, Runtime supervisor, product database, and role-specific managed Workspaces.
+- A real three-role product Task completed through specialist fan-out and a separate organization-lead review Turn. The lead returned a schema-constrained `accepted` decision, and a separate run returned `needs_revision` when specialist claims conflicted.
+- The local relay rejected an optional lead schema when its default-valued `issues` property was not listed as required. The product contract now requires every lead response property, matching the relay's `response_format` validation rules.
 - A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread. Cross-process resume therefore remains an M2 acceptance item.
 
 ## Current limitations
@@ -38,6 +40,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - The adapter is not the application default until approval routing and recovery controls are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
 - Product approval routing, cancellation, and reconnect supervision remain pending.
+- Runtime Turn failures still require an explicit retry/reconnect policy before production use. The current supervisor records the failure event and keeps detailed Runtime error context outside LangGraph state.
 - Custom-provider API-key authentication is verified through the isolated home. Production must move the credential source to a dedicated secret store or environment injection rather than copying a personal home.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.
 

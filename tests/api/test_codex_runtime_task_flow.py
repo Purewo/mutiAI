@@ -1,6 +1,6 @@
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -15,7 +15,6 @@ from mutiai.runtime import (
     WorkspaceManager,
 )
 from mutiai.services.workspaces import WorkspaceProvisioner
-
 
 FAKE_APP_SERVER = (
     Path(__file__).resolve().parents[1] / "support" / "fake_codex_app_server.py"
@@ -146,28 +145,30 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 and item["runtime_execution"]["workspace_id"]
                 for item in assignments.values()
             )
+            task = wait_for_completed_task(client, payload["task_id"])
+            assert task["result_summary"] == (
+                "The organization lead accepted the specialist deliveries."
+            )
+            final_assignments = {
+                item["agent_role_key"]: item for item in task["assignments"]
+            }
+            assert set(final_assignments) == {"backend", "lead", "test"}
+            assert all(
+                app.state.runtime_supervisor.error_for(assignment["execution_id"])
+                is None for assignment in final_assignments.values()
+            )
             first_thread_by_role = {
                 role_key: item["runtime_execution"]["thread_id"]
-                for role_key, item in assignments.items()
+                for role_key, item in final_assignments.items()
             }
             first_turn_by_role = {
                 role_key: item["runtime_execution"]["turn_id"]
-                for role_key, item in assignments.items()
+                for role_key, item in final_assignments.items()
             }
             first_workspace_by_role = {
                 role_key: item["runtime_execution"]["workspace_id"]
-                for role_key, item in assignments.items()
+                for role_key, item in final_assignments.items()
             }
-
-            task = wait_for_completed_task(client, payload["task_id"])
-            assert (
-                task["result_summary"].count("Delivered the bounded assignment.") == 2
-            )
-            assert all(
-                app.state.runtime_supervisor.error_for(assignment["execution_id"])
-                is None
-                for assignment in assignments.values()
-            )
 
             second_submitted = client.post(
                 f"/api/v1/organizations/{organization_id}/tasks",
@@ -191,6 +192,16 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 second_payload["task_id"],
             )
             assert second_task["status"] == "completed"
+            second_assignments = {
+                item["agent_role_key"]: item
+                for item in second_task["assignments"]
+            }
+            assert set(second_assignments) == {"backend", "lead", "test"}
+            for role_key, assignment in second_assignments.items():
+                runtime = assignment["runtime_execution"]
+                assert runtime["thread_id"] == first_thread_by_role[role_key]
+                assert runtime["turn_id"] != first_turn_by_role[role_key]
+                assert runtime["workspace_id"] == first_workspace_by_role[role_key]
             assert all(
                 app.state.runtime_supervisor.error_for(assignment["execution_id"])
                 is None
@@ -198,7 +209,7 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
             )
 
         with app.state.database.session() as session:
-            assert session.scalar(select(func.count()).select_from(Workspace)) == 2
+            assert session.scalar(select(func.count()).select_from(Workspace)) == 3
             workspaces = session.scalars(select(Workspace)).all()
             assert all(item.status == WorkspaceStatus.READY for item in workspaces)
             assert all(
@@ -206,7 +217,7 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 for item in workspaces
             )
             executions = session.scalars(select(RuntimeExecution)).all()
-            assert len(executions) == 4
+            assert len(executions) == 6
             assert all(item.workspace_id for item in executions)
             assert (
                 session.scalar(
@@ -214,7 +225,7 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                     .select_from(ProductEvent)
                     .where(ProductEvent.event_type == "runtime.execution_completed")
                 )
-                == 4
+                == 6
             )
     finally:
         adapter.close()

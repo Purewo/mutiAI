@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
@@ -137,19 +138,6 @@ def prepare_assignments(
         .where(Assignment.task_id == task.task_id)
         .order_by(Assignment.agent_role_key)
     ).all()
-    if existing:
-        return list(existing)
-
-    task.status = TaskStatus.PLANNING
-    append_task_event(
-        session,
-        task=task,
-        event_type="task.status_changed",
-        aggregate_type="task",
-        aggregate_id=task.task_id,
-        source="langgraph",
-        payload={"status": TaskStatus.PLANNING},
-    )
     version = session.get(
         OrganizationSpecVersion,
         task.organization_spec_version_id,
@@ -171,6 +159,28 @@ def prepare_assignments(
             "ORGANIZATION_HAS_NO_SPECIALISTS",
             "The organization has no specialist role available for this task.",
         )
+
+    specialist_keys = {role.role_key for role in specialists}
+    existing_specialists = [
+        assignment
+        for assignment in existing
+        if assignment.agent_role_key in specialist_keys
+    ]
+    if existing_specialists:
+        if len(existing_specialists) != len(specialists):
+            raise RuntimeError("task has an incomplete specialist assignment set")
+        return sorted(existing_specialists, key=lambda item: item.agent_role_key)
+
+    task.status = TaskStatus.PLANNING
+    append_task_event(
+        session,
+        task=task,
+        event_type="task.status_changed",
+        aggregate_type="task",
+        aggregate_id=task.task_id,
+        source="langgraph",
+        payload={"status": TaskStatus.PLANNING},
+    )
 
     assignments: list[Assignment] = []
     for role in specialists:
@@ -238,3 +248,135 @@ def prepare_assignments(
     )
     session.commit()
     return assignments
+
+
+def prepare_lead_review(
+    session: Session,
+    *,
+    task: Task,
+    specialist_results: Sequence[Mapping[str, str]],
+    runtime_provider: str,
+) -> Assignment:
+    """Create or return the durable organization-lead review assignment."""
+
+    version = session.get(
+        OrganizationSpecVersion,
+        task.organization_spec_version_id,
+    )
+    if version is None:
+        raise ApiError(
+            409,
+            "ORGANIZATION_VERSION_MISSING",
+            "The task organization version is unavailable.",
+        )
+    spec = OrganizationSpec.model_validate(version.spec_payload)
+    lead = next(role for role in spec.roles if role.is_lead)
+    specialist_keys = {role.role_key for role in spec.roles if not role.is_lead}
+    result_by_role: dict[str, dict[str, str]] = {}
+    for result in specialist_results:
+        role_key = result["role_key"]
+        if role_key in result_by_role:
+            raise RuntimeError(f"lead review contains duplicate role '{role_key}'")
+        result_by_role[role_key] = {
+            "assignment_id": result["assignment_id"],
+            "execution_id": result["execution_id"],
+            "role_key": role_key,
+            "summary": result["summary"],
+        }
+    if set(result_by_role) != specialist_keys:
+        raise RuntimeError("lead review does not contain every specialist result")
+
+    review_packet = {
+        "task_id": task.task_id,
+        "organization_spec_version_id": task.organization_spec_version_id,
+        "original_request": task.request_text,
+        "specialist_deliveries": [
+            result_by_role[role_key] for role_key in sorted(result_by_role)
+        ],
+    }
+    instructions = (
+        f"Act as the organization lead within this responsibility boundary: "
+        f"{lead.responsibility}\n\n"
+        "Review the original request and every specialist delivery below. "
+        "Do not invent missing work or silently fix a specialist's result. "
+        "Return decision='accepted' only when the combined delivery satisfies "
+        "the request. Otherwise return decision='needs_revision', explain the "
+        "issues, and provide a concise user-facing final_summary.\n\n"
+        f"Review packet:\n{json.dumps(review_packet, ensure_ascii=False, indent=2)}"
+    )
+    existing = session.scalar(
+        select(Assignment).where(
+            Assignment.task_id == task.task_id,
+            Assignment.agent_role_key == lead.role_key,
+        )
+    )
+    if existing is not None:
+        if existing.instructions != instructions:
+            raise RuntimeError("persisted lead review instructions do not match")
+        return existing
+
+    assignment = Assignment(
+        assignment_id=deterministic_assignment_id(task.task_id, lead.role_key),
+        task_id=task.task_id,
+        agent_role_key=lead.role_key,
+        instructions=instructions,
+        acceptance_criteria=(
+            "Return a structured accepted or needs_revision decision, issues, "
+            "and the final user-facing delivery summary."
+        ),
+        execution_id=deterministic_execution_id(task.task_id, lead.role_key),
+        status=AssignmentStatus.SUBMITTED,
+    )
+    runtime_execution = RuntimeExecution(
+        execution_id=assignment.execution_id,
+        assignment_id=assignment.assignment_id,
+        provider=runtime_provider,
+        status=RuntimeExecutionStatus.SUBMITTED,
+    )
+    session.add_all([assignment, runtime_execution])
+    session.flush()
+    append_task_event(
+        session,
+        task=task,
+        event_type="assignment.created",
+        aggregate_type="assignment",
+        aggregate_id=assignment.assignment_id,
+        assignment_id=assignment.assignment_id,
+        source="langgraph",
+        payload={
+            "agent_role_key": lead.role_key,
+            "assignment_kind": "lead_review",
+            "status": AssignmentStatus.SUBMITTED,
+        },
+    )
+    append_task_event(
+        session,
+        task=task,
+        event_type="lead.review_requested",
+        aggregate_type="assignment",
+        aggregate_id=assignment.assignment_id,
+        assignment_id=assignment.assignment_id,
+        source="langgraph",
+        payload={
+            "agent_role_key": lead.role_key,
+            "specialist_role_keys": sorted(result_by_role),
+        },
+    )
+    append_task_event(
+        session,
+        task=task,
+        event_type="runtime.execution_submitted",
+        aggregate_type="runtime_execution",
+        aggregate_id=runtime_execution.runtime_execution_id,
+        assignment_id=assignment.assignment_id,
+        runtime_execution_id=runtime_execution.runtime_execution_id,
+        source=f"runtime.{runtime_provider}",
+        payload={
+            "execution_id": assignment.execution_id,
+            "provider": runtime_provider,
+            "status": RuntimeExecutionStatus.SUBMITTED,
+        },
+    )
+    session.commit()
+    session.refresh(assignment)
+    return assignment

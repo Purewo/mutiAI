@@ -111,9 +111,10 @@ def test_task_idempotency_graph_fanout_events_and_restart(tmp_path) -> None:
         payload = first.json()
         task_id = payload["task_id"]
         assert payload["status"] == "completed"
-        assert len(payload["assignments"]) == 2
+        assert len(payload["assignments"]) == 3
         assert {item["agent_role_key"] for item in payload["assignments"]} == {
             "backend",
+            "lead",
             "test",
         }
         assert all(
@@ -161,12 +162,17 @@ def test_task_idempotency_graph_fanout_events_and_restart(tmp_path) -> None:
         assert events_response.status_code == 200
         assert events_response.headers["content-type"].startswith("text/event-stream")
         events = sse_payloads(events_response)
-        assert len(events) == 16
         assert [event["sequence"] for event in events] == list(
             range(1, len(events) + 1)
         )
         assert events[0]["event_type"] == "task.created"
         assert events[-1]["event_type"] == "task.completed"
+        assert "lead.review_requested" in {
+            event["event_type"] for event in events
+        }
+        assert "lead.review_completed" in {
+            event["event_type"] for event in events
+        }
 
         resumed_events = client.get(
             f"/api/v1/tasks/{task_id}/events",
@@ -182,9 +188,11 @@ def test_task_idempotency_graph_fanout_events_and_restart(tmp_path) -> None:
 
     with app.state.database.session() as session:
         assert session.scalar(select(func.count()).select_from(Task)) == 1
-        assert session.scalar(select(func.count()).select_from(Assignment)) == 2
-        assert session.scalar(select(func.count()).select_from(RuntimeExecution)) == 2
-        assert session.scalar(select(func.count()).select_from(ProductEvent)) == 16
+        assert session.scalar(select(func.count()).select_from(Assignment)) == 3
+        assert session.scalar(select(func.count()).select_from(RuntimeExecution)) == 3
+        event_count = session.scalar(select(func.count()).select_from(ProductEvent))
+        assert event_count is not None
+        assert event_count > 16
 
         task = session.get(Task, task_id)
         completion_event = session.scalar(
@@ -293,7 +301,7 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
 
         assert resumed.status_code == 200
         assert resumed.json()["status"] == "completed"
-        assert len(resumed.json()["assignments"]) == 2
+        assert len(resumed.json()["assignments"]) == 3
         assert adapter.call_count(execution_by_role["backend"]) == 2
         assert adapter.call_count(execution_by_role["test"]) == 1
 
@@ -342,7 +350,10 @@ def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None
         with SqliteSaver.from_conn_string(
             str(settings.langgraph_checkpoint_path)
         ) as saver:
-            graph = build_task_graph(lambda work: None).compile(checkpointer=saver)
+            graph = build_task_graph(
+                lambda work: None,
+                lambda task_id, results: None,
+            ).compile(checkpointer=saver)
             snapshot = graph.get_state(config)
             assert any(
                 interrupt.value.get("execution_id") == backend["execution_id"]
@@ -362,9 +373,15 @@ def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None
         assert final.status_code == 200
         final_payload = final.json()
         assert final_payload["status"] == "completed"
-        assert (
-            "backend completed after external event" in final_payload["result_summary"]
+        assert final_payload["result_summary"] == (
+            "The organization lead accepted the specialist deliveries."
         )
+        lead = next(
+            assignment
+            for assignment in final_payload["assignments"]
+            if assignment["agent_role_key"] == "lead"
+        )
+        assert "backend completed after external event" in lead["instructions"]
         assert adapter.call_count(backend["execution_id"]) == 1
         assert adapter.call_count(test_assignment["execution_id"]) == 1
 
@@ -403,7 +420,10 @@ def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None
         with SqliteSaver.from_conn_string(
             str(settings.langgraph_checkpoint_path)
         ) as saver:
-            graph = build_task_graph(lambda work: None).compile(checkpointer=saver)
+            graph = build_task_graph(
+                lambda work: None,
+                lambda task_id, results: None,
+            ).compile(checkpointer=saver)
             assert not graph.get_state(config).interrupts
 
 
@@ -458,8 +478,16 @@ def test_multiple_waiting_runtime_branches_resume_independently(tmp_path) -> Non
         assert completed.status == "completed"
         final = client.get(f"/api/v1/tasks/{task_id}").json()
         assert final["status"] == "completed"
-        assert "backend external completion" in final["result_summary"]
-        assert "test external completion" in final["result_summary"]
+        assert final["result_summary"] == (
+            "The organization lead accepted the specialist deliveries."
+        )
+        lead = next(
+            assignment
+            for assignment in final["assignments"]
+            if assignment["agent_role_key"] == "lead"
+        )
+        assert "backend external completion" in lead["instructions"]
+        assert "test external completion" in lead["instructions"]
         assert all(
             adapter.call_count(assignment["execution_id"]) == 1
             for assignment in assignment_by_role.values()
@@ -502,8 +530,122 @@ def test_waiting_runtime_resumes_after_backend_restart(tmp_path) -> None:
     assert completed.status == "completed"
     assert final.status_code == 200
     assert final.json()["status"] == "completed"
-    assert "backend completed after process restart" in final.json()["result_summary"]
+    assert final.json()["result_summary"] == (
+        "The organization lead accepted the specialist deliveries."
+    )
+    lead = next(
+        assignment
+        for assignment in final.json()["assignments"]
+        if assignment["agent_role_key"] == "lead"
+    )
+    assert "backend completed after process restart" in lead["instructions"]
     assert all(
         restarted_adapter.call_count(assignment["execution_id"]) == 0
         for assignment in assignment_by_role.values()
     )
+
+
+def test_lead_can_return_task_for_user_directed_revision(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(
+        lead_review_decision="needs_revision",
+        lead_review_final_summary="The delivery needs a user-directed revision.",
+        lead_review_issues=("The test evidence is incomplete.",),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        task_url = f"/api/v1/organizations/{organization_id}/tasks"
+        submitted = client.post(
+            task_url,
+            headers={"Idempotency-Key": "lead-needs-revision"},
+            json={"request": "Require the lead to reject this delivery."},
+        )
+
+        assert submitted.status_code == 201
+        payload = submitted.json()
+        assert payload["status"] == "needs_revision"
+        assert payload["result_summary"] == (
+            "The delivery needs a user-directed revision."
+        )
+        assert payload["completed_at"] is None
+        assert len(payload["assignments"]) == 3
+        lead = next(
+            assignment
+            for assignment in payload["assignments"]
+            if assignment["agent_role_key"] == "lead"
+        )
+        assert adapter.call_count(lead["execution_id"]) == 1
+
+        events = sse_payloads(
+            client.get(f"/api/v1/tasks/{payload['task_id']}/events")
+        )
+        assert events[-1]["event_type"] == "task.needs_revision"
+        assert events[-1]["payload"]["issues"] == [
+            "The test evidence is incomplete."
+        ]
+
+        replay = client.post(
+            task_url,
+            headers={"Idempotency-Key": "lead-needs-revision"},
+            json={"request": "Require the lead to reject this delivery."},
+        )
+        assert replay.status_code == 200
+        assert replay.json()["status"] == "needs_revision"
+        assert adapter.call_count(lead["execution_id"]) == 1
+
+
+def test_waiting_lead_review_resumes_without_replaying_specialists(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(wait_once_role_keys={"lead"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "waiting-lead-review"},
+            json={"request": "Wait for the organization lead review."},
+        )
+
+        assert submitted.status_code == 201
+        payload = submitted.json()
+        assert payload["status"] == "waiting"
+        assignment_by_role = {
+            assignment["agent_role_key"]: assignment
+            for assignment in payload["assignments"]
+        }
+        assert set(assignment_by_role) == {"backend", "lead", "test"}
+        assert assignment_by_role["backend"]["status"] == "completed"
+        assert assignment_by_role["test"]["status"] == "completed"
+        lead = assignment_by_role["lead"]
+        assert lead["status"] == "waiting"
+        specialist_call_counts = {
+            role_key: adapter.call_count(assignment_by_role[role_key]["execution_id"])
+            for role_key in ("backend", "test")
+        }
+
+        completed = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=lead["execution_id"],
+            runtime_event_id="lead-review-completed-1",
+            summary=json.dumps(
+                {
+                    "decision": "accepted",
+                    "final_summary": "The lead accepted the completed work.",
+                    "issues": [],
+                }
+            ),
+        )
+
+        assert completed.status == "completed"
+        final = client.get(f"/api/v1/tasks/{payload['task_id']}").json()
+        assert final["result_summary"] == "The lead accepted the completed work."
+        assert adapter.call_count(lead["execution_id"]) == 1
+        assert all(
+            adapter.call_count(assignment_by_role[role_key]["execution_id"])
+            == specialist_call_counts[role_key]
+            for role_key in ("backend", "test")
+        )

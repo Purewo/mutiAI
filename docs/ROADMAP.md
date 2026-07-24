@@ -64,7 +64,7 @@ The FakeRuntimeAdapter is a test seam. It proves the product database, orchestra
 
 ## M2. Replace the fake Runtime with local Codex
 
-Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization, Thread-start handshake, and relay-backed Turn. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output from live `item/completed` notifications. A background supervisor now consumes terminal events outside LangGraph, persists the completion, resumes each waiting branch, and closes the owned App Server process. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, parallel branch recovery, and isolated custom-provider configuration are covered; approvals and real Turn recovery remain pending.
+Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization, Thread-start handshake, and relay-backed Turn. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output from live `item/completed` notifications. A background supervisor now consumes terminal events outside LangGraph, persists the completion, resumes each waiting branch, and closes the owned App Server process. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, parallel branch recovery, isolated custom-provider configuration, and organization-lead structured review are covered. Approval routing and real Turn recovery remain pending.
 
 Implement the local Windows Codex adapter through the App Server boundary:
 
@@ -76,6 +76,7 @@ Implement the local Windows Codex adapter through the App Server boundary:
 - Thread-to-workspace binding.
 - Completion, failure, interruption, reconnect, and cancellation handling.
 - One organization lead delegating to two existing specialist roles.
+- Organization-lead review with a required structured decision, final summary, and issue list. The lead can complete a Task as `completed` or return it as `needs_revision` for user-directed follow-up.
 - Event summaries, artifact records, and delivery summaries.
 
 Do not use `mutiAI` or `mutiAI-aistdio-gemini` as Runtime working directories. Use only the managed Runtime root documented in [system boundaries](architecture/SYSTEM_BOUNDARIES.md).

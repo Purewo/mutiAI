@@ -30,4 +30,4 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "tasks",
         "users",
     } <= tables
-    assert revision == "20260724_0003"
+    assert revision == "20260724_0004"

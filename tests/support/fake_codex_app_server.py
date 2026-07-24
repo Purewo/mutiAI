@@ -5,7 +5,6 @@ import os
 import sys
 import uuid
 
-
 run_id = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
 thread = {"id": f"thread-test-{run_id}", "status": {"type": "idle"}}
 turn = {"id": f"turn-test-{run_id}", "status": "inProgress", "items": []}
@@ -86,10 +85,28 @@ for line in sys.stdin:
         )
     elif method == "turn/start":
         thread_id = message["params"]["threadId"]
+        output_schema = message["params"].get("outputSchema")
+        is_lead_review = (
+            isinstance(output_schema, dict)
+            and "decision" in output_schema.get("properties", {})
+        )
+        item_text = (
+            json.dumps(
+                {
+                    "decision": "accepted",
+                    "final_summary": (
+                        "The organization lead accepted the specialist deliveries."
+                    ),
+                    "issues": [],
+                }
+            )
+            if is_lead_review
+            else "Delivered the bounded assignment."
+        )
         item = {
             "id": "message-test-1",
             "type": "agentMessage",
-            "text": "Delivered the bounded assignment.",
+            "text": item_text,
         }
         send(
             {

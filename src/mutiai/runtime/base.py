@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,4 +29,5 @@ class AgentRuntimeAdapter(Protocol):
         workspace_id: str | None = None,
         workspace_path: str | None = None,
         thread_id: str | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> RuntimeResult: ...

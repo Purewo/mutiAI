@@ -1476,6 +1476,7 @@
           "planning",
           "running",
           "waiting",
+          "needs_revision",
           "completed",
           "failed",
           "cancelled"

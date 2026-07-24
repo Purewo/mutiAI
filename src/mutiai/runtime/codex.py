@@ -75,6 +75,7 @@ class CodexRuntimeAdapter:
         workspace_id: str | None = None,
         workspace_path: str | None = None,
         thread_id: str | None = None,
+        output_schema: Mapping[str, Any] | None = None,
     ) -> RuntimeResult:
         """Start one Thread and Turn, then return their durable identities."""
 
@@ -130,7 +131,11 @@ class CodexRuntimeAdapter:
                     thread_id=resolved_thread_id,
                     instructions=instructions,
                     execution_id=execution_id,
-                    output_schema=self.output_schema,
+                    output_schema=(
+                        dict(output_schema)
+                        if output_schema is not None
+                        else self.output_schema
+                    ),
                     approval_policy=self.approval_policy,
                 )
                 turn_id = self._require_id(

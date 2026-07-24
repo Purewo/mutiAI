@@ -6,11 +6,11 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -25,6 +25,7 @@ class TaskStatus(StrEnum):
     PLANNING = "planning"
     RUNNING = "running"
     WAITING = "waiting"
+    NEEDS_REVISION = "needs_revision"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -54,7 +55,7 @@ class Task(Base):
     __table_args__ = (
         CheckConstraint(
             "status IN ('created', 'planning', 'running', 'waiting', "
-            "'completed', 'failed', 'cancelled')",
+            "'needs_revision', 'completed', 'failed', 'cancelled')",
             name="valid_status",
         ),
         UniqueConstraint(

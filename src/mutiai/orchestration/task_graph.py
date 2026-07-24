@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import operator
 from collections.abc import Callable
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
@@ -15,6 +15,7 @@ class AssignmentWork(TypedDict):
     execution_id: str
     role_key: str
     instructions: str
+    output_schema: dict[str, Any] | None
 
 
 class AssignmentResult(TypedDict):
@@ -24,11 +25,18 @@ class AssignmentResult(TypedDict):
     summary: str
 
 
+class LeadReviewState(TypedDict):
+    decision: str
+    final_summary: str
+    issues: list[str]
+
+
 class TaskGraphState(TypedDict):
     task_id: str
     assignments: list[AssignmentWork]
     results: Annotated[list[AssignmentResult], operator.add]
     summary: str
+    review: LeadReviewState | None
 
 
 class AssignmentNodeState(TypedDict):
@@ -38,6 +46,7 @@ class AssignmentNodeState(TypedDict):
 
 def build_task_graph(
     execute_assignment: Callable[[AssignmentWork], AssignmentResult],
+    review_assignments: Callable[[str, list[AssignmentResult]], LeadReviewState],
 ) -> StateGraph:
     def dispatch(state: TaskGraphState) -> list[Send]:
         return [
@@ -52,15 +61,10 @@ def build_task_graph(
         return {"results": [execute_assignment(state["assignment"])]}
 
     def finalize(state: TaskGraphState) -> dict:
-        results = sorted(state["results"], key=lambda item: item["role_key"])
-        joined = " | ".join(
-            f"{result['role_key']}: {result['summary']}" for result in results
-        )
+        review = review_assignments(state["task_id"], state["results"])
         return {
-            "summary": (
-                f"Organization lead accepted {len(results)} assignment results. "
-                f"{joined}"
-            )
+            "review": review,
+            "summary": review["final_summary"],
         }
 
     builder = StateGraph(TaskGraphState)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from threading import Lock
+from typing import Any, Literal
 
 from mutiai.runtime.base import RuntimeResult
 
@@ -16,6 +18,11 @@ class FakeRuntimeAdapter:
         *,
         fail_once_role_keys: set[str] | None = None,
         wait_once_role_keys: set[str] | None = None,
+        lead_review_decision: Literal["accepted", "needs_revision"] = "accepted",
+        lead_review_final_summary: str = (
+            "The organization lead accepted the specialist deliveries."
+        ),
+        lead_review_issues: tuple[str, ...] = (),
     ) -> None:
         self._lock = Lock()
         self._calls: Counter[str] = Counter()
@@ -23,6 +30,9 @@ class FakeRuntimeAdapter:
         self._failed_role_keys: set[str] = set()
         self._wait_once_role_keys = wait_once_role_keys or set()
         self._waited_role_keys: set[str] = set()
+        self._lead_review_decision = lead_review_decision
+        self._lead_review_final_summary = lead_review_final_summary
+        self._lead_review_issues = lead_review_issues
 
     def execute(
         self,
@@ -33,6 +43,7 @@ class FakeRuntimeAdapter:
         workspace_id: str | None = None,
         workspace_path: str | None = None,
         thread_id: str | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> RuntimeResult:
         del workspace_id, workspace_path, thread_id
         del instructions
@@ -53,10 +64,22 @@ class FakeRuntimeAdapter:
                     status="waiting",
                     runtime_job_id=f"fake:{execution_id}",
                 )
+        summary = f"{role_key} completed its bounded assignment."
+        if output_schema is not None and "decision" in output_schema.get(
+            "properties", {}
+        ):
+            summary = json.dumps(
+                {
+                    "decision": self._lead_review_decision,
+                    "final_summary": self._lead_review_final_summary,
+                    "issues": list(self._lead_review_issues),
+                },
+                ensure_ascii=False,
+            )
         return RuntimeResult(
             status="completed",
             runtime_job_id=f"fake:{execution_id}",
-            summary=f"{role_key} completed its bounded assignment.",
+            summary=summary,
         )
 
     def call_count(self, execution_id: str) -> int:

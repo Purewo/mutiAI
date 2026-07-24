@@ -1,6 +1,6 @@
 # M2 local Codex Runtime acceptance
 
-Status: In progress. The protocol, product Workspace, isolated provider configuration, and background completion-worker seams are implemented. Approval routing and real Turn recovery remain.
+Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, and organization-lead review boundary are implemented. Approval routing and real Turn recovery remain.
 
 ## Verified locally
 
@@ -18,6 +18,10 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - The real Turn creates files only inside the managed Runtime workspace and does not use the user's interactive Codex session directory.
 - Live `item/completed` notifications are collected before `turn/completed`; the terminal Turn may contain an empty `items` list, so final Agent summaries are extracted from completed item notifications inside the Runtime worker.
 - A real API-submitted product Task fans out through LangGraph to two Codex specialist Threads, checkpoints both waits, receives two supervisor completions, persists two Runtime completion events, resumes both branches, and finishes with two ready role Workspaces and no supervisor errors.
+- A real three-role API Task fans out to backend and test Codex specialists, then creates a separate organization-lead Codex review Assignment only after both specialist deliveries complete.
+- The lead Runtime receives only the original request and structured specialist summaries, not Codex conversation history or tool events. Its JSON Schema requires `decision`, `final_summary`, and `issues`, and Pydantic validation owns the product contract after Runtime completion.
+- A real three-role smoke completed with `accepted`, three independent Workspaces, three Thread IDs, three Turn IDs, `lead.review_requested`, `lead.review_completed`, and `task.completed`, with no supervisor errors.
+- A separate real smoke returned `needs_revision` because the lead detected inconsistent specialist claims about malformed upstream status handling. The product persisted the lead decision and did not mark the Task completed.
 - `bootstrap_codex_home.py` copies only `config.toml` and `auth.json`. It never copies `sessions`, history, state databases, or existing Threads.
 
 ## Not yet accepted
@@ -25,6 +29,7 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - Route command/file approvals and persist approval decisions.
 - Recover a real Turn after App Server process or backend restart.
 - Handle cancellation, reconnect, provider rate limits, and process supervision.
+- Convert a Runtime Turn failure into a user-facing retry or recovery flow instead of leaving reconnect policy implicit.
 - Make the Codex adapter the application default after the approval and recovery controls are complete.
 
 The web frontend does not need changes for this milestone. Its existing task and SSE contracts remain product-level and do not expose App Server protocol details.
