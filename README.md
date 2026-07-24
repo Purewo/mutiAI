@@ -121,6 +121,18 @@ GET /api/v1/runtime/controls
 
 The current admission lock is process-local around database transactions. It is correct for the single API process used in V1 local development. A multi-instance deployment must replace it with database row locking or a dedicated scheduler before sharing one budget and concurrency pool.
 
+### Run the M2 real Runtime smoke
+
+After the sidecar is ready, run the isolated M2 acceptance flow:
+
+```powershell
+uv run python scripts/run_m2_runtime_smoke.py
+```
+
+The script creates a temporary product database and checkpoint database under `system/m2-acceptance` inside the managed Runtime root. It publishes a two-role organization, submits one bounded task, waits for the specialist and organization-lead Turns, then prints product-safe task, usage, capacity, and event evidence. It never uses a product source repository as Runtime `cwd` and never reads an interactive Codex session directory.
+
+This is a real Provider smoke, not a unit test. Each run creates managed Codex Threads and consumes real tokens. Use it for Runtime acceptance and Provider changes, not routine test loops.
+
 ## Local development account
 
 The first local environment may seed an `admin` account with a simple development-only password. Keep the real value in the ignored `.env` file. Never expose that account on a network or reuse it in production.

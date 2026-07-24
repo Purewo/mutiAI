@@ -72,6 +72,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - API tests verify that an explicit Provider limit returns `429 PROVIDER_RATE_LIMITED` and that product budget exhaustion returns `409 RUNTIME_BUDGET_EXCEEDED`, both without calling the Runtime adapter's execution method.
 - A concurrency limit of one defers the second parallel specialist, checkpoints it, releases capacity after the first completion, persists the capacity transition, and starts the second specialist exactly once.
 - Runtime usage is attached to terminal execution records and settled once. Duplicate completion delivery does not double-charge the product ledger, and the control snapshot reports consumed, reserved, and remaining tokens.
+- The repeatable M2 closing smoke used the isolated managed Codex home and current custom relay. The relay's unsupported account rate-limit method normalized to `unknown`, the documented fail-open policy admitted both bounded Turns, public token-usage notifications settled 28,240 tokens, and the product Task reached `task.completed`.
 
 ## Current limitations
 

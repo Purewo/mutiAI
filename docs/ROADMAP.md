@@ -64,7 +64,7 @@ The FakeRuntimeAdapter is a test seam. It proves the product database, orchestra
 
 ## M2. Replace the fake Runtime with local Codex
 
-Status: In progress. The local `codex-cli 0.145.0` protocol client, non-blocking Runtime submission, background completion supervision, durable role Workspaces, Thread reuse, parallel branch recovery, organization-lead review, explicit retry, conservative owner-loss handling, product-owned approvals, cross-process Turn reattachment, external sidecar supervision, and task cancellation are covered. Product-owned Runtime controls now add Provider capacity normalization, a database-backed concurrency queue, token reservations, terminal usage settlement, and an authenticated control snapshot without placing these facts in LangGraph State.
+Status: Completed for the V1 local Runtime boundary. The local `codex-cli 0.145.0` protocol client, non-blocking Runtime submission, background completion supervision, durable role Workspaces, Thread reuse, parallel branch recovery, organization-lead review, explicit retry, conservative owner-loss handling, product-owned approvals, cross-process Turn reattachment, external sidecar supervision, task cancellation, Provider capacity normalization, database-backed concurrency, and product token accounting are covered. The remaining approval-recovery and Provider-policy constraints are explicit deployment gates, not hidden incomplete behavior.
 
 Implement the local Windows Codex adapter through the App Server boundary:
 
@@ -86,13 +86,13 @@ Implement the local Windows Codex adapter through the App Server boundary:
 - `GET /api/v1/runtime/controls` for the current owner/provider policy, active count, token totals, and last observed Provider capacity signal.
 - One organization lead delegating to two existing specialist roles.
 - Organization-lead review with a required structured decision, final summary, and issue list. The lead can complete a Task as `completed` or return it as `needs_revision` for user-directed follow-up.
-- Event summaries, artifact records, and delivery summaries.
+- Product-safe event summaries and organization-lead delivery summaries.
 
 Do not use `mutiAI` or `mutiAI-aistdio-gemini` as Runtime working directories. Use only the managed Runtime root documented in [system boundaries](architecture/SYSTEM_BOUNDARIES.md).
 
 ## M3. Integrate the web frontend
 
-Status: Pending M0 contract snapshots and M1 APIs.
+Status: Ready to start. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available.
 
 Gemini implements bounded frontend tasks against versioned contracts. The integration gate is:
 
@@ -120,3 +120,4 @@ Add the first external channel through an adapter that routes messages to the us
 - Production distributed scheduling and sandbox infrastructure.
 - A complete knowledge-base product.
 - Large-scale parallel Git merge automation.
+- Artifact storage, retention, and Git-reference contracts. Product ownership is fixed, but implementation follows the first code-delivery workflow instead of blocking the Runtime boundary.

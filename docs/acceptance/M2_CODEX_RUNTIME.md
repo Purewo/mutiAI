@@ -1,6 +1,6 @@
 # M2 local Codex Runtime acceptance
 
-Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, product-owned approval routing, cross-process Turn reattachment, external sidecar process supervision, task cancellation, Provider capacity checks, product token accounting, and Runtime concurrency admission are implemented.
+Status: Completed for the V1 local Codex Runtime boundary. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, product-owned approval routing, cross-process Turn reattachment, external sidecar process supervision, task cancellation, Provider capacity checks, product token accounting, and Runtime concurrency admission are implemented and covered by repeatable tests.
 
 ## Verified locally
 
@@ -53,10 +53,14 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - Capacity release persists `runtime.execution_capacity_available` before the waiting branch starts. Queued executions are excluded from orphaned-Turn recovery and can be cancelled without contacting a nonexistent Runtime owner.
 - `GET /api/v1/runtime/controls` exposes the authenticated owner's provider, concurrency totals, budget reservation and consumption totals, remaining product budget, and last normalized Provider capacity observation.
 - The current admission critical section is safe for the V1 single API process. A multi-instance deployment requires database row locking or a dedicated scheduler before multiple processes share one concurrency and budget pool.
+- `scripts/run_m2_runtime_smoke.py` provides a repeatable, isolated real-Provider acceptance path. It creates only managed control data and Runtime Workspaces, publishes a bounded two-role organization, submits through the HTTP API, and reports product-safe evidence.
+- The 2026-07-24 M2 closing smoke used the isolated managed Codex home with `codex-cli 0.145.0`. The current custom relay normalized Provider capacity to `unknown` with `provider_capacity_unavailable`, then completed both the specialist and organization-lead Turns under the documented fail-open policy.
+- That closing smoke persisted two reported usage records totaling 28,240 tokens, completed the product Task, and produced the expected Runtime wait/completion, lead review, and `task.completed` events. No interactive Codex workspace or existing user Thread was adopted.
 
-## Not yet accepted
+## Accepted limitations and deployment gates
 
-- Reattach an approval-waiting Turn across owner loss. V1 requires explicit retry until the App Server guarantees redelivery of an unanswered server request to the new client connection.
-- Validate Provider-limit behavior against each production relay. Unsupported relays intentionally report `unknown`, so deployment policy must decide whether to keep fail-open or require a supported capacity signal.
+- An approval-waiting Turn is not reattached after owner loss. V1 requires explicit retry until the App Server guarantees redelivery of an unanswered server request to the new client connection.
+- The current custom relay does not expose the ChatGPT account rate-limit method and therefore reports `unknown`. V1 deliberately fails open for this local relay. Every production Provider binding must choose fail-open or require a supported capacity signal before deployment.
+- Artifact metadata remains product-owned, but storage, retention, and Git-reference contracts are deferred until the first code-delivery workflow. M2 closes the Runtime execution boundary without inventing an unstable Artifact shape.
 
 The web frontend does not need changes for this milestone. Its existing task and SSE contracts remain product-level and do not expose App Server protocol details.
