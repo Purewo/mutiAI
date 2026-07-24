@@ -37,6 +37,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [System boundaries](docs/architecture/SYSTEM_BOUNDARIES.md)
 - [M0 API and event boundary](docs/architecture/API_EVENT_BOUNDARY.md)
 - [Frontend contract workflow](docs/collaboration/FRONTEND_CONTRACT_WORKFLOW.md)
+- [M3 frontend task packet](docs/collaboration/M3_FRONTEND_TASK_PACKET.md)
 - [Two-repository decision](docs/decisions/ADR-0001-two-repository-boundary.md)
 - [V1 technology decision](docs/decisions/ADR-0002-v1-technology-stack.md)
 - [Browser session decision](docs/decisions/ADR-0003-browser-session-authentication.md)

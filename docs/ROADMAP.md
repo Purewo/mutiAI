@@ -118,6 +118,8 @@ Gemini implements bounded frontend tasks against versioned contracts. The integr
 
 The active frontend repository is `Purewo/mutiAI-aistdio-gemini`.
 
+The first bounded Gemini task is defined in [M3 frontend task packet](collaboration/M3_FRONTEND_TASK_PACKET.md) and targets backend contract commit `957feea`.
+
 ## M4. Add personal WeChat
 
 Status: Pending stable web task flow.
