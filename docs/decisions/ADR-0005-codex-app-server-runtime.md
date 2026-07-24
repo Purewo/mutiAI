@@ -23,7 +23,8 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Set `clientUserMessageId` to the product `execution_id` when starting a Turn.
 - Return `waiting` with the App Server Thread ID, Turn ID, Runtime job ID, and product Workspace ID as soon as submission succeeds. Do not wait for `turn/completed` inside LangGraph.
 - Consume streamed notifications in a Runtime worker. Convert a terminal Turn into one deterministic product Runtime event, persist it, then resume LangGraph through the existing idempotent completion boundary.
-- Treat a `turn/completed` notification with status `failed` or `interrupted` as a terminal Runtime failure. Persist the RuntimeExecution, Assignment, and Task failure without resuming the graph automatically.
+- Treat a `turn/completed` notification with status `failed` as a terminal Runtime failure. Treat `interrupted` as a cancellation terminal state, persist it without resuming the graph, and never convert it into a generic failure event.
+- Request task cancellation through `turn/interrupt` with the recorded Thread and Turn IDs. Persist product cancellation before the network request, preserve completed sibling Assignments, wake pending approval waiters, and record whether each Runtime interrupt was accepted or remained unconfirmed.
 - Retry only through an explicit product command. Reset failed Assignments, reuse their recorded Workspace and Thread, start a new Turn, and keep completed sibling Assignments unchanged.
 - Treat loss of the owned App Server connection as `runtime_owner_lost`. During intentional supervisor shutdown, leave the durable wait for startup reconciliation; when a live supervisor detects the loss, persist the failure without replaying the Turn.
 - On startup, reconcile waiting Codex executions that have no active owner in the new process into the same explicit-retry state. Do not claim that a new process has safely resumed an in-flight Turn.
@@ -55,15 +56,17 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - The independent sidecar wrapper gates every start on `/readyz`, restarts unexpected exits with a finite exponential-backoff policy, and returns a failure after the restart budget is exhausted. Unit tests cover the restart count, delay cap, startup exit, invalid policy, and child termination on user interrupt.
 - A Turn completed while the client was disconnected is recovered from Thread history without starting a replacement Turn. Startup emits `runtime.execution_reconnected` before the supervisor consumes the terminal state.
 - A backend restart with one completed specialist and one orphaned waiting specialist marks only the orphaned branch failed at startup. Explicit retry starts a new Turn for that branch while preserving the completed sibling's Runtime result and Turn identity.
+- `POST /api/v1/tasks/{task_id}/cancel` cancels a non-terminal Task without replaying completed siblings. The API is idempotent for an already cancelled Task, and reports a conflict with execution-level details when a Runtime owner cannot confirm interruption.
+- A Codex `turn/interrupt` request is normalized as `runtime.execution_cancelled`; it never writes `runtime.execution_failed` or resumes a LangGraph checkpoint. Pending product approvals resolve as `cancel` and wake their Runtime workers.
 - Fake App Server integration covers command and file-change approval requests plus `accept`, `decline`, and `cancel` responses. API integration verifies authenticated ownership, durable request and resolution events, same-decision idempotency, conflicting-decision rejection, and continued or interrupted Turn outcomes.
 - The local relay rejected an optional lead schema when its default-valued `issues` property was not listed as required. The product contract now requires every lead response property, matching the relay's `response_format` validation rules.
 - A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread, so recovery was validated with a real in-flight Turn and a long-lived external App Server instead of treating an empty Thread as evidence.
 
 ## Current limitations
 
-- The adapter is not the application default until cancellation and rate-limit controls are implemented.
+- The adapter is not the application default until provider rate-limit controls are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
-- Task cancellation and provider rate-limit handling remain pending. Approval routing is implemented for command and file-change requests with one-time decisions only; approval-waiting executions remain conservative across owner restart.
+- Provider rate-limit handling remains pending. Approval routing is implemented for command and file-change requests with one-time decisions only; approval-waiting executions remain conservative across owner restart.
 - Explicit retry handles terminal Turn failure and owner loss. Per-execution stdio remains conservative because its owner process cannot be rejoined after a backend restart. External App Server reattachment is available only when that server remains alive, identities and Workspace binding validate, and no approval request is pending. External side effects must remain idempotent.
 - Custom-provider API-key authentication is verified through the isolated home. Production must move the credential source to a dedicated secret store or environment injection rather than copying a personal home.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.

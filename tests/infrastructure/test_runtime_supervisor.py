@@ -8,6 +8,7 @@ import pytest
 from mutiai.runtime import (
     CodexRuntimeAdapter,
     CodexRuntimeSupervisor,
+    CodexTurnCancelledError,
     CodexTurnFailedError,
     RuntimeWorkspaceBinding,
     WorkspaceManager,
@@ -22,9 +23,11 @@ class RecordingOrchestrator:
     def __init__(self) -> None:
         self.completions: list[dict] = []
         self.failures: list[dict] = []
+        self.cancellations: list[dict] = []
         self.errors: list[dict] = []
         self.completion_recorded = Event()
         self.failure_recorded = Event()
+        self.cancellation_recorded = Event()
         self.error_recorded = Event()
         self._lock = Lock()
 
@@ -37,6 +40,11 @@ class RecordingOrchestrator:
         with self._lock:
             self.failures.append(payload)
         self.failure_recorded.set()
+
+    def cancel_runtime_execution(self, **payload) -> None:
+        with self._lock:
+            self.cancellations.append(payload)
+        self.cancellation_recorded.set()
 
     def record_runtime_watch_error(self, **payload) -> None:
         with self._lock:
@@ -76,6 +84,8 @@ def wait_until_execution_closed(
             return
         except CodexTurnFailedError:
             pass
+        except CodexTurnCancelledError:
+            pass
         time.sleep(0.01)
     raise AssertionError(f"execution '{execution_id}' App Server was not closed")
 
@@ -105,6 +115,40 @@ def test_supervisor_delivers_once_and_closes_execution(tmp_path) -> None:
         assert supervisor.error_for(execution_id) is None
         with pytest.raises(LookupError, match="is not active"):
             adapter.wait_for_completion(execution_id)
+    finally:
+        supervisor.close()
+
+
+def test_supervisor_delivers_interrupted_turn_as_cancellation(tmp_path) -> None:
+    adapter = build_adapter(tmp_path)
+    orchestrator = RecordingOrchestrator()
+    supervisor = CodexRuntimeSupervisor(adapter, orchestrator)
+    execution_id = "execution-cancelled"
+
+    try:
+        waiting = adapter.execute(
+            execution_id=execution_id,
+            role_key="backend",
+            instructions=(
+                "Complete the task within this responsibility boundary: "
+                "Implement backend behavior: hang-runtime-once"
+            ),
+        )
+        supervisor.watch(execution_id)
+        assert adapter.cancel(execution_id) is True
+
+        assert orchestrator.cancellation_recorded.wait(timeout=5)
+        wait_until_execution_closed(adapter, execution_id)
+
+        assert len(orchestrator.cancellations) == 1
+        cancellation = orchestrator.cancellations[0]
+        assert cancellation["execution_id"] == execution_id
+        assert cancellation["terminal_status"] == "interrupted"
+        assert cancellation["reason"] == "runtime_cancelled"
+        assert cancellation["thread_id"] == waiting.thread_id
+        assert cancellation["turn_id"] == waiting.turn_id
+        assert orchestrator.failures == []
+        assert orchestrator.errors == []
     finally:
         supervisor.close()
 

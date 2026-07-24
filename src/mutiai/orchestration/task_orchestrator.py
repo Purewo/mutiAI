@@ -41,6 +41,17 @@ from mutiai.services.tasks import prepare_assignments, prepare_lead_review
 from mutiai.services.workspaces import WorkspaceProvisioner
 
 
+class TaskCancellationIncompleteError(RuntimeError):
+    """The product cancelled a task but could not confirm every Runtime request."""
+
+    def __init__(self, task_id: str, failures: dict[str, str]) -> None:
+        self.task_id = task_id
+        self.failures = dict(failures)
+        super().__init__(
+            f"task '{task_id}' cancellation was not confirmed by every Runtime"
+        )
+
+
 class TaskOrchestrator:
     """Runs the M1 graph while keeping durable facts in the product database."""
 
@@ -57,6 +68,7 @@ class TaskOrchestrator:
         self.runtime_adapter = runtime_adapter or FakeRuntimeAdapter()
         self.workspace_provisioner = workspace_provisioner
         self._runtime_watch: Callable[[str], None] | None = None
+        self._approval_canceller: Callable[..., list[str]] | None = None
         self._execution_lock = mutation_lock or RLock()
         self._graph_resume_lock = RLock()
 
@@ -64,6 +76,14 @@ class TaskOrchestrator:
         """Register the post-checkpoint Runtime completion watcher."""
 
         self._runtime_watch = watch
+
+    def set_approval_canceller(
+        self,
+        cancel: Callable[..., list[str]],
+    ) -> None:
+        """Register the product-owned pending approval cancellation boundary."""
+
+        self._approval_canceller = cancel
 
     def run(self, task_id: str) -> Task:
         waiting_task: Task | None = None
@@ -75,6 +95,7 @@ class TaskOrchestrator:
                 TaskStatus.COMPLETED,
                 TaskStatus.NEEDS_REVISION,
                 TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
             }:
                 return task
             if task.status == TaskStatus.WAITING:
@@ -238,6 +259,355 @@ class TaskOrchestrator:
 
         return self.run(task_id)
 
+    def cancel(self, task_id: str) -> Task:
+        """Cancel the product workflow and interrupt each live Runtime execution."""
+
+        _, targets, already_cancelled = self._persist_task_cancellation(task_id)
+        if already_cancelled:
+            targets = self._unconfirmed_cancellation_targets(task_id)
+
+        failures = self._dispatch_runtime_cancellations(task_id, targets)
+        self._cancel_pending_approvals(task_id)
+        if failures:
+            raise TaskCancellationIncompleteError(task_id, failures)
+        return self._load_task(task_id)
+
+    def _unconfirmed_cancellation_targets(self, task_id: str) -> list[str]:
+        terminal_event_types = {
+            "runtime.execution_interrupt_requested",
+            "runtime.execution_cancel_failed",
+            "runtime.execution_cancelled",
+        }
+        with self.database.session() as session:
+            executions = session.scalars(
+                select(RuntimeExecution)
+                .join(Assignment)
+                .where(
+                    Assignment.task_id == task_id,
+                    RuntimeExecution.status == RuntimeExecutionStatus.CANCELLED,
+                )
+            ).all()
+            targets: list[str] = []
+            for execution in executions:
+                latest = session.scalar(
+                    select(ProductEvent)
+                    .where(
+                        ProductEvent.runtime_execution_id
+                        == execution.runtime_execution_id,
+                        ProductEvent.event_type.in_(terminal_event_types),
+                    )
+                    .order_by(ProductEvent.sequence.desc())
+                    .limit(1)
+                )
+                if (
+                    latest is not None
+                    and latest.event_type == "runtime.execution_cancel_failed"
+                ):
+                    targets.append(execution.execution_id)
+            return targets
+
+    def cancel_runtime_execution(
+        self,
+        *,
+        execution_id: str,
+        runtime_event_id: str,
+        terminal_status: str,
+        runtime_job_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+        reason: str = "runtime_cancelled",
+    ) -> Task:
+        """Persist a terminal Runtime interruption without resuming LangGraph."""
+
+        with self.database.session() as session:
+            execution = session.scalar(
+                select(RuntimeExecution).where(
+                    RuntimeExecution.execution_id == execution_id
+                )
+            )
+            if execution is None:
+                raise LookupError(f"execution '{execution_id}' does not exist")
+            assignment = session.get(Assignment, execution.assignment_id)
+            if assignment is None:
+                raise LookupError(
+                    f"assignment '{execution.assignment_id}' does not exist"
+                )
+            task_id = assignment.task_id
+
+        task, targets, _ = self._persist_task_cancellation(
+            task_id,
+            terminal_execution_id=execution_id,
+            runtime_event_id=runtime_event_id,
+            terminal_status=terminal_status,
+            runtime_job_id=runtime_job_id,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            reason=reason,
+        )
+        self._dispatch_runtime_cancellations(task_id, targets)
+        self._cancel_pending_approvals(task_id)
+        return task
+
+    def _persist_task_cancellation(
+        self,
+        task_id: str,
+        *,
+        terminal_execution_id: str | None = None,
+        runtime_event_id: str | None = None,
+        terminal_status: str = "interrupted",
+        runtime_job_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+        reason: str = "task_cancelled",
+    ) -> tuple[Task, list[str], bool]:
+        targets: list[str] = []
+        with self._execution_lock, self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status in {
+                TaskStatus.COMPLETED,
+                TaskStatus.NEEDS_REVISION,
+                TaskStatus.FAILED,
+            }:
+                if terminal_execution_id is None:
+                    raise ValueError(
+                        f"task '{task_id}' is already terminal in state "
+                        f"'{task.status}'"
+                    )
+                return task, targets, False
+
+            already_cancelled = task.status == TaskStatus.CANCELLED
+            cancelled_at = utc_now()
+            assignments = session.scalars(
+                select(Assignment).where(Assignment.task_id == task_id)
+            ).all()
+
+            if not already_cancelled:
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="task.cancellation_requested",
+                    aggregate_type="task",
+                    aggregate_id=task.task_id,
+                    source="product",
+                    payload={"status": task.status},
+                )
+
+            for assignment in assignments:
+                execution = assignment.runtime_execution
+                if execution is not None:
+                    previous_execution_status = execution.status
+                    is_terminal_confirmation = (
+                        execution.execution_id == terminal_execution_id
+                    )
+                    if execution.status != RuntimeExecutionStatus.COMPLETED:
+                        execution.status = RuntimeExecutionStatus.CANCELLED
+                        execution.completed_at = execution.completed_at or cancelled_at
+                    if is_terminal_confirmation and (
+                        execution.runtime_event_id is None
+                        or execution.runtime_event_id == runtime_event_id
+                    ):
+                        is_new_terminal_event = execution.runtime_event_id is None
+                        execution.runtime_event_id = runtime_event_id
+                        execution.runtime_job_id = (
+                            runtime_job_id or execution.runtime_job_id
+                        )
+                        execution.thread_id = thread_id or execution.thread_id
+                        execution.turn_id = turn_id or execution.turn_id
+                        if is_new_terminal_event:
+                            append_task_event(
+                                session,
+                                task=task,
+                                event_type="runtime.execution_cancelled",
+                                aggregate_type="runtime_execution",
+                                aggregate_id=execution.runtime_execution_id,
+                                assignment_id=assignment.assignment_id,
+                                runtime_execution_id=execution.runtime_execution_id,
+                                source=f"runtime.{execution.provider}",
+                                payload={
+                                    "execution_id": execution.execution_id,
+                                    "runtime_event_id": runtime_event_id,
+                                    "runtime_job_id": execution.runtime_job_id,
+                                    "thread_id": execution.thread_id,
+                                    "turn_id": execution.turn_id,
+                                    "terminal_status": terminal_status,
+                                    "status": RuntimeExecutionStatus.CANCELLED,
+                                    "reason": reason,
+                                },
+                            )
+                    elif (
+                        not already_cancelled
+                        and previous_execution_status
+                        in {
+                            RuntimeExecutionStatus.RUNNING,
+                            RuntimeExecutionStatus.WAITING,
+                        }
+                    ):
+                        targets.append(execution.execution_id)
+                        append_task_event(
+                            session,
+                            task=task,
+                            event_type="runtime.execution_cancel_requested",
+                            aggregate_type="runtime_execution",
+                            aggregate_id=execution.runtime_execution_id,
+                            assignment_id=assignment.assignment_id,
+                            runtime_execution_id=execution.runtime_execution_id,
+                            source="product",
+                            payload={
+                                "execution_id": execution.execution_id,
+                                "runtime_job_id": execution.runtime_job_id,
+                                "thread_id": execution.thread_id,
+                                "turn_id": execution.turn_id,
+                                "status": RuntimeExecutionStatus.CANCELLED,
+                            },
+                        )
+
+                if assignment.status != AssignmentStatus.COMPLETED:
+                    was_cancelled = assignment.status == AssignmentStatus.CANCELLED
+                    assignment.status = AssignmentStatus.CANCELLED
+                    assignment.completed_at = assignment.completed_at or cancelled_at
+                    if not already_cancelled and not was_cancelled:
+                        append_task_event(
+                            session,
+                            task=task,
+                            event_type="assignment.status_changed",
+                            aggregate_type="assignment",
+                            aggregate_id=assignment.assignment_id,
+                            assignment_id=assignment.assignment_id,
+                            source="product",
+                            payload={
+                                "status": AssignmentStatus.CANCELLED,
+                                "reason": reason,
+                            },
+                        )
+
+            if not already_cancelled:
+                task.status = TaskStatus.CANCELLED
+                task.result_summary = None
+                task.completed_at = cancelled_at
+                task.updated_at = cancelled_at
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="task.status_changed",
+                    aggregate_type="task",
+                    aggregate_id=task.task_id,
+                    source="product",
+                    payload={
+                        "status": TaskStatus.CANCELLED,
+                        "reason": reason,
+                    },
+                )
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="task.cancelled",
+                    aggregate_type="task",
+                    aggregate_id=task.task_id,
+                    source="product",
+                    payload={
+                        "status": TaskStatus.CANCELLED,
+                        "reason": reason,
+                    },
+                )
+            session.commit()
+            session.refresh(task)
+            return task, targets, already_cancelled
+
+    def _dispatch_runtime_cancellations(
+        self,
+        task_id: str,
+        execution_ids: list[str],
+    ) -> dict[str, str]:
+        failures: dict[str, str] = {}
+        for execution_id in execution_ids:
+            try:
+                accepted = self.runtime_adapter.cancel(execution_id)
+                if not accepted:
+                    raise RuntimeError("Runtime execution has no active owner")
+            except Exception as exc:  # noqa: BLE001 - Runtime adapter boundary
+                message = str(exc)[:1000]
+                failures[execution_id] = message
+                self._record_runtime_cancel_dispatch(
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    accepted=False,
+                    error=message,
+                )
+            else:
+                self._record_runtime_cancel_dispatch(
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    accepted=True,
+                )
+        return failures
+
+    def _record_runtime_cancel_dispatch(
+        self,
+        *,
+        task_id: str,
+        execution_id: str,
+        accepted: bool,
+        error: str | None = None,
+    ) -> None:
+        with self._execution_lock, self.database.session() as session:
+            task = session.get(Task, task_id)
+            execution = session.scalar(
+                select(RuntimeExecution).where(
+                    RuntimeExecution.execution_id == execution_id
+                )
+            )
+            if task is None or execution is None:
+                raise LookupError("task or Runtime execution disappeared")
+            assignment = session.get(Assignment, execution.assignment_id)
+            if assignment is None:
+                raise LookupError(
+                    f"assignment '{execution.assignment_id}' does not exist"
+                )
+            append_task_event(
+                session,
+                task=task,
+                event_type=(
+                    "runtime.execution_interrupt_requested"
+                    if accepted
+                    else "runtime.execution_cancel_failed"
+                ),
+                aggregate_type="runtime_execution",
+                aggregate_id=execution.runtime_execution_id,
+                assignment_id=assignment.assignment_id,
+                runtime_execution_id=execution.runtime_execution_id,
+                source=f"runtime.{execution.provider}",
+                payload={
+                    "execution_id": execution.execution_id,
+                    "runtime_job_id": execution.runtime_job_id,
+                    "thread_id": execution.thread_id,
+                    "turn_id": execution.turn_id,
+                    "status": RuntimeExecutionStatus.CANCELLED,
+                    "accepted": accepted,
+                    **(
+                        {
+                            "reason": "runtime_cancel_unconfirmed",
+                            "error": error,
+                        }
+                        if error is not None
+                        else {}
+                    ),
+                },
+            )
+            session.commit()
+
+    def _cancel_pending_approvals(self, task_id: str) -> None:
+        if self._approval_canceller is not None:
+            self._approval_canceller(task_id=task_id, reason="task_cancelled")
+
+    def _load_task(self, task_id: str) -> Task:
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            return task
+
     def _watch_waiting_executions(self, task_id: str) -> None:
         if self._runtime_watch is None:
             return
@@ -281,6 +651,12 @@ class TaskOrchestrator:
             task = session.get(Task, assignment.task_id)
             if task is None:
                 raise LookupError(f"task '{assignment.task_id}' does not exist")
+
+            if (
+                execution.status == RuntimeExecutionStatus.CANCELLED
+                or task.status == TaskStatus.CANCELLED
+            ):
+                return task
 
             if execution.status == RuntimeExecutionStatus.COMPLETED:
                 if execution.runtime_event_id != runtime_event_id:
@@ -341,6 +717,7 @@ class TaskOrchestrator:
                 TaskStatus.FAILED,
                 TaskStatus.COMPLETED,
                 TaskStatus.NEEDS_REVISION,
+                TaskStatus.CANCELLED,
             }
 
         if not should_resume:
@@ -383,6 +760,12 @@ class TaskOrchestrator:
             task = session.get(Task, assignment.task_id)
             if task is None:
                 raise LookupError(f"task '{assignment.task_id}' does not exist")
+
+            if (
+                execution.status == RuntimeExecutionStatus.CANCELLED
+                or task.status == TaskStatus.CANCELLED
+            ):
+                return task
 
             if execution.status == RuntimeExecutionStatus.FAILED:
                 if execution.runtime_event_id != runtime_event_id:
@@ -675,10 +1058,12 @@ class TaskOrchestrator:
         task_id: str,
         results: list[AssignmentResult],
     ) -> LeadReviewState:
-        with self.database.session() as session:
+        with self._execution_lock, self.database.session() as session:
             task = session.get(Task, task_id)
             if task is None:
                 raise LookupError(f"task '{task_id}' does not exist")
+            if task.status == TaskStatus.CANCELLED:
+                return self._cancelled_review()
             assignment = prepare_lead_review(
                 session,
                 task=task,
@@ -694,6 +1079,8 @@ class TaskOrchestrator:
         try:
             review = LeadReviewResult.model_validate_json(result["summary"])
         except (ValidationError, ValueError) as exc:
+            if self._task_is_cancelled(task_id):
+                return self._cancelled_review()
             self._record_invalid_lead_review(
                 task_id=task_id,
                 assignment_id=result["assignment_id"],
@@ -706,6 +1093,8 @@ class TaskOrchestrator:
             assignment = session.get(Assignment, result["assignment_id"])
             if task is None or assignment is None:
                 raise LookupError("lead review records are unavailable")
+            if task.status == TaskStatus.CANCELLED:
+                return self._cancelled_review()
             existing_event = session.scalar(
                 select(ProductEvent).where(
                     ProductEvent.task_id == task_id,
@@ -732,6 +1121,21 @@ class TaskOrchestrator:
             "issues": list(review.issues),
         }
 
+    def _task_is_cancelled(self, task_id: str) -> bool:
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            return task.status == TaskStatus.CANCELLED
+
+    @staticmethod
+    def _cancelled_review() -> LeadReviewState:
+        return {
+            "decision": "needs_revision",
+            "final_summary": "Task cancelled before organization-lead review.",
+            "issues": [],
+        }
+
     def _record_invalid_lead_review(
         self,
         *,
@@ -744,6 +1148,8 @@ class TaskOrchestrator:
             assignment = session.get(Assignment, assignment_id)
             if task is None or assignment is None:
                 raise LookupError("lead review records are unavailable")
+            if task.status == TaskStatus.CANCELLED:
+                return
             execution = assignment.runtime_execution
             if execution is None:
                 raise LookupError("lead review execution is unavailable")
@@ -803,6 +1209,13 @@ class TaskOrchestrator:
             task = session.get(Task, assignment.task_id)
             if task is None:
                 raise LookupError(f"task '{assignment.task_id}' does not exist")
+            if task.status == TaskStatus.CANCELLED:
+                return {
+                    "assignment_id": assignment.assignment_id,
+                    "execution_id": assignment.execution_id,
+                    "role_key": assignment.agent_role_key,
+                    "summary": execution.result_summary or "",
+                }
             if execution.status == RuntimeExecutionStatus.COMPLETED:
                 return {
                     "assignment_id": assignment.assignment_id,
@@ -1078,6 +1491,7 @@ class TaskOrchestrator:
                     TaskStatus.FAILED,
                     TaskStatus.COMPLETED,
                     TaskStatus.NEEDS_REVISION,
+                    TaskStatus.CANCELLED,
                 }:
                     return task
 
@@ -1134,11 +1548,13 @@ class TaskOrchestrator:
             return self._finish_task(task_id, review)
 
     def _finish_task(self, task_id: str, review_payload: dict) -> Task:
-        review = LeadReviewResult.model_validate(review_payload)
         with self.database.session() as session:
             task = session.get(Task, task_id)
             if task is None:
                 raise LookupError(f"task '{task_id}' does not exist")
+            if task.status == TaskStatus.CANCELLED:
+                return task
+            review = LeadReviewResult.model_validate(review_payload)
             terminal_status = (
                 TaskStatus.COMPLETED
                 if review.decision == "accepted"

@@ -7,7 +7,7 @@ from collections import Counter
 from threading import Lock
 from typing import Any, Literal
 
-from mutiai.runtime.base import RuntimeResult
+from mutiai.runtime.base import RuntimeRecoveryRequest, RuntimeResult
 
 
 class FakeRuntimeAdapter:
@@ -30,6 +30,8 @@ class FakeRuntimeAdapter:
         self._failed_role_keys: set[str] = set()
         self._wait_once_role_keys = wait_once_role_keys or set()
         self._waited_role_keys: set[str] = set()
+        self._active_execution_ids: set[str] = set()
+        self._cancelled_execution_ids: set[str] = set()
         self._lead_review_decision = lead_review_decision
         self._lead_review_final_summary = lead_review_final_summary
         self._lead_review_issues = lead_review_issues
@@ -60,6 +62,7 @@ class FakeRuntimeAdapter:
                 and role_key not in self._waited_role_keys
             ):
                 self._waited_role_keys.add(role_key)
+                self._active_execution_ids.add(execution_id)
                 return RuntimeResult(
                     status="waiting",
                     runtime_job_id=f"fake:{execution_id}",
@@ -81,6 +84,26 @@ class FakeRuntimeAdapter:
             runtime_job_id=f"fake:{execution_id}",
             summary=summary,
         )
+
+    def recover(self, request: RuntimeRecoveryRequest) -> bool:
+        """The in-memory fake Runtime cannot recover across processes."""
+
+        del request
+        return False
+
+    def cancel(self, execution_id: str) -> bool:
+        """Cancel a waiting fake execution for orchestration tests."""
+
+        with self._lock:
+            if execution_id not in self._active_execution_ids:
+                return False
+            self._active_execution_ids.remove(execution_id)
+            self._cancelled_execution_ids.add(execution_id)
+            return True
+
+    def was_cancelled(self, execution_id: str) -> bool:
+        with self._lock:
+            return execution_id in self._cancelled_execution_ids
 
     def call_count(self, execution_id: str) -> int:
         with self._lock:

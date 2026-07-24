@@ -8,6 +8,7 @@ from typing import Protocol
 
 from mutiai.runtime.codex import (
     CodexRuntimeAdapter,
+    CodexTurnCancelledError,
     CodexTurnFailedError,
     CodexTurnLostError,
 )
@@ -39,6 +40,18 @@ class RuntimeCompletionSink(Protocol):
         thread_id: str | None = None,
         turn_id: str | None = None,
         reason: str = "runtime_terminal_failure",
+    ) -> object: ...
+
+    def cancel_runtime_execution(
+        self,
+        *,
+        execution_id: str,
+        runtime_event_id: str,
+        terminal_status: str,
+        runtime_job_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+        reason: str = "runtime_cancelled",
     ) -> object: ...
 
     def record_runtime_watch_error(
@@ -127,6 +140,19 @@ class CodexRuntimeSupervisor:
                     runtime_job_id=completion.result.runtime_job_id,
                     last_event_position=completion.result.last_event_position,
                 )
+        except CodexTurnCancelledError as exc:
+            with self._lock:
+                if self._closed:
+                    return
+            self.orchestrator.cancel_runtime_execution(
+                execution_id=execution_id,
+                runtime_event_id=exc.runtime_event_id,
+                terminal_status=exc.status,
+                runtime_job_id=exc.turn_id,
+                thread_id=exc.thread_id,
+                turn_id=exc.turn_id,
+                reason=exc.reason,
+            )
         except CodexTurnLostError as exc:
             with self._lock:
                 if self._closed:

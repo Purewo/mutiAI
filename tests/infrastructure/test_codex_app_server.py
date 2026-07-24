@@ -255,6 +255,39 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
         ]
 
 
+def test_codex_app_server_session_interrupts_active_turn(tmp_path) -> None:
+    with CodexAppServerSession(
+        cwd=tmp_path,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    ) as session:
+        thread = session.start_thread()
+        thread_id = thread["thread"]["id"]
+        assert session.next_event()["method"] == "thread/started"
+        started = session.start_turn(
+            thread_id=thread_id,
+            instructions=(
+                "Complete the task within this responsibility boundary: "
+                "Implement backend behavior: hang-runtime-once"
+            ),
+            execution_id="execution-interrupt",
+        )
+        turn_id = started["turn"]["id"]
+
+        assert session.interrupt_turn(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        ) == {}
+        interrupted = session.wait_for_turn(
+            thread_id=thread_id,
+            turn_id=turn_id,
+        )
+
+        assert interrupted["status"] == "interrupted"
+        assert interrupted["error"]["message"] == (
+            "task cancellation interrupted the Turn"
+        )
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [

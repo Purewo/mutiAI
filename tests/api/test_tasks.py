@@ -348,6 +348,150 @@ def test_retry_rejects_non_failed_task(tmp_path) -> None:
         assert rejected.json()["code"] == "TASK_NOT_RETRYABLE"
 
 
+def test_cancel_waiting_task_preserves_completed_parallel_branch(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(wait_once_role_keys={"backend"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "cancel-waiting-task"},
+            json={"request": "Cancel one waiting Runtime branch."},
+        )
+
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+        before_by_role = {
+            item["agent_role_key"]: item for item in submitted.json()["assignments"]
+        }
+        assert before_by_role["backend"]["status"] == "waiting"
+        assert before_by_role["test"]["status"] == "completed"
+
+        cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel")
+
+        assert cancelled.status_code == 200
+        payload = cancelled.json()
+        assert payload["status"] == "cancelled"
+        assert payload["completed_at"] is not None
+        after_by_role = {
+            item["agent_role_key"]: item for item in payload["assignments"]
+        }
+        assert after_by_role["backend"]["status"] == "cancelled"
+        assert after_by_role["backend"]["runtime_execution"]["status"] == (
+            "cancelled"
+        )
+        assert after_by_role["test"]["status"] == "completed"
+        assert after_by_role["test"]["runtime_execution"]["status"] == "completed"
+        assert adapter.was_cancelled(before_by_role["backend"]["execution_id"])
+
+        events = sse_payloads(client.get(f"/api/v1/tasks/{task_id}/events"))
+        event_types = [event["event_type"] for event in events]
+        assert event_types.count("task.cancellation_requested") == 1
+        assert event_types.count("runtime.execution_cancel_requested") == 1
+        assert event_types.count("runtime.execution_interrupt_requested") == 1
+        assert event_types.count("task.cancelled") == 1
+        assert "runtime.execution_failed" not in event_types
+
+        late_completion = app.state.task_orchestrator.complete_runtime_execution(
+            execution_id=before_by_role["backend"]["execution_id"],
+            runtime_event_id="fake:late-completion",
+            summary="This late result must not resume the cancelled graph.",
+        )
+        late_failure = app.state.task_orchestrator.fail_runtime_execution(
+            execution_id=before_by_role["backend"]["execution_id"],
+            runtime_event_id="fake:late-failure",
+            terminal_status="failed",
+            error="This late failure must not replace cancellation.",
+        )
+        assert late_completion.status == "cancelled"
+        assert late_failure.status == "cancelled"
+        after_late_events = sse_payloads(
+            client.get(f"/api/v1/tasks/{task_id}/events")
+        )
+        assert not any(
+            event["runtime_execution_id"]
+            == before_by_role["backend"]["runtime_execution"][
+                "runtime_execution_id"
+            ]
+            and event["event_type"]
+            in {"runtime.execution_completed", "runtime.execution_failed"}
+            for event in after_late_events
+        )
+
+        duplicate = client.post(f"/api/v1/tasks/{task_id}/cancel")
+        assert duplicate.status_code == 200
+        duplicate_events = sse_payloads(
+            client.get(f"/api/v1/tasks/{task_id}/events")
+        )
+        assert len(duplicate_events) == len(after_late_events)
+
+
+def test_cancel_rejects_completed_task(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "completed-task-cancel"},
+            json={"request": "Complete before cancellation is requested."},
+        )
+
+        assert submitted.status_code == 201
+        rejected = client.post(
+            f"/api/v1/tasks/{submitted.json()['task_id']}/cancel"
+        )
+        assert rejected.status_code == 409
+        assert rejected.json()["code"] == "TASK_NOT_CANCELLABLE"
+
+
+def test_cancel_reports_unconfirmed_runtime_interrupt(tmp_path) -> None:
+    class UnownedRuntimeAdapter(FakeRuntimeAdapter):
+        def cancel(self, execution_id: str) -> bool:
+            del execution_id
+            return False
+
+    settings = task_settings(tmp_path)
+    adapter = UnownedRuntimeAdapter(wait_once_role_keys={"backend"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "unconfirmed-cancel"},
+            json={"request": "Expose an unconfirmed Runtime interruption."},
+        )
+        task_id = submitted.json()["task_id"]
+
+        cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel")
+
+        assert cancelled.status_code == 409
+        assert cancelled.json()["code"] == "TASK_CANCELLATION_INCOMPLETE"
+        assert cancelled.json()["details"]["failures"]
+        persisted = client.get(f"/api/v1/tasks/{task_id}")
+        assert persisted.status_code == 200
+        assert persisted.json()["status"] == "cancelled"
+        event_types = {
+            event["event_type"]
+            for event in sse_payloads(
+                client.get(f"/api/v1/tasks/{task_id}/events")
+            )
+        }
+        assert "runtime.execution_cancel_failed" in event_types
+        assert "runtime.execution_interrupt_requested" not in event_types
+
+        duplicate = client.post(f"/api/v1/tasks/{task_id}/cancel")
+        assert duplicate.status_code == 409
+        assert duplicate.json()["code"] == "TASK_CANCELLATION_INCOMPLETE"
+
+
 def test_waiting_runtime_completion_resumes_graph_idempotently(tmp_path) -> None:
     settings = task_settings(tmp_path)
     adapter = FakeRuntimeAdapter(wait_once_role_keys={"backend"})

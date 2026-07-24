@@ -75,6 +75,7 @@ def create_app(
         workspace_provisioner,
         mutation_lock=product_mutation_lock,
     )
+    task_orchestrator.set_approval_canceller(approval_coordinator.cancel_task)
     runtime_supervisor = (
         CodexRuntimeSupervisor(resolved_runtime_adapter, task_orchestrator)
         if isinstance(resolved_runtime_adapter, CodexRuntimeAdapter)

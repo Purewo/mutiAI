@@ -685,7 +685,7 @@ def test_backend_restart_reattaches_waiting_turn_when_adapter_recovers(
             "cancel",
             "command_execution",
             "cancelled",
-            "failed",
+            "cancelled",
         ),
     ],
 )
@@ -786,6 +786,176 @@ def test_codex_runtime_approval_decision_resumes_original_turn(
             event_types = [event["event_type"] for event in events]
             assert event_types.count("runtime.approval_requested") == 1
             assert event_types.count("runtime.approval_resolved") == 1
+            assert "runtime.execution_watch_failed" not in event_types
+    finally:
+        adapter.close()
+
+
+def test_codex_task_cancel_interrupts_waiting_turn_without_failure_event(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'cancel.db'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "rt",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+    manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+    provisioner = WorkspaceProvisioner(manager)
+    codex_home = provisioner.ensure_codex_home()
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=lambda execution_id: RuntimeWorkspaceBinding(
+            workspace_id=f"workspace:{execution_id}",
+            path=manager.canonicalize(settings.runtime_workspace_root),
+        ),
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    try:
+        with TestClient(app) as client:
+            login(client)
+            organization_id = publish_organization(client)
+            submitted = client.post(
+                f"/api/v1/organizations/{organization_id}/tasks",
+                headers={"Idempotency-Key": "codex-task-cancel"},
+                json={"request": "hang-runtime-once for the backend assignment."},
+            )
+            assert submitted.status_code == 201
+            task_id = submitted.json()["task_id"]
+            waiting = wait_for_task_status(
+                client,
+                task_id,
+                statuses={"waiting"},
+            )
+            backend = next(
+                item
+                for item in waiting["assignments"]
+                if item["agent_role_key"] == "backend"
+            )
+
+            cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel")
+            assert cancelled.status_code == 200
+            assert cancelled.json()["status"] == "cancelled"
+
+            terminal = wait_for_task_status(
+                client,
+                task_id,
+                statuses={"cancelled"},
+            )
+            backend_after = next(
+                item
+                for item in terminal["assignments"]
+                if item["agent_role_key"] == "backend"
+            )
+            assert backend_after["status"] == "cancelled"
+            assert backend_after["runtime_execution"]["status"] == "cancelled"
+            assert backend_after["runtime_execution"]["thread_id"] == (
+                backend["runtime_execution"]["thread_id"]
+            )
+
+            deadline = time.monotonic() + 5
+            events = []
+            while time.monotonic() < deadline:
+                events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+                events = [
+                    json.loads(line.removeprefix("data: "))
+                    for line in events_response.text.splitlines()
+                    if line.startswith("data: ")
+                ]
+                if "runtime.execution_cancelled" in {
+                    event["event_type"] for event in events
+                }:
+                    break
+                time.sleep(0.01)
+            event_types = [event["event_type"] for event in events]
+            assert "runtime.execution_interrupt_requested" in event_types
+            assert "runtime.execution_cancelled" in event_types
+            assert "runtime.execution_failed" not in event_types
+            assert "runtime.execution_watch_failed" not in event_types
+    finally:
+        adapter.close()
+
+
+def test_codex_task_cancel_resolves_pending_approval_and_wakes_worker(tmp_path) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'cancel-approval.db'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "rt",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+    manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+    provisioner = WorkspaceProvisioner(manager)
+    codex_home = provisioner.ensure_codex_home()
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=lambda execution_id: RuntimeWorkspaceBinding(
+            workspace_id=f"workspace:{execution_id}",
+            path=manager.canonicalize(settings.runtime_workspace_root),
+        ),
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    try:
+        with TestClient(app) as client:
+            login(client)
+            organization_id = publish_organization(client)
+            submitted = client.post(
+                f"/api/v1/organizations/{organization_id}/tasks",
+                headers={"Idempotency-Key": "codex-task-cancel-approval"},
+                json={
+                    "request": "request-command-approval for the backend assignment."
+                },
+            )
+            assert submitted.status_code == 201
+            task_id = submitted.json()["task_id"]
+            approval = wait_for_pending_approval(client, task_id)
+
+            cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel")
+            assert cancelled.status_code == 200
+            assert cancelled.json()["status"] == "cancelled"
+
+            deadline = time.monotonic() + 5
+            resolved = None
+            while time.monotonic() < deadline:
+                resolved = client.get(
+                    f"/api/v1/tasks/{task_id}/approvals"
+                ).json()[0]
+                if resolved["status"] == "cancelled":
+                    break
+                time.sleep(0.01)
+            assert resolved is not None
+            assert resolved["approval_id"] == approval["approval_id"]
+            assert resolved["decision"] == "cancel"
+            assert resolved["decided_by_user_id"] is None
+
+            deadline = time.monotonic() + 5
+            events = []
+            while time.monotonic() < deadline:
+                events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+                events = [
+                    json.loads(line.removeprefix("data: "))
+                    for line in events_response.text.splitlines()
+                    if line.startswith("data: ")
+                ]
+                if "runtime.execution_cancelled" in {
+                    event["event_type"] for event in events
+                }:
+                    break
+                time.sleep(0.01)
+            event_types = [event["event_type"] for event in events]
+            assert event_types.count("runtime.approval_resolved") == 1
+            assert "runtime.execution_cancelled" in event_types
             assert "runtime.execution_watch_failed" not in event_types
     finally:
         adapter.close()

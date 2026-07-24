@@ -99,6 +99,32 @@ class CodexTurnLostError(CodexTurnFailedError):
         self.reason = "runtime_owner_lost"
 
 
+class CodexTurnCancelledError(CodexAppServerError):
+    """A Turn interrupted through the product cancellation boundary."""
+
+    def __init__(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+        message: str | None = None,
+    ) -> None:
+        self.thread_id = thread_id
+        self.turn_id = turn_id
+        self.status = "interrupted"
+        self.reason = "runtime_cancelled"
+        self.runtime_event_id = CodexTurnFailedError._runtime_event_id(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            status=self.status,
+        )
+        self.cancellation_message = message or "Codex Turn was interrupted"
+        super().__init__(
+            f"Codex turn '{turn_id}' was interrupted: "
+            f"{self.cancellation_message}"
+        )
+
+
 @dataclass(slots=True)
 class _ActiveExecution:
     session: CodexAppServerSession
@@ -106,6 +132,8 @@ class _ActiveExecution:
     completion_lock: Lock = field(default_factory=Lock)
     completion: CodexCompletion | None = None
     recovered_turn: dict[str, Any] | None = None
+    cancellation_requested: bool = False
+    cancellation_acknowledged: bool = False
 
 
 class CodexRuntimeAdapter:
@@ -376,12 +404,24 @@ class CodexRuntimeAdapter:
                         ),
                     )
             except CodexAppServerError as exc:
+                if active.cancellation_acknowledged:
+                    raise CodexTurnCancelledError(
+                        thread_id=waiting.thread_id,
+                        turn_id=waiting.turn_id,
+                        message=str(exc),
+                    ) from exc
                 raise CodexTurnLostError(
                     thread_id=waiting.thread_id,
                     turn_id=waiting.turn_id,
                     message=str(exc),
                 ) from exc
             status = turn.get("status")
+            if status == "interrupted":
+                raise CodexTurnCancelledError(
+                    thread_id=waiting.thread_id,
+                    turn_id=waiting.turn_id,
+                    message=self._turn_error_message(turn),
+                )
             if status != "completed":
                 raise CodexTurnFailedError(
                     thread_id=waiting.thread_id,
@@ -406,6 +446,30 @@ class CodexRuntimeAdapter:
                 result=result,
             )
             return active.completion
+
+    def cancel(self, execution_id: str) -> bool:
+        """Interrupt one active Turn without closing its event connection."""
+
+        with self._lock:
+            active = self._active.get(execution_id)
+            if active is None:
+                return False
+            waiting = active.waiting_result
+            if waiting.thread_id is None or waiting.turn_id is None:
+                raise CodexAppServerError(
+                    "active Codex execution has no Thread or Turn ID"
+                )
+            active.cancellation_requested = True
+            session = active.session
+            thread_id = waiting.thread_id
+            turn_id = waiting.turn_id
+
+        session.interrupt_turn(thread_id=thread_id, turn_id=turn_id)
+        with self._lock:
+            current = self._active.get(execution_id)
+            if current is active:
+                current.cancellation_acknowledged = True
+        return True
 
     def is_active(self, execution_id: str) -> bool:
         """Return whether this adapter currently owns the execution process."""

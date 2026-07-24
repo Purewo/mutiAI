@@ -15,7 +15,7 @@ from mutiai.models.approval import (
     ApprovalStatus,
 )
 from mutiai.models.base import utc_now
-from mutiai.models.task import RuntimeExecutionStatus
+from mutiai.models.task import RuntimeExecutionStatus, TaskStatus
 from mutiai.runtime import CodexApprovalRequest
 from mutiai.services.events import append_task_event
 
@@ -67,6 +67,8 @@ class RuntimeApprovalCoordinator:
                 task = session.get(Task, assignment.task_id)
                 if task is None:
                     raise LookupError(f"task '{assignment.task_id}' does not exist")
+                if task.status == TaskStatus.CANCELLED:
+                    return {"decision": ApprovalDecision.CANCEL}
                 if execution.status != RuntimeExecutionStatus.WAITING:
                     raise RuntimeError(
                         f"execution '{execution.execution_id}' is not waiting"
@@ -229,6 +231,45 @@ class RuntimeApprovalCoordinator:
                 recovered.append(approval.approval_id)
             session.commit()
             return recovered
+
+    def cancel_task(
+        self,
+        *,
+        task_id: str,
+        reason: str = "task_cancelled",
+    ) -> list[str]:
+        """Resolve all pending approvals for a cancelled product Task."""
+
+        with self._waiter_lock, self._mutation_lock, self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            approvals = session.scalars(
+                select(ApprovalRequest).where(
+                    ApprovalRequest.task_id == task_id,
+                    ApprovalRequest.status == ApprovalStatus.PENDING,
+                )
+            ).all()
+            resolved: list[str] = []
+            waiters: list[Event] = []
+            for approval in approvals:
+                self._resolve(
+                    session=session,
+                    approval=approval,
+                    task=task,
+                    decision=ApprovalDecision.CANCEL,
+                    decided_by_user_id=None,
+                    source="product",
+                    reason=reason,
+                )
+                resolved.append(approval.approval_id)
+                waiter = self._waiters.get(approval.approval_id)
+                if waiter is not None:
+                    waiters.append(waiter)
+            session.commit()
+            for waiter in waiters:
+                waiter.set()
+            return resolved
 
     def close(self) -> None:
         """Cancel active prompts so Runtime workers can stop cleanly."""

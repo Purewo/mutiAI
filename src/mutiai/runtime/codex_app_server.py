@@ -402,6 +402,22 @@ class CodexAppServerSession:
             params["outputSchema"] = dict(output_schema)
         return self.request("turn/start", params)
 
+    def interrupt_turn(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+    ) -> dict[str, Any]:
+        """Request interruption of one active Turn."""
+
+        return self.request(
+            "turn/interrupt",
+            {
+                "threadId": thread_id,
+                "turnId": turn_id,
+            },
+        )
+
     def wait_for_turn(
         self,
         *,

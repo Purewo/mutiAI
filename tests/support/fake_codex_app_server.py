@@ -164,6 +164,7 @@ for line in sys.stdin:
             }
         )
     elif method == "turn/start":
+        turn["status"] = "inProgress"
         thread_id = message["params"]["threadId"]
         input_items = message["params"].get("input", [])
         instructions = "\n".join(
@@ -346,6 +347,26 @@ for line in sys.stdin:
                         "id": turn["id"],
                         "status": "completed",
                         "items": [],
+                    },
+                },
+            }
+        )
+    elif method == "turn/interrupt":
+        thread_id = message["params"]["threadId"]
+        turn_id = message["params"]["turnId"]
+        turn["status"] = "interrupted"
+        pending_approval = None
+        send({"id": message["id"], "result": {}})
+        send(
+            {
+                "method": "turn/completed",
+                "params": {
+                    "threadId": thread_id,
+                    "turn": {
+                        "id": turn_id,
+                        "status": "interrupted",
+                        "items": [],
+                        "error": {"message": "task cancellation interrupted the Turn"},
                     },
                 },
             }

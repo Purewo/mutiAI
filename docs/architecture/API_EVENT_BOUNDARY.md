@@ -54,6 +54,8 @@ An approval is a product database entity, not a LangGraph interrupt or a copy of
 
 Repeating the same approval decision is idempotent. Submitting a different decision after resolution returns a conflict. If the Runtime no longer owns and waits on the request, the API returns a conflict instead of claiming that Codex received the decision.
 
+Cancellation is a product workflow operation. The API marks the Task and all unfinished Assignments as `cancelled`, then asks each live Runtime owner to interrupt its recorded Turn. Completed sibling Assignments remain completed. The endpoint returns `TASK_CANCELLATION_INCOMPLETE` when one or more Runtime owners cannot confirm the interrupt; the persisted Task remains cancelled and the event stream records the unconfirmed execution IDs.
+
 ### Organization-lead conversation
 
 - `POST /api/v1/organizations/{organization_id}/lead/messages`: submit a user message to the organization lead flow.
@@ -99,11 +101,17 @@ The first implementation may need these event types:
 - `runtime.execution_waiting`
 - `runtime.execution_completed`
 - `runtime.execution_failed`
+- `runtime.execution_cancel_requested`
+- `runtime.execution_interrupt_requested`
+- `runtime.execution_cancel_failed`
+- `runtime.execution_cancelled`
 - `runtime.execution_reconnected`
 - `runtime.execution_retry_requested`
 - `runtime.approval_requested`
 - `runtime.approval_resolved`
 - `task.retry_requested`
+- `task.cancellation_requested`
+- `task.cancelled`
 - `artifact.created`
 - `task.completed`
 - `task.failed`

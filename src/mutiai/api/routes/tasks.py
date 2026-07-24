@@ -28,6 +28,7 @@ from mutiai.api.schemas.tasks import (
 )
 from mutiai.models import ApprovalRequest, ProductEvent, Task
 from mutiai.models.task import TaskStatus
+from mutiai.orchestration import TaskCancellationIncompleteError
 from mutiai.services.tasks import create_task, get_owned_task
 
 router = APIRouter(tags=["tasks"])
@@ -123,6 +124,41 @@ def retry_failed_task(
             "Only a failed task can be retried.",
         )
     orchestrator.retry(task_id)
+    return load_task_response(session, task_id)
+
+
+@router.post(
+    "/tasks/{task_id}/cancel",
+    response_model=TaskResponse,
+    responses=ERROR_RESPONSES,
+)
+def cancel_task(
+    task_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    orchestrator: TaskRunner,
+) -> TaskResponse:
+    get_owned_task(
+        session,
+        task_id=task_id,
+        owner_user_id=user.user_id,
+    )
+    try:
+        orchestrator.cancel(task_id)
+    except ValueError as exc:
+        raise ApiError(
+            409,
+            "TASK_NOT_CANCELLABLE",
+            "Only a non-terminal task can be cancelled.",
+        ) from exc
+    except TaskCancellationIncompleteError as exc:
+        raise ApiError(
+            409,
+            "TASK_CANCELLATION_INCOMPLETE",
+            "The task workflow was cancelled, but one or more Runtime "
+            "interruptions were not confirmed.",
+            details={"failures": exc.failures},
+        ) from exc
     return load_task_response(session, task_id)
 
 
