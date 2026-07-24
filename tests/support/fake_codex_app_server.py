@@ -9,6 +9,7 @@ import uuid
 run_id = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
 thread = {"id": f"thread-test-{run_id}", "status": {"type": "idle"}}
 turn = {"id": f"turn-test-{run_id}", "status": "inProgress", "items": []}
+account = None
 
 
 def send(message: dict) -> None:
@@ -23,6 +24,46 @@ for line in sys.stdin:
         send({"id": message["id"], "result": {"platformOs": "windows"}})
     elif method == "initialized":
         pass
+    elif method == "account/read":
+        send(
+            {
+                "id": message["id"],
+                "result": {
+                    "account": account,
+                    "requiresOpenaiAuth": True,
+                },
+            }
+        )
+    elif method == "account/login/start":
+        login_id = f"login-test-{run_id}"
+        account = {"type": "chatgpt", "planType": "plus"}
+        send(
+            {
+                "id": message["id"],
+                "result": {
+                    "type": "chatgptDeviceCode",
+                    "loginId": login_id,
+                    "verificationUrl": "https://auth.openai.com/codex/device",
+                    "userCode": "TEST-CODE",
+                },
+            }
+        )
+        send(
+            {
+                "method": "account/login/completed",
+                "params": {
+                    "loginId": login_id,
+                    "success": True,
+                    "error": None,
+                },
+            }
+        )
+        send(
+            {
+                "method": "account/updated",
+                "params": {"authMode": "chatgpt", "planType": "plus"},
+            }
+        )
     elif method == "thread/start":
         send(
             {

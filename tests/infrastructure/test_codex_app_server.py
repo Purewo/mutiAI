@@ -19,6 +19,17 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
         cwd=tmp_path,
         command=(sys.executable, str(FAKE_APP_SERVER)),
     ) as session:
+        account = session.read_account()
+        assert account == {"account": None, "requiresOpenaiAuth": True}
+        login = session.start_device_code_login()
+        assert login["type"] == "chatgptDeviceCode"
+        assert login["verificationUrl"] == "https://auth.openai.com/codex/device"
+        assert login["userCode"] == "TEST-CODE"
+        completed_login = session.wait_for_login(login_id=login["loginId"])
+        assert completed_login["success"] is True
+        assert session.next_event()["method"] == "account/updated"
+        assert session.read_account()["account"]["type"] == "chatgpt"
+
         thread = session.start_thread()
         thread_id = thread["thread"]["id"]
         assert thread_id.startswith("thread-test-")

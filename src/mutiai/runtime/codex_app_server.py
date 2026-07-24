@@ -179,6 +179,44 @@ class CodexAppServerSession:
         self._require_process()
         self._write({"method": method, "params": dict(params or {})})
 
+    def read_account(self, *, refresh_token: bool = False) -> dict[str, Any]:
+        """Read the authentication state owned by this Codex home."""
+
+        return self.request(
+            "account/read",
+            {"refreshToken": refresh_token},
+        )
+
+    def start_device_code_login(self) -> dict[str, Any]:
+        """Start a managed ChatGPT device-code login ceremony."""
+
+        return self.request(
+            "account/login/start",
+            {"type": "chatgptDeviceCode"},
+        )
+
+    def wait_for_login(
+        self,
+        *,
+        login_id: str,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Wait for the terminal notification for one managed login."""
+
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                raise CodexAppServerError("timed out waiting for Codex login")
+            event = self.next_event(timeout=remaining)
+            params = event.get("params")
+            if (
+                event.get("method") == "account/login/completed"
+                and isinstance(params, dict)
+                and params.get("loginId") == login_id
+            ):
+                return params
+
     def start_thread(
         self,
         *,

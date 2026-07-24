@@ -27,13 +27,14 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - The Python client completed a real initialization handshake with local `codex-cli 0.145.0`.
 - A real `thread/start` returned a UUID Thread ID and the isolated canonical working directory.
 - The fake App Server integration verifies initialization, Thread start, Thread resume request shape, Turn start, notifications arriving before responses, terminal result extraction, and idempotent in-process submission.
+- The background Runtime supervisor waits outside LangGraph, delivers terminal results through the product completion boundary, serializes parallel checkpoint resumes, deduplicates workers, and closes each execution's App Server session.
 - A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread. Cross-process resume therefore requires a submitted Turn and remains an M2 acceptance item.
 
 ## Current limitations
 
-- The adapter is not the application default until isolated authentication, event-worker supervision, and approval routing are implemented.
+- The adapter is not the application default until isolated authentication and approval routing are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
-- Product approval routing, cancellation, reconnect supervision, and Runtime event workers remain pending.
+- Product approval routing, cancellation, and reconnect supervision remain pending.
 - Isolated Codex authentication must be configured without adopting or polluting existing interactive sessions.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.
 
