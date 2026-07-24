@@ -138,7 +138,6 @@ def test_task_idempotency_graph_fanout_events_and_restart(tmp_path) -> None:
             ).fetchone()[0]
         assert checkpoint_count > 0
         assert not settings.runtime_workspace_root.exists()
-
         replay = client.post(
             task_url,
             headers={"Idempotency-Key": "m1-task-1"},
@@ -228,6 +227,81 @@ def test_task_idempotency_graph_fanout_events_and_restart(tmp_path) -> None:
     )
 
 
+def test_role_runtime_bindings_are_frozen_on_each_execution(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter()
+    app = create_app(settings, runtime_adapter=adapter)
+    with TestClient(app) as client:
+        login(client)
+        bindings = {
+            "lead-binding": ("lead-model-test", "high"),
+            "backend-binding": ("backend-model-test", "medium"),
+            "test-binding": ("test-model-test", "low"),
+        }
+        for key, (model, effort) in bindings.items():
+            response = client.put(
+                f"/api/v1/runtime/bindings/{key}",
+                json={
+                    "provider": "fake",
+                    "model": model,
+                    "reasoning_effort": effort,
+                    "security_mode": "workspace_restricted",
+                },
+            )
+            assert response.status_code == 200
+
+        spec = task_spec()
+        binding_by_role = {
+            "lead": "lead-binding",
+            "backend": "backend-binding",
+            "test": "test-binding",
+        }
+        for role in spec["roles"]:
+            role["runtime_binding_key"] = binding_by_role[role["role_key"]]
+        proposal = client.post(
+            "/api/v1/organizations/proposals",
+            json={"spec": spec},
+        )
+        assert proposal.status_code == 201
+        version = proposal.json()
+        version_url = (
+            f"/api/v1/organizations/{version['organization_id']}/versions/"
+            f"{version['spec_version_id']}"
+        )
+        assert client.post(version_url + "/confirm").status_code == 200
+        assert client.post(version_url + "/publish").status_code == 200
+
+        submitted = client.post(
+            f"/api/v1/organizations/{version['organization_id']}/tasks",
+            headers={"Idempotency-Key": "role-binding-snapshot"},
+            json={"request": "Run role-specific bounded work."},
+        )
+        assert submitted.status_code == 201
+        executions = {
+            item["agent_role_key"]: item["runtime_execution"]
+            for item in submitted.json()["assignments"]
+        }
+        for binding_key, (model, effort) in bindings.items():
+            role = next(
+                role_name
+                for role_name, configured_key in binding_by_role.items()
+                if configured_key == binding_key
+            )
+            execution = executions[role]
+            assert execution["runtime_binding_key"] == binding_key
+            assert execution["requested_model"] == model
+            assert execution["actual_model"] is None
+            assert execution["reasoning_effort"] == effort
+            assert execution["security_mode"] == "workspace_restricted"
+            assert execution["approval_policy"] == "on-request"
+            assert execution["sandbox_mode"] == "workspace-write"
+            config = adapter.runtime_config_for(execution["execution_id"])
+            assert config is not None
+            assert config.binding_key == binding_key
+            assert config.model == model
+            assert config.reasoning_effort == effort
+
+
 def test_task_requires_idempotency_key_and_published_organization(tmp_path) -> None:
     settings = task_settings(tmp_path)
     app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
@@ -260,6 +334,36 @@ def test_task_requires_idempotency_key_and_published_organization(tmp_path) -> N
         assert not settings.runtime_workspace_root.exists()
 
 
+def test_task_rejects_unconfigured_role_runtime_binding(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+    with TestClient(app, raise_server_exceptions=False) as client:
+        login(client)
+        spec = task_spec()
+        backend = next(
+            role for role in spec["roles"] if role["role_key"] == "backend"
+        )
+        backend["runtime_binding_key"] = "missing-binding"
+        proposal = client.post(
+            "/api/v1/organizations/proposals",
+            json={"spec": spec},
+        )
+        version = proposal.json()
+        version_url = (
+            f"/api/v1/organizations/{version['organization_id']}/versions/"
+            f"{version['spec_version_id']}"
+        )
+        assert client.post(version_url + "/confirm").status_code == 200
+        assert client.post(version_url + "/publish").status_code == 200
+        response = client.post(
+            f"/api/v1/organizations/{version['organization_id']}/tasks",
+            headers={"Idempotency-Key": "missing-runtime-binding"},
+            json={"request": "Reject before Runtime submission."},
+        )
+        assert response.status_code == 409
+        assert response.json()["code"] == "RUNTIME_BINDING_INVALID"
+
+
 def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> None:
     settings = task_settings(tmp_path)
     adapter = FakeRuntimeAdapter(fail_once_role_keys={"backend"})
@@ -267,6 +371,16 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
 
     with TestClient(app, raise_server_exceptions=False) as client:
         login(client)
+        initial_binding = client.put(
+            "/api/v1/runtime/bindings/codex-local-default",
+            json={
+                "provider": "fake",
+                "model": "initial-model-test",
+                "reasoning_effort": "medium",
+                "security_mode": "workspace_restricted",
+            },
+        )
+        assert initial_binding.status_code == 200
         organization_id = publish_organization(client)
         task_url = f"/api/v1/organizations/{organization_id}/tasks"
         first = client.post(
@@ -292,6 +406,9 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
 
         assert adapter.call_count(execution_by_role["backend"]) == 1
         assert adapter.call_count(execution_by_role["test"]) == 1
+        first_config = adapter.runtime_config_for(execution_by_role["backend"])
+        assert first_config is not None
+        assert first_config.model == "initial-model-test"
 
         replay = client.post(
             task_url,
@@ -304,6 +421,17 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
         assert adapter.call_count(execution_by_role["backend"]) == 1
         assert adapter.call_count(execution_by_role["test"]) == 1
 
+        changed_binding = client.put(
+            "/api/v1/runtime/bindings/codex-local-default",
+            json={
+                "provider": "fake",
+                "model": "changed-model-test",
+                "reasoning_effort": "high",
+                "security_mode": "demo_full_access",
+            },
+        )
+        assert changed_binding.status_code == 200
+
         resumed = client.post(f"/api/v1/tasks/{task.task_id}/retry")
 
         assert resumed.status_code == 200
@@ -311,6 +439,11 @@ def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> N
         assert len(resumed.json()["assignments"]) == 3
         assert adapter.call_count(execution_by_role["backend"]) == 2
         assert adapter.call_count(execution_by_role["test"]) == 1
+        retry_config = adapter.runtime_config_for(execution_by_role["backend"])
+        assert retry_config is not None
+        assert retry_config.model == "initial-model-test"
+        assert retry_config.reasoning_effort == "medium"
+        assert retry_config.security_mode == "workspace_restricted"
 
         events = sse_payloads(
             client.get(f"/api/v1/tasks/{resumed.json()['task_id']}/events")

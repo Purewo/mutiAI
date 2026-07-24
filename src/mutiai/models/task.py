@@ -8,6 +8,7 @@ from enum import StrEnum
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -168,6 +169,15 @@ class RuntimeExecution(Base):
             "reserved_tokens >= 0",
             name="nonnegative_reserved_tokens",
         ),
+        CheckConstraint(
+            "context_compactions >= 0",
+            name="nonnegative_context_compactions",
+        ),
+        CheckConstraint(
+            "security_mode IS NULL OR security_mode IN "
+            "('demo_full_access', 'workspace_restricted')",
+            name="valid_security_mode",
+        ),
     )
 
     runtime_execution_id: Mapped[str] = mapped_column(
@@ -180,6 +190,21 @@ class RuntimeExecution(Base):
         index=True,
     )
     provider: Mapped[str] = mapped_column(String(32))
+    runtime_binding_id: Mapped[str | None] = mapped_column(
+        ForeignKey("runtime_bindings.runtime_binding_id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    runtime_binding_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    requested_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    actual_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reasoning_effort: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    security_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    approval_policy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sandbox_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    network_access: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     status: Mapped[str] = mapped_column(String(20), index=True)
     runtime_job_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     runtime_event_id: Mapped[str | None] = mapped_column(
@@ -208,6 +233,7 @@ class RuntimeExecution(Base):
         nullable=True,
     )
     total_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    context_compactions: Mapped[int] = mapped_column(Integer, default=0)
     admitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False),
         nullable=True,

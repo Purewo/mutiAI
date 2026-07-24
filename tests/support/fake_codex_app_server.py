@@ -163,7 +163,11 @@ for line in sys.stdin:
         send(
             {
                 "id": message["id"],
-                "result": {"thread": thread, "cwd": message["params"]["cwd"]},
+                "result": {
+                    "thread": thread,
+                    "cwd": message["params"]["cwd"],
+                    "model": message["params"].get("model"),
+                },
             }
         )
         send({"method": "thread/started", "params": {"thread": thread}})
@@ -176,6 +180,7 @@ for line in sys.stdin:
                 "result": {
                     "thread": resumed_thread,
                     "cwd": message["params"]["cwd"],
+                    "model": message["params"].get("model"),
                 },
             }
         )
@@ -343,6 +348,21 @@ for line in sys.stdin:
             }
         )
         send({"id": message["id"], "result": {"turn": turn}})
+        if "emit-context-compaction" in instructions:
+            send(
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turnId": turn["id"],
+                        "item": {
+                            "id": f"compaction-{run_id}",
+                            "type": "context_compaction",
+                        },
+                        "completedAtMs": 0,
+                    },
+                }
+            )
         send(
             {
                 "method": "item/completed",

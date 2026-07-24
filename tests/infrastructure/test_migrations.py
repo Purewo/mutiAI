@@ -11,6 +11,12 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
     try:
         inspector = inspect(engine)
         tables = set(inspector.get_table_names())
+        runtime_execution_columns = {
+            column["name"] for column in inspector.get_columns("runtime_executions")
+        }
+        workspace_columns = {
+            column["name"] for column in inspector.get_columns("workspaces")
+        }
         with engine.connect() as connection:
             revision = connection.scalar(
                 text("SELECT version_num FROM alembic_version")
@@ -29,8 +35,27 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "runtime_executions",
         "runtime_control_policies",
         "runtime_provider_capacities",
+        "runtime_bindings",
         "workspaces",
         "tasks",
         "users",
     } <= tables
-    assert revision == "20260724_0006"
+    assert {
+        "runtime_binding_id",
+        "runtime_binding_key",
+        "requested_model",
+        "actual_model",
+        "reasoning_effort",
+        "security_mode",
+        "approval_policy",
+        "sandbox_mode",
+        "network_access",
+        "context_compactions",
+    } <= runtime_execution_columns
+    assert {
+        "thread_compaction_count",
+        "thread_generation",
+        "last_compacted_at",
+        "last_delivery_summary",
+    } <= workspace_columns
+    assert revision == "20260725_0007"

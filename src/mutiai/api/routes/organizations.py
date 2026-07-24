@@ -22,7 +22,6 @@ from mutiai.services.organizations import (
     publish_version,
 )
 
-
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 ERROR_RESPONSES = {
     401: {"model": ErrorEnvelope},

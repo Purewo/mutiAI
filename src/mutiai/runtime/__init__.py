@@ -3,6 +3,7 @@
 from mutiai.runtime.base import (
     AgentRuntimeAdapter,
     RuntimeCapacity,
+    RuntimeExecutionConfig,
     RuntimeRecoveryRequest,
     RuntimeResult,
     RuntimeTokenUsage,
@@ -47,6 +48,7 @@ __all__ = [
     "CodexTurnLostError",
     "FakeRuntimeAdapter",
     "RuntimeCapacity",
+    "RuntimeExecutionConfig",
     "RuntimeRecoveryRequest",
     "RuntimeResult",
     "RuntimeTokenUsage",

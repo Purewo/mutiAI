@@ -29,6 +29,7 @@ from mutiai.api.schemas.tasks import (
 from mutiai.models import ApprovalRequest, ProductEvent, Task
 from mutiai.models.task import TaskStatus
 from mutiai.orchestration import TaskCancellationIncompleteError
+from mutiai.services.runtime_bindings import RuntimeBindingResolutionError
 from mutiai.services.runtime_controls import (
     RuntimeBudgetExceededError,
     RuntimeProviderRateLimitedError,
@@ -103,6 +104,12 @@ def submit_task(
                 "tokens_reserved": exc.reserved,
                 "requested_tokens": exc.requested,
             },
+        ) from exc
+    except RuntimeBindingResolutionError as exc:
+        raise ApiError(
+            409,
+            "RUNTIME_BINDING_INVALID",
+            str(exc),
         ) from exc
     if not created:
         response.status_code = 200

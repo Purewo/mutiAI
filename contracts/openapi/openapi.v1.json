@@ -539,6 +539,135 @@
         }
       }
     },
+    "/api/v1/runtime/bindings": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "List Runtime Bindings",
+        "operationId": "list_runtime_bindings_api_v1_runtime_bindings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RuntimeBindingResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Runtime Bindings Api V1 Runtime Bindings Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runtime/bindings/{binding_key}": {
+      "put": {
+        "tags": [
+          "runtime"
+        ],
+        "summary": "Put Runtime Binding",
+        "operationId": "put_runtime_binding_api_v1_runtime_bindings__binding_key__put",
+        "parameters": [
+          {
+            "name": "binding_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Binding Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeBindingUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeBindingResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/runtime/controls": {
       "get": {
         "tags": [
@@ -1859,6 +1988,119 @@
         ],
         "title": "OrganizationVersionStatus"
       },
+      "RuntimeBindingResponse": {
+        "properties": {
+          "runtime_binding_id": {
+            "type": "string",
+            "title": "Runtime Binding Id"
+          },
+          "binding_key": {
+            "type": "string",
+            "title": "Binding Key"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "security_mode": {
+            "$ref": "#/components/schemas/RuntimeSecurityMode"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runtime_binding_id",
+          "binding_key",
+          "provider",
+          "model",
+          "reasoning_effort",
+          "security_mode",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RuntimeBindingResponse"
+      },
+      "RuntimeBindingUpsertRequest": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "security_mode": {
+            "$ref": "#/components/schemas/RuntimeSecurityMode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "security_mode"
+        ],
+        "title": "RuntimeBindingUpsertRequest"
+      },
       "RuntimeControlResponse": {
         "properties": {
           "provider": {
@@ -1984,6 +2226,105 @@
           "provider": {
             "type": "string",
             "title": "Provider"
+          },
+          "runtime_binding_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Binding Id"
+          },
+          "runtime_binding_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Binding Key"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "actual_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Model"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "security_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Mode"
+          },
+          "approval_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Policy"
+          },
+          "sandbox_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sandbox Mode"
+          },
+          "network_access": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Network Access"
           },
           "status": {
             "$ref": "#/components/schemas/RuntimeExecutionStatus"
@@ -2127,6 +2468,10 @@
               }
             ],
             "title": "Total Tokens"
+          },
+          "context_compactions": {
+            "type": "integer",
+            "title": "Context Compactions"
           }
         },
         "type": "object",
@@ -2134,6 +2479,15 @@
           "runtime_execution_id",
           "execution_id",
           "provider",
+          "runtime_binding_id",
+          "runtime_binding_key",
+          "requested_model",
+          "actual_model",
+          "reasoning_effort",
+          "security_mode",
+          "approval_policy",
+          "sandbox_mode",
+          "network_access",
           "status",
           "runtime_job_id",
           "thread_id",
@@ -2148,7 +2502,8 @@
           "cached_input_tokens",
           "output_tokens",
           "reasoning_output_tokens",
-          "total_tokens"
+          "total_tokens",
+          "context_compactions"
         ],
         "title": "RuntimeExecutionResponse"
       },
@@ -2163,6 +2518,15 @@
           "cancelled"
         ],
         "title": "RuntimeExecutionStatus"
+      },
+      "RuntimeSecurityMode": {
+        "type": "string",
+        "enum": [
+          "demo_full_access",
+          "workspace_restricted"
+        ],
+        "title": "RuntimeSecurityMode",
+        "description": "Named product security profiles compiled into Runtime-specific policy."
       },
       "TaskCreateRequest": {
         "properties": {

@@ -272,6 +272,89 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
         assert completed["_mutiai_usage"].total_tokens == 16
 
 
+def test_codex_app_server_supports_role_policy_and_counts_compaction(tmp_path) -> None:
+    with CodexAppServerSession(
+        cwd=tmp_path,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    ) as session:
+        thread = session.start_thread(
+            model="role-model-test",
+            approval_policy="never",
+            sandbox="danger-full-access",
+        )
+        thread_id = thread["thread"]["id"]
+        session.next_event()
+        started = session.start_turn(
+            thread_id=thread_id,
+            instructions="emit-context-compaction",
+            execution_id="execution-compaction",
+            model="role-model-test",
+            reasoning_effort="high",
+            approval_policy="never",
+            sandbox_mode="danger-full-access",
+            network_access=True,
+        )
+        completed = session.wait_for_turn(
+            thread_id=thread_id,
+            turn_id=started["turn"]["id"],
+        )
+        assert completed["_mutiai_context_compactions"] == 1
+
+
+def test_codex_app_server_emits_exact_role_wire_policy(tmp_path) -> None:
+    session = CodexAppServerSession(cwd=tmp_path)
+    calls: list[tuple[str, dict]] = []
+
+    def request(method: str, params: dict | None = None, **kwargs):
+        del kwargs
+        calls.append((method, params or {}))
+        if method == "thread/start":
+            return {"thread": {"id": "thread-wire"}, "cwd": str(tmp_path)}
+        return {"turn": {"id": "turn-wire"}}
+
+    session.request = request  # type: ignore[method-assign]
+    session.start_thread(
+        model="backend-model",
+        approval_policy="never",
+        sandbox="danger-full-access",
+    )
+    session.start_turn(
+        thread_id="thread-wire",
+        instructions="bounded",
+        execution_id="execution-wire",
+        model="backend-model",
+        reasoning_effort="medium",
+        approval_policy="never",
+        sandbox_mode="danger-full-access",
+        network_access=True,
+    )
+
+    assert calls == [
+        (
+            "thread/start",
+            {
+                "cwd": str(tmp_path),
+                "approvalPolicy": "never",
+                "sandbox": "danger-full-access",
+                "model": "backend-model",
+            },
+        ),
+        (
+            "turn/start",
+            {
+                "threadId": "thread-wire",
+                "input": [{"type": "text", "text": "bounded"}],
+                "cwd": str(tmp_path),
+                "approvalPolicy": "never",
+                "sandboxPolicy": {"type": "dangerFullAccess"},
+                "clientUserMessageId": "execution-wire",
+                "model": "backend-model",
+                "effort": "medium",
+            },
+        ),
+    ]
+
+
 def test_codex_app_server_session_interrupts_active_turn(tmp_path) -> None:
     with CodexAppServerSession(
         cwd=tmp_path,

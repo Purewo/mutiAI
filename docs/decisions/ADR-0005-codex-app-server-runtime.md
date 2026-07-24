@@ -36,7 +36,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Treat loss of the owned App Server connection as `runtime_owner_lost`. During intentional supervisor shutdown, leave the durable wait for startup reconciliation; when a live supervisor detects the loss, persist the failure without replaying the Turn.
 - On startup, reconcile waiting Codex executions that have no active owner in the new process into the same explicit-retry state. Do not claim that a new process has safely resumed an in-flight Turn.
 - Use `workspaceWrite` for the managed workspace with network access disabled by default.
-- Use `on-request` approval behavior by default. Convert command-execution and file-change approval requests into product-owned database records, then let the Runtime worker wait outside LangGraph for a one-time user decision.
+- Use `on-request` for the `workspace_restricted` security mode. Convert command-execution and file-change approval requests into product-owned database records, then let the Runtime worker wait outside LangGraph for a one-time user decision. M2.1 adds a localhost-only `demo_full_access` default for the first-week demonstration; production and non-loopback HTTP bindings reject it.
 - Expose only `accept`, `decline`, and `cancel` in V1. Do not expose `acceptForSession`, exec-policy amendments, or network-policy amendments.
 - Preserve the App Server JSON-RPC request ID with the RuntimeExecution, Thread, Turn, and item identities. Reply through the same owned App Server connection only after the product decision is committed.
 - Persist `runtime.approval_requested` and `runtime.approval_resolved` events through the product event sequence. Keep approval state out of LangGraph State.

@@ -2,7 +2,7 @@
 
 `mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
 
-The M1 backend walking skeleton is complete. M2 now includes the local Codex App Server boundary, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting.
+The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting.
 
 ## Repository responsibilities
 
@@ -43,6 +43,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [M1 task orchestration decision](docs/decisions/ADR-0004-m1-task-orchestration.md)
 - [Codex App Server Runtime decision](docs/decisions/ADR-0005-codex-app-server-runtime.md)
 - [M2 Codex Runtime acceptance](docs/acceptance/M2_CODEX_RUNTIME.md)
+- [M2.1 Runtime policy acceptance](docs/acceptance/M2_1_RUNTIME_POLICY.md)
 - [M1 vertical-slice acceptance](docs/acceptance/M1_VERTICAL_SLICE.md)
 - [Contract directory](contracts/README.md)
 
@@ -120,6 +121,21 @@ GET /api/v1/runtime/controls
 ```
 
 The current admission lock is process-local around database transactions. It is correct for the single API process used in V1 local development. A multi-instance deployment must replace it with database row locking or a dedicated scheduler before sharing one budget and concurrency pool.
+
+### Configure role Runtime bindings
+
+Each `OrganizationSpec` role references a product-owned `runtime_binding_key`. Authenticated clients can list and update bindings through:
+
+```text
+GET /api/v1/runtime/bindings
+PUT /api/v1/runtime/bindings/{binding_key}
+```
+
+A binding selects the active Runtime provider, model, reasoning effort, and named security mode. The first execution for an Assignment freezes these values into `RuntimeExecution`; an explicit retry reuses that snapshot even if the mutable binding changes later. The Runtime response exposes both the requested model and the model reported by App Server.
+
+The first-week localhost demo defaults to `RUNTIME_SECURITY_MODE=demo_full_access`, which compiles to `approvalPolicy=never` and `danger-full-access`. Configuration rejects this mode in production or when `APP_HOST` is not loopback. `workspace_restricted` compiles to `approvalPolicy=on-request`, `workspace-write`, and no network access. Full Access does not relax product Workspace, isolated `CODEX_HOME`, Thread ownership, or interactive-session separation.
+
+Codex context compactions are counted from completed Runtime items. No rotation limit is assumed by default. Set `RUNTIME_THREAD_MAX_COMPACTIONS` to rotate a role Thread before its next Assignment after the explicit threshold is reached. Rotation preserves the Workspace, increments its Thread generation, and carries forward only the last delivery summary, not the Codex transcript.
 
 ### Run the M2 real Runtime smoke
 

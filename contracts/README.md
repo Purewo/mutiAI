@@ -17,6 +17,11 @@ Generated snapshots currently include:
 - `openapi/openapi.v1.json` from the FastAPI application routes and models.
 - `events/task-event.v1.json` from the persisted and streamed task event envelope.
 
+The OpenAPI snapshot includes the authenticated Runtime binding resources and
+the immutable RuntimeExecution policy fields consumed by the frontend. Runtime
+binding values are product configuration; raw LangGraph checkpoints and Codex
+Thread history are not public contract resources.
+
 Regenerate both snapshots with:
 
 ```powershell

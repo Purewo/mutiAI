@@ -3,7 +3,6 @@ from pathlib import Path
 
 from mutiai.api.schemas.tasks import TaskEventResponse
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 

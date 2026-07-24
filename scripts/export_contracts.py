@@ -6,10 +6,9 @@ import json
 from pathlib import Path
 
 from mutiai.api.schemas.tasks import TaskEventResponse
-from mutiai.domain import OrganizationSpec
 from mutiai.config import Settings
+from mutiai.domain import OrganizationSpec
 from mutiai.main import create_app
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ORGANIZATION_SCHEMA_PATH = (

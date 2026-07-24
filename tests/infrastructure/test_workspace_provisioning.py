@@ -107,16 +107,15 @@ def test_workspace_record_path_cannot_be_redirected_outside_managed_root(
             workspace.canonical_path = str(tmp_path / "outside")
             session.commit()
 
-        with database.session() as session:
-            with pytest.raises(
-                WorkspaceBoundaryError,
-                match="does not match its deterministic path",
-            ):
-                provisioner.ensure_role_workspace(
-                    session,
-                    owner_user_id=user_id,
-                    organization_id=organization_id,
-                    agent_role_key="backend",
-                )
+        with database.session() as session, pytest.raises(
+            WorkspaceBoundaryError,
+            match="does not match its deterministic path",
+        ):
+            provisioner.ensure_role_workspace(
+                session,
+                owner_user_id=user_id,
+                organization_id=organization_id,
+                agent_role_key="backend",
+            )
     finally:
         database.dispose()

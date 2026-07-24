@@ -27,6 +27,19 @@ class RuntimeCapacity:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeExecutionConfig:
+    """Resolved product policy snapshot supplied to one Runtime execution."""
+
+    binding_key: str
+    model: str | None
+    reasoning_effort: str | None
+    security_mode: Literal["demo_full_access", "workspace_restricted"]
+    approval_policy: Literal["never", "on-request"]
+    sandbox_mode: Literal["danger-full-access", "workspace-write"]
+    network_access: bool
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeResult:
     status: Literal["completed", "waiting"]
     runtime_job_id: str
@@ -36,6 +49,8 @@ class RuntimeResult:
     workspace_id: str | None = None
     last_event_position: str | None = None
     usage: RuntimeTokenUsage | None = None
+    context_compactions: int = 0
+    actual_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +63,7 @@ class RuntimeRecoveryRequest:
     turn_id: str
     workspace_id: str
     workspace_path: str
+    runtime_config: RuntimeExecutionConfig | None = None
 
 
 class AgentRuntimeAdapter(Protocol):
@@ -65,6 +81,7 @@ class AgentRuntimeAdapter(Protocol):
         workspace_path: str | None = None,
         thread_id: str | None = None,
         output_schema: dict[str, Any] | None = None,
+        runtime_config: RuntimeExecutionConfig | None = None,
     ) -> RuntimeResult: ...
 
     def recover(self, request: RuntimeRecoveryRequest) -> bool: ...

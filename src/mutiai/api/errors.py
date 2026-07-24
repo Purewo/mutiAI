@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-
 logger = logging.getLogger(__name__)
 
 

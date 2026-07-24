@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from mutiai.runtime.base import (
     RuntimeCapacity,
+    RuntimeExecutionConfig,
     RuntimeRecoveryRequest,
     RuntimeResult,
     RuntimeTokenUsage,
@@ -257,6 +258,7 @@ class CodexRuntimeAdapter:
         workspace_path: str | None = None,
         thread_id: str | None = None,
         output_schema: Mapping[str, Any] | None = None,
+        runtime_config: RuntimeExecutionConfig | None = None,
     ) -> RuntimeResult:
         """Start one Thread and Turn, then return their durable identities."""
 
@@ -280,6 +282,15 @@ class CodexRuntimeAdapter:
             else:
                 binding = self.resolve_workspace(execution_id)
             workspace = self.workspace_manager.canonicalize(binding.path)
+            resolved_config = runtime_config or RuntimeExecutionConfig(
+                binding_key="adapter-default",
+                model=self.model,
+                reasoning_effort=None,
+                security_mode="workspace_restricted",
+                approval_policy=self.approval_policy,
+                sandbox_mode="workspace-write",
+                network_access=False,
+            )
             session = CodexAppServerSession(
                 cwd=workspace,
                 command=self.command,
@@ -290,14 +301,16 @@ class CodexRuntimeAdapter:
                 session.connect()
                 if thread_id is None:
                     thread_response = session.start_thread(
-                        model=self.model,
-                        approval_policy=self.approval_policy,
+                        model=resolved_config.model,
+                        approval_policy=resolved_config.approval_policy,
+                        sandbox=resolved_config.sandbox_mode,
                     )
                 else:
                     thread_response = session.resume_thread(
                         thread_id,
-                        model=self.model,
-                        approval_policy=self.approval_policy,
+                        model=resolved_config.model,
+                        approval_policy=resolved_config.approval_policy,
+                        sandbox=resolved_config.sandbox_mode,
                     )
                 resolved_thread_id = self._require_id(
                     thread_response,
@@ -318,7 +331,11 @@ class CodexRuntimeAdapter:
                         if output_schema is not None
                         else self.output_schema
                     ),
-                    approval_policy=self.approval_policy,
+                    approval_policy=resolved_config.approval_policy,
+                    model=resolved_config.model,
+                    reasoning_effort=resolved_config.reasoning_effort,
+                    sandbox_mode=resolved_config.sandbox_mode,
+                    network_access=resolved_config.network_access,
                 )
                 turn_id = self._require_id(
                     turn_response,
@@ -331,6 +348,7 @@ class CodexRuntimeAdapter:
                     thread_id=resolved_thread_id,
                     turn_id=turn_id,
                     workspace_id=binding.workspace_id,
+                    actual_model=self._reported_model(thread_response),
                 )
                 self._active[execution_id] = _ActiveExecution(
                     session=session,
@@ -352,6 +370,15 @@ class CodexRuntimeAdapter:
                 return True
 
         workspace = self.workspace_manager.canonicalize(request.workspace_path)
+        resolved_config = request.runtime_config or RuntimeExecutionConfig(
+            binding_key="adapter-default",
+            model=self.model,
+            reasoning_effort=None,
+            security_mode="workspace_restricted",
+            approval_policy=self.approval_policy,
+            sandbox_mode="workspace-write",
+            network_access=False,
+        )
         session = CodexAppServerSession(
             cwd=workspace,
             command=self.command,
@@ -362,8 +389,9 @@ class CodexRuntimeAdapter:
             session.connect()
             thread_response = session.resume_thread(
                 request.thread_id,
-                model=self.model,
-                approval_policy=self.approval_policy,
+                model=resolved_config.model,
+                approval_policy=resolved_config.approval_policy,
+                sandbox=resolved_config.sandbox_mode,
             )
             resolved_thread_id = self._require_id(
                 thread_response,
@@ -397,6 +425,7 @@ class CodexRuntimeAdapter:
                 thread_id=request.thread_id,
                 turn_id=request.turn_id,
                 workspace_id=request.workspace_id,
+                actual_model=self._reported_model(thread_response),
             )
             duplicate = False
             with self._lock:
@@ -517,6 +546,8 @@ class CodexRuntimeAdapter:
                     if isinstance(turn.get("_mutiai_usage"), RuntimeTokenUsage)
                     else None
                 ),
+                context_compactions=self._context_compactions(turn),
+                actual_model=waiting.actual_model,
             )
             active.completion = CodexCompletion(
                 execution_id=execution_id,
@@ -621,6 +652,18 @@ class CodexRuntimeAdapter:
             raise CodexAppServerError("Codex Thread cwd does not match its workspace")
 
     @staticmethod
+    def _reported_model(response: Mapping[str, Any]) -> str | None:
+        model = response.get("model")
+        if isinstance(model, str) and model:
+            return model
+        thread = response.get("thread")
+        if isinstance(thread, Mapping):
+            model = thread.get("model")
+            if isinstance(model, str) and model:
+                return model
+        return None
+
+    @staticmethod
     def _last_agent_message(turn: Mapping[str, Any]) -> str:
         items = turn.get("items")
         if not isinstance(items, list):
@@ -637,6 +680,21 @@ class CodexRuntimeAdapter:
         if not summary:
             raise CodexAppServerError("completed Codex turn has no agent summary")
         return summary
+
+    @staticmethod
+    def _context_compactions(turn: Mapping[str, Any]) -> int:
+        observed = turn.get("_mutiai_context_compactions")
+        if isinstance(observed, int) and not isinstance(observed, bool):
+            return max(0, observed)
+        items = turn.get("items")
+        if not isinstance(items, list):
+            return 0
+        return sum(
+            1
+            for item in items
+            if isinstance(item, Mapping)
+            and item.get("type") in {"context_compaction", "compaction"}
+        )
 
     @staticmethod
     def _find_turn(

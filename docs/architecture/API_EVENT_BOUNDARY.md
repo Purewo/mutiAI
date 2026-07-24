@@ -56,6 +56,14 @@ Repeating the same approval decision is idempotent. Submitting a different decis
 
 Cancellation is a product workflow operation. The API marks the Task and all unfinished Assignments as `cancelled`, then asks each live Runtime owner to interrupt its recorded Turn. Completed sibling Assignments remain completed. The endpoint returns `TASK_CANCELLATION_INCOMPLETE` when one or more Runtime owners cannot confirm the interrupt; the persisted Task remains cancelled and the event stream records the unconfirmed execution IDs.
 
+### Runtime configuration
+
+- `GET /api/v1/runtime/bindings`: list the authenticated owner's role Runtime bindings.
+- `PUT /api/v1/runtime/bindings/{binding_key}`: idempotently create or update a binding for the active Runtime provider.
+- `GET /api/v1/runtime/controls`: return product admission, capacity, and token-budget state.
+
+The Task resource exposes the immutable RuntimeExecution snapshot: binding identity, requested and App Server-reported model, reasoning effort, security mode, approval policy, sandbox mode, network policy, and observed context-compaction count. Frontends must display these product fields rather than infer policy from raw Codex events.
+
 ### Organization-lead conversation
 
 - `POST /api/v1/organizations/{organization_id}/lead/messages`: submit a user message to the organization lead flow.
@@ -110,6 +118,7 @@ The first implementation may need these event types:
 - `runtime.execution_cancelled`
 - `runtime.execution_reconnected`
 - `runtime.execution_retry_requested`
+- `runtime.thread_rotated`
 - `runtime.approval_requested`
 - `runtime.approval_resolved`
 - `task.retry_requested`
@@ -126,6 +135,8 @@ The adapter may receive many Codex-specific events but should normalize only sta
 `runtime.execution_deferred` records a product concurrency wait before any Runtime job exists. `runtime.execution_capacity_available` records the transition out of that queue. `runtime.execution_rejected` records an explicit Provider limit or product budget rejection before Runtime submission. These events expose product decisions, not raw App Server account payloads.
 
 `runtime.approval_requested` identifies the product approval record, approval kind, and pending status. `runtime.approval_resolved` records the one-time decision, resulting status, and resolution reason. Command details remain available through the owned approval resource rather than being copied into LangGraph State.
+
+`runtime.thread_rotated` records an explicit context-compaction threshold transition. Its payload includes the Workspace, previous Thread, new generation, and normalized reason. It never contains Codex history.
 
 ## SSE behavior
 
@@ -149,6 +160,8 @@ details (optional)
 ```
 
 The API must distinguish invalid organization definitions, ownership violations, stale versions, idempotency conflicts, Runtime unavailability, and task terminal-state conflicts. It must not expose raw LangGraph or Codex stack traces to the browser.
+
+Runtime binding failures use stable conflict codes: `RUNTIME_PROVIDER_MISMATCH`, `RUNTIME_SECURITY_MODE_INVALID`, and `RUNTIME_BINDING_INVALID`. The browser must present the product error and must not retry with a broader sandbox policy automatically.
 
 ## LangGraph adapter boundary
 

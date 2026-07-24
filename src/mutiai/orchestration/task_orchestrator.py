@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -12,11 +13,19 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from mutiai.config import Settings
 from mutiai.db import Database
-from mutiai.domain import LeadReviewResult
-from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task, Workspace
+from mutiai.domain import LeadReviewResult, OrganizationSpec
+from mutiai.models import (
+    Assignment,
+    OrganizationSpecVersion,
+    ProductEvent,
+    RuntimeExecution,
+    Task,
+    Workspace,
+)
 from mutiai.models.approval import ApprovalRequest, ApprovalStatus
 from mutiai.models.base import utc_now
 from mutiai.models.task import (
@@ -34,10 +43,15 @@ from mutiai.orchestration.task_graph import (
 from mutiai.runtime import (
     AgentRuntimeAdapter,
     FakeRuntimeAdapter,
+    RuntimeExecutionConfig,
     RuntimeRecoveryRequest,
     RuntimeTokenUsage,
 )
 from mutiai.services.events import append_task_event
+from mutiai.services.runtime_bindings import (
+    RuntimeBindingResolutionError,
+    RuntimeBindingService,
+)
 from mutiai.services.runtime_controls import (
     CONCURRENCY_WAIT_REASON,
     RuntimeBudgetExceededError,
@@ -81,6 +95,10 @@ class TaskOrchestrator:
         self.runtime_controls = RuntimeControlService(
             settings,
             self.runtime_adapter,
+        )
+        self.runtime_bindings = RuntimeBindingService(
+            settings,
+            runtime_provider=self.runtime_adapter.provider,
         )
 
     def set_runtime_watch(self, watch: Callable[[str], None]) -> None:
@@ -797,6 +815,8 @@ class TaskOrchestrator:
         runtime_job_id: str | None = None,
         last_event_position: str | None = None,
         usage: RuntimeTokenUsage | None = None,
+        context_compactions: int = 0,
+        actual_model: str | None = None,
     ) -> Task:
         """Persist one external completion event and resume its waiting graph node."""
 
@@ -843,7 +863,15 @@ class TaskOrchestrator:
                 )
                 execution.last_event_position = last_event_position
                 execution.result_summary = summary
+                execution.actual_model = actual_model or execution.actual_model
                 execution.completed_at = completed_at
+                self._record_workspace_completion(
+                    session,
+                    execution=execution,
+                    summary=summary,
+                    context_compactions=context_compactions,
+                    completed_at=completed_at,
+                )
                 charged_tokens = self.runtime_controls.settle(
                     session,
                     task=task,
@@ -871,6 +899,7 @@ class TaskOrchestrator:
                         "usage_status": execution.usage_status,
                         "total_tokens": execution.total_tokens,
                         "charged_tokens": charged_tokens,
+                        "context_compactions": execution.context_compactions,
                     },
                 )
                 append_task_event(
@@ -1061,6 +1090,13 @@ class TaskOrchestrator:
                     RuntimeExecution.thread_id,
                     RuntimeExecution.turn_id,
                     RuntimeExecution.workspace_id,
+                    RuntimeExecution.runtime_binding_key,
+                    RuntimeExecution.requested_model,
+                    RuntimeExecution.reasoning_effort,
+                    RuntimeExecution.security_mode,
+                    RuntimeExecution.approval_policy,
+                    RuntimeExecution.sandbox_mode,
+                    RuntimeExecution.network_access,
                     Workspace.canonical_path,
                     select(ApprovalRequest.approval_id)
                     .where(
@@ -1090,6 +1126,13 @@ class TaskOrchestrator:
             thread_id,
             turn_id,
             workspace_id,
+            runtime_binding_key,
+            requested_model,
+            reasoning_effort,
+            security_mode,
+            approval_policy,
+            sandbox_mode,
+            network_access,
             workspace_path,
             has_pending_approval,
         ) in waiting_executions:
@@ -1108,6 +1151,23 @@ class TaskOrchestrator:
                 and workspace_id is not None
                 and workspace_path is not None
             ):
+                runtime_config = (
+                    RuntimeExecutionConfig(
+                        binding_key=runtime_binding_key,
+                        model=requested_model,
+                        reasoning_effort=reasoning_effort,
+                        security_mode=security_mode,
+                        approval_policy=approval_policy,
+                        sandbox_mode=sandbox_mode,
+                        network_access=network_access,
+                    )
+                    if runtime_binding_key is not None
+                    and security_mode is not None
+                    and approval_policy is not None
+                    and sandbox_mode is not None
+                    and network_access is not None
+                    else None
+                )
                 try:
                     reattached = try_recover(
                         RuntimeRecoveryRequest(
@@ -1117,6 +1177,7 @@ class TaskOrchestrator:
                             turn_id=turn_id,
                             workspace_id=workspace_id,
                             workspace_path=workspace_path,
+                            runtime_config=runtime_config,
                         )
                     )
                 except Exception as exc:  # noqa: BLE001 - recovery boundary
@@ -1321,6 +1382,138 @@ class TaskOrchestrator:
             "issues": list(review.issues),
         }
 
+    def _resolve_runtime_config(
+        self,
+        session: Session,
+        *,
+        task: Task,
+        assignment: Assignment,
+        execution: RuntimeExecution,
+    ) -> RuntimeExecutionConfig:
+        """Resolve once and persist the immutable policy used by an execution."""
+
+        snapshot = self._runtime_config_snapshot(execution)
+        if snapshot is not None:
+            return snapshot
+
+        version = session.get(
+            OrganizationSpecVersion,
+            task.organization_spec_version_id,
+        )
+        if version is None:
+            raise RuntimeError(
+                f"task '{task.task_id}' has no OrganizationSpec version"
+            )
+        spec = OrganizationSpec.model_validate(version.spec_payload)
+        binding, config = self.runtime_bindings.resolve_for_role(
+            session,
+            owner_user_id=task.owner_user_id,
+            spec=spec,
+            role_key=assignment.agent_role_key,
+        )
+        execution.runtime_binding_id = binding.runtime_binding_id
+        execution.runtime_binding_key = binding.binding_key
+        execution.requested_model = config.model
+        execution.reasoning_effort = config.reasoning_effort
+        execution.security_mode = config.security_mode
+        execution.approval_policy = config.approval_policy
+        execution.sandbox_mode = config.sandbox_mode
+        execution.network_access = config.network_access
+        return config
+
+    @staticmethod
+    def _runtime_config_snapshot(
+        execution: RuntimeExecution,
+    ) -> RuntimeExecutionConfig | None:
+        if execution.runtime_binding_key is None:
+            return None
+        required = (
+            execution.security_mode,
+            execution.approval_policy,
+            execution.sandbox_mode,
+            execution.network_access,
+        )
+        if any(value is None for value in required):
+            raise RuntimeError(
+                f"execution '{execution.execution_id}' has an incomplete "
+                "Runtime configuration snapshot"
+            )
+        return RuntimeExecutionConfig(
+            binding_key=execution.runtime_binding_key,
+            model=execution.requested_model,
+            reasoning_effort=execution.reasoning_effort,
+            security_mode=execution.security_mode,
+            approval_policy=execution.approval_policy,
+            sandbox_mode=execution.sandbox_mode,
+            network_access=execution.network_access,
+        )
+
+    @staticmethod
+    def _record_workspace_completion(
+        session: Session,
+        *,
+        execution: RuntimeExecution,
+        summary: str,
+        context_compactions: int,
+        completed_at: datetime,
+    ) -> None:
+        """Persist compact Thread lifecycle facts without copying Codex history."""
+
+        if context_compactions < 0:
+            raise ValueError("context_compactions cannot be negative")
+        workspace = (
+            session.get(Workspace, execution.workspace_id)
+            if execution.workspace_id is not None
+            else None
+        )
+        execution.context_compactions = context_compactions
+        if workspace is None:
+            return
+        workspace.last_delivery_summary = summary
+        if context_compactions:
+            workspace.thread_compaction_count += context_compactions
+            workspace.last_compacted_at = completed_at
+
+    def _rotate_thread_if_needed(
+        self,
+        session: Session,
+        *,
+        task: Task,
+        execution: RuntimeExecution,
+        workspace: Workspace,
+    ) -> None:
+        """Rotate only before a new execution after an explicit compaction limit."""
+
+        threshold = self.settings.runtime_thread_max_compactions
+        if (
+            threshold is None
+            or execution.thread_id is not None
+            or workspace.codex_thread_id is None
+            or workspace.thread_compaction_count < threshold
+        ):
+            return
+        previous_thread_id = workspace.codex_thread_id
+        workspace.codex_thread_id = None
+        workspace.thread_compaction_count = 0
+        workspace.thread_generation += 1
+        append_task_event(
+            session,
+            task=task,
+            event_type="runtime.thread_rotated",
+            aggregate_type="workspace",
+            aggregate_id=workspace.workspace_id,
+            assignment_id=None,
+            runtime_execution_id=execution.runtime_execution_id,
+            source="product",
+            payload={
+                "execution_id": execution.execution_id,
+                "workspace_id": workspace.workspace_id,
+                "previous_thread_id": previous_thread_id,
+                "thread_generation": workspace.thread_generation,
+                "reason": "context_compaction_limit",
+            },
+        )
+
     def _task_is_cancelled(self, task_id: str) -> bool:
         with self.database.session() as session:
             task = session.get(Task, task_id)
@@ -1435,6 +1628,23 @@ class TaskOrchestrator:
                 execution.status = RuntimeExecutionStatus.SUBMITTED
                 execution.wait_reason = None
                 assignment.status = AssignmentStatus.SUBMITTED
+
+            try:
+                runtime_config = self._resolve_runtime_config(
+                    session,
+                    task=task,
+                    assignment=assignment,
+                    execution=execution,
+                )
+            except RuntimeBindingResolutionError as exc:
+                self._record_admission_failure(
+                    session=session,
+                    task=task,
+                    assignment=assignment,
+                    execution=execution,
+                    error=exc,
+                )
+                raise
 
             try:
                 admission = self.runtime_controls.admit(
@@ -1552,6 +1762,12 @@ class TaskOrchestrator:
                     runtime_provider=self.runtime_adapter.provider,
                 )
                 execution.workspace_id = workspace.workspace_id
+                self._rotate_thread_if_needed(
+                    session,
+                    task=task,
+                    execution=execution,
+                    workspace=workspace,
+                )
 
             now = utc_now()
             execution.status = RuntimeExecutionStatus.RUNNING
@@ -1575,6 +1791,10 @@ class TaskOrchestrator:
                         else "unknown"
                     ),
                     "status": RuntimeExecutionStatus.RUNNING,
+                    "runtime_binding_key": execution.runtime_binding_key,
+                    "requested_model": execution.requested_model,
+                    "reasoning_effort": execution.reasoning_effort,
+                    "security_mode": execution.security_mode,
                 },
             )
             append_task_event(
@@ -1590,14 +1810,26 @@ class TaskOrchestrator:
             session.commit()
 
             try:
+                instructions = work["instructions"]
+                if (
+                    workspace is not None
+                    and workspace.codex_thread_id is None
+                    and workspace.last_delivery_summary
+                ):
+                    instructions = (
+                        "Previous Thread delivery summary for continuity:\n"
+                        f"{workspace.last_delivery_summary}\n\n"
+                        f"{instructions}"
+                    )
                 runtime_result = self.runtime_adapter.execute(
                     execution_id=work["execution_id"],
                     role_key=work["role_key"],
-                    instructions=work["instructions"],
+                    instructions=instructions,
                     workspace_id=workspace.workspace_id if workspace else None,
                     workspace_path=workspace.canonical_path if workspace else None,
                     thread_id=workspace.codex_thread_id if workspace else None,
                     output_schema=work["output_schema"],
+                    runtime_config=runtime_config,
                 )
             except Exception as exc:
                 failed_at = utc_now()
@@ -1674,6 +1906,7 @@ class TaskOrchestrator:
                 execution.thread_id = runtime_result.thread_id
                 execution.turn_id = runtime_result.turn_id
                 execution.workspace_id = runtime_result.workspace_id
+                execution.actual_model = runtime_result.actual_model
                 execution.last_event_position = runtime_result.last_event_position
                 execution.wait_reason = None
                 if workspace is not None and runtime_result.thread_id is not None:
@@ -1744,9 +1977,17 @@ class TaskOrchestrator:
             execution.thread_id = runtime_result.thread_id
             execution.turn_id = runtime_result.turn_id
             execution.workspace_id = runtime_result.workspace_id
+            execution.actual_model = runtime_result.actual_model
             execution.last_event_position = runtime_result.last_event_position
             execution.result_summary = runtime_result.summary
             execution.completed_at = completed_at
+            self._record_workspace_completion(
+                session,
+                execution=execution,
+                summary=runtime_result.summary,
+                context_compactions=runtime_result.context_compactions,
+                completed_at=completed_at,
+            )
             assignment.status = AssignmentStatus.COMPLETED
             assignment.result_summary = runtime_result.summary
             assignment.completed_at = completed_at
@@ -1767,6 +2008,7 @@ class TaskOrchestrator:
                     "usage_status": execution.usage_status,
                     "total_tokens": execution.total_tokens,
                     "charged_tokens": charged_tokens,
+                    "context_compactions": execution.context_compactions,
                 },
             )
             append_task_event(

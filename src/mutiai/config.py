@@ -38,6 +38,16 @@ class Settings(BaseSettings):
         ge=0,
         le=300,
     )
+    runtime_default_binding_key: str = Field(
+        default="codex-local-default",
+        min_length=1,
+        max_length=64,
+    )
+    runtime_security_mode: Literal[
+        "demo_full_access",
+        "workspace_restricted",
+    ] = "demo_full_access"
+    runtime_thread_max_compactions: int | None = Field(default=None, ge=1)
     runtime_workspace_root: Path = Field(
         default=Path(r"G:\AI\AI_private\mutiAI-runtime-workspaces"),
         validation_alias=AliasChoices(
@@ -52,6 +62,7 @@ class Settings(BaseSettings):
         le=60,
     )
     codex_model: str | None = None
+    codex_reasoning_effort: str | None = Field(default=None, max_length=32)
     bootstrap_admin_enabled: bool = True
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: SecretStr = SecretStr("change-me-before-network-access")
@@ -64,6 +75,20 @@ class Settings(BaseSettings):
             raise ValueError("production requires DATABASE_AUTO_MIGRATE=false")
         if self.app_env == "production" and self.bootstrap_admin_enabled:
             raise ValueError("production requires BOOTSTRAP_ADMIN_ENABLED=false")
+        if self.app_env == "production" and self.runtime_security_mode == (
+            "demo_full_access"
+        ):
+            raise ValueError(
+                "production cannot use RUNTIME_SECURITY_MODE=demo_full_access"
+            )
+        loopback_hosts = {"127.0.0.1", "localhost", "::1"}
+        if (
+            self.runtime_security_mode == "demo_full_access"
+            and self.app_host not in loopback_hosts
+        ):
+            raise ValueError(
+                "demo Full Access requires APP_HOST to remain on loopback"
+            )
         budget_values = (
             self.runtime_token_budget_limit,
             self.runtime_token_reservation_per_execution,

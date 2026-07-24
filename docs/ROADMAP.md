@@ -90,6 +90,20 @@ Implement the local Windows Codex adapter through the App Server boundary:
 
 Do not use `mutiAI` or `mutiAI-aistdio-gemini` as Runtime working directories. Use only the managed Runtime root documented in [system boundaries](architecture/SYSTEM_BOUNDARIES.md).
 
+## M2.1. Add role Runtime policy and Thread lifecycle
+
+Status: Completed for the first-week local demo boundary.
+
+- Product-owned Runtime bindings select a role's model, reasoning effort, and named security mode.
+- RuntimeExecution freezes the resolved policy and App Server-reported model for audit and retry stability.
+- The localhost demo defaults to Full Access without approval prompts. Production and non-loopback bindings reject that mode.
+- Restricted mode preserves product-owned command and file approval requests.
+- Context compactions are counted without copying Thread history.
+- An optional explicit threshold rotates the next Thread while preserving its role Workspace and last delivery summary.
+- Runtime binding and Task response fields are exported through the authoritative OpenAPI snapshot.
+
+Reference: [M2.1 Runtime policy acceptance](acceptance/M2_1_RUNTIME_POLICY.md).
+
 ## M3. Integrate the web frontend
 
 Status: Ready to start. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available.

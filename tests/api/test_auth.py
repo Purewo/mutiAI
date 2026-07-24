@@ -1,6 +1,6 @@
-from fastapi.testclient import TestClient
 from datetime import timedelta
 
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from mutiai.config import Settings

@@ -5,7 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mutiai.models.base import Base, new_id, utc_now
@@ -24,6 +32,10 @@ class Workspace(Base):
         CheckConstraint(
             "status IN ('provisioning', 'ready', 'failed', 'archived')",
             name="valid_status",
+        ),
+        CheckConstraint(
+            "thread_compaction_count >= 0 AND thread_generation >= 0",
+            name="nonnegative_thread_lifecycle_counts",
         ),
         UniqueConstraint(
             "organization_id",
@@ -50,6 +62,12 @@ class Workspace(Base):
     codex_thread_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True, unique=True
     )
+    thread_compaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    thread_generation: Mapped[int] = mapped_column(Integer, default=0)
+    last_compacted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    last_delivery_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=utc_now
     )

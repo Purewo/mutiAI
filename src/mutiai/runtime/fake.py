@@ -7,7 +7,12 @@ from collections import Counter
 from threading import Lock
 from typing import Any, Literal
 
-from mutiai.runtime.base import RuntimeCapacity, RuntimeRecoveryRequest, RuntimeResult
+from mutiai.runtime.base import (
+    RuntimeCapacity,
+    RuntimeExecutionConfig,
+    RuntimeRecoveryRequest,
+    RuntimeResult,
+)
 
 
 class FakeRuntimeAdapter:
@@ -27,6 +32,7 @@ class FakeRuntimeAdapter:
     ) -> None:
         self._lock = Lock()
         self._calls: Counter[str] = Counter()
+        self._runtime_configs: dict[str, RuntimeExecutionConfig | None] = {}
         self._fail_once_role_keys = fail_once_role_keys or set()
         self._failed_role_keys: set[str] = set()
         self._wait_once_role_keys = wait_once_role_keys or set()
@@ -53,11 +59,13 @@ class FakeRuntimeAdapter:
         workspace_path: str | None = None,
         thread_id: str | None = None,
         output_schema: dict[str, Any] | None = None,
+        runtime_config: RuntimeExecutionConfig | None = None,
     ) -> RuntimeResult:
         del workspace_id, workspace_path, thread_id
         del instructions
         with self._lock:
             self._calls[execution_id] += 1
+            self._runtime_configs[execution_id] = runtime_config
             if (
                 role_key in self._fail_once_role_keys
                 and role_key not in self._failed_role_keys
@@ -115,3 +123,10 @@ class FakeRuntimeAdapter:
     def call_count(self, execution_id: str) -> int:
         with self._lock:
             return self._calls[execution_id]
+
+    def runtime_config_for(
+        self,
+        execution_id: str,
+    ) -> RuntimeExecutionConfig | None:
+        with self._lock:
+            return self._runtime_configs.get(execution_id)

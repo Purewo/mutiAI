@@ -2,6 +2,8 @@
 
 Status: Completed for the V1 local Codex Runtime boundary. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, product-owned approval routing, cross-process Turn reattachment, external sidecar process supervision, task cancellation, Provider capacity checks, product token accounting, and Runtime concurrency admission are implemented and covered by repeatable tests.
 
+M2.1 keeps this restricted approval path and adds a guarded localhost demonstration mode with Full Access. See [M2.1 Runtime policy acceptance](M2_1_RUNTIME_POLICY.md).
+
 ## Verified locally
 
 - `codex-cli 0.145.0` completes an `initialize`/`initialized` handshake through the Python JSONL client.

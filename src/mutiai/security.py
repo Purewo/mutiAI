@@ -7,7 +7,6 @@ import secrets
 
 from pwdlib import PasswordHash
 
-
 _password_hash = PasswordHash.recommended()
 _dummy_password_hash = _password_hash.hash(secrets.token_urlsafe(32))
 

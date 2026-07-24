@@ -163,6 +163,16 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
     try:
         with TestClient(app) as client:
             login(client)
+            binding = client.put(
+                "/api/v1/runtime/bindings/codex-local-default",
+                json={
+                    "provider": "codex",
+                    "model": "codex-role-model-test",
+                    "reasoning_effort": "medium",
+                    "security_mode": "workspace_restricted",
+                },
+            )
+            assert binding.status_code == 200
             organization_id = publish_organization(client)
             submitted = client.post(
                 f"/api/v1/organizations/{organization_id}/tasks",
@@ -181,6 +191,16 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                 and item["runtime_execution"]["thread_id"]
                 and item["runtime_execution"]["turn_id"]
                 and item["runtime_execution"]["workspace_id"]
+                for item in assignments.values()
+            )
+            assert all(
+                item["runtime_execution"]["requested_model"]
+                == "codex-role-model-test"
+                for item in assignments.values()
+            )
+            assert all(
+                item["runtime_execution"]["actual_model"]
+                == "codex-role-model-test"
                 for item in assignments.values()
             )
             task = wait_for_completed_task(client, payload["task_id"])
@@ -264,6 +284,91 @@ def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) 
                     .where(ProductEvent.event_type == "runtime.execution_completed")
                 )
                 == 6
+            )
+    finally:
+        adapter.close()
+
+
+def test_codex_thread_rotates_after_explicit_compaction_limit(tmp_path) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'rotation.db'}",
+        langgraph_checkpoint_path=tmp_path / "checkpoints.db",
+        runtime_workspace_root=tmp_path / "managed-runtime",
+        runtime_thread_max_compactions=1,
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+    manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+    provisioner = WorkspaceProvisioner(manager)
+
+    def unexpected_resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+        raise AssertionError(f"resolver should not be used for {execution_id}")
+
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=unexpected_resolver,
+        codex_home=provisioner.ensure_codex_home(),
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    try:
+        with TestClient(app) as client:
+            login(client)
+            organization_id = publish_organization(client)
+            task_url = f"/api/v1/organizations/{organization_id}/tasks"
+            first = client.post(
+                task_url,
+                headers={"Idempotency-Key": "compaction-rotation-1"},
+                json={"request": "emit-context-compaction in bounded work."},
+            )
+            assert first.status_code == 201
+            first_task = wait_for_completed_task(client, first.json()["task_id"])
+            first_by_role = {
+                item["agent_role_key"]: item["runtime_execution"]
+                for item in first_task["assignments"]
+            }
+            assert all(
+                execution["context_compactions"] == 1
+                for execution in first_by_role.values()
+            )
+
+            second = client.post(
+                task_url,
+                headers={"Idempotency-Key": "compaction-rotation-2"},
+                json={"request": "emit-context-compaction after rotation."},
+            )
+            assert second.status_code == 201
+            second_task = wait_for_completed_task(client, second.json()["task_id"])
+            second_by_role = {
+                item["agent_role_key"]: item["runtime_execution"]
+                for item in second_task["assignments"]
+            }
+            for role_key, execution in second_by_role.items():
+                assert execution["thread_id"] != first_by_role[role_key]["thread_id"]
+                assert execution["workspace_id"] == (
+                    first_by_role[role_key]["workspace_id"]
+                )
+                assert execution["context_compactions"] == 1
+
+        with app.state.database.session() as session:
+            workspaces = session.scalars(select(Workspace)).all()
+            assert len(workspaces) == 3
+            assert all(workspace.thread_generation == 1 for workspace in workspaces)
+            assert all(
+                workspace.thread_compaction_count == 1 for workspace in workspaces
+            )
+            assert all(workspace.last_compacted_at is not None for workspace in workspaces)
+            assert all(workspace.last_delivery_summary for workspace in workspaces)
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(ProductEvent)
+                    .where(ProductEvent.event_type == "runtime.thread_rotated")
+                )
+                == 3
             )
     finally:
         adapter.close()
@@ -643,6 +748,15 @@ def test_backend_restart_reattaches_waiting_turn_when_adapter_recovers(
             assert recovered_response.status_code == 200
             assert recovered_response.json()["status"] == "waiting"
             recover.assert_called_once()
+            recovery_request = recover.call_args.args[0]
+            assert recovery_request.runtime_config is not None
+            assert recovery_request.runtime_config.binding_key == (
+                "codex-local-default"
+            )
+            assert recovery_request.runtime_config.security_mode == (
+                "demo_full_access"
+            )
+            assert recovery_request.runtime_config.approval_policy == "never"
             assert reconnected == [waiting_execution_id]
             events_response = client.get(f"/api/v1/tasks/{task_id}/events")
             events = [

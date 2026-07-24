@@ -444,6 +444,7 @@ class CodexAppServerSession:
         *,
         model: str | None = None,
         approval_policy: str = "on-request",
+        sandbox: str = "workspace-write",
     ) -> dict[str, Any]:
         """Resume a previously recorded thread and check its cwd binding."""
 
@@ -451,6 +452,7 @@ class CodexAppServerSession:
             "threadId": thread_id,
             "cwd": str(self.cwd),
             "approvalPolicy": approval_policy,
+            "sandbox": sandbox,
         }
         if model is not None:
             params["model"] = model
@@ -477,6 +479,10 @@ class CodexAppServerSession:
         execution_id: str,
         output_schema: Mapping[str, Any] | None = None,
         approval_policy: str = "on-request",
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+        sandbox_mode: str = "workspace-write",
+        network_access: bool = False,
     ) -> dict[str, Any]:
         """Start a turn and return its immediate Turn object.
 
@@ -485,18 +491,29 @@ class CodexAppServerSession:
         worker that owns this session.
         """
 
+        if sandbox_mode == "danger-full-access":
+            sandbox_policy: dict[str, Any] = {"type": "dangerFullAccess"}
+        elif sandbox_mode == "workspace-write":
+            sandbox_policy = {
+                "type": "workspaceWrite",
+                "writableRoots": [str(self.cwd)],
+                "networkAccess": network_access,
+            }
+        else:
+            raise ValueError(f"unsupported Codex sandbox mode '{sandbox_mode}'")
+
         params: dict[str, Any] = {
             "threadId": thread_id,
             "input": [{"type": "text", "text": instructions}],
             "cwd": str(self.cwd),
             "approvalPolicy": approval_policy,
-            "sandboxPolicy": {
-                "type": "workspaceWrite",
-                "writableRoots": [str(self.cwd)],
-                "networkAccess": False,
-            },
+            "sandboxPolicy": sandbox_policy,
             "clientUserMessageId": execution_id,
         }
+        if model is not None:
+            params["model"] = model
+        if reasoning_effort is not None:
+            params["effort"] = reasoning_effort
         if output_schema is not None:
             params["outputSchema"] = dict(output_schema)
         return self.request("turn/start", params)
@@ -606,6 +623,13 @@ class CodexAppServerSession:
                 if observed_usage is not None:
                     turn = dict(turn)
                     turn["_mutiai_usage"] = observed_usage
+                turn = dict(turn)
+                turn["_mutiai_context_compactions"] = sum(
+                    1
+                    for item in turn.get("items", [])
+                    if isinstance(item, dict)
+                    and item.get("type") in {"context_compaction", "compaction"}
+                )
                 return turn
 
     def respond_server_request(

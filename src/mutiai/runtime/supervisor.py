@@ -29,6 +29,8 @@ class RuntimeCompletionSink(Protocol):
         runtime_job_id: str | None = None,
         last_event_position: str | None = None,
         usage: RuntimeTokenUsage | None = None,
+        context_compactions: int = 0,
+        actual_model: str | None = None,
     ) -> object: ...
 
     def fail_runtime_execution(
@@ -144,6 +146,8 @@ class CodexRuntimeSupervisor:
                     runtime_job_id=completion.result.runtime_job_id,
                     last_event_position=completion.result.last_event_position,
                     usage=completion.result.usage,
+                    context_compactions=completion.result.context_compactions,
+                    actual_model=completion.result.actual_model,
                 )
         except CodexTurnCancelledError as exc:
             with self._lock:

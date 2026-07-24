@@ -46,7 +46,7 @@ class OrganizationVersionResponse(BaseModel):
     @classmethod
     def from_record(
         cls, version: OrganizationSpecVersion
-    ) -> "OrganizationVersionResponse":
+    ) -> OrganizationVersionResponse:
         return cls(
             spec_version_id=version.spec_version_id,
             organization_id=version.organization_id,
@@ -69,7 +69,7 @@ class OrganizationSummaryResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_record(cls, organization: Organization) -> "OrganizationSummaryResponse":
+    def from_record(cls, organization: Organization) -> OrganizationSummaryResponse:
         return cls(
             organization_id=organization.organization_id,
             name=organization.name,

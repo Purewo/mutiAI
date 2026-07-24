@@ -23,6 +23,15 @@ class RuntimeExecutionResponse(BaseModel):
     runtime_execution_id: str
     execution_id: str
     provider: str
+    runtime_binding_id: str | None
+    runtime_binding_key: str | None
+    requested_model: str | None
+    actual_model: str | None
+    reasoning_effort: str | None
+    security_mode: str | None
+    approval_policy: str | None
+    sandbox_mode: str | None
+    network_access: bool | None
     status: RuntimeExecutionStatus
     runtime_job_id: str | None
     thread_id: str | None
@@ -38,13 +47,23 @@ class RuntimeExecutionResponse(BaseModel):
     output_tokens: int | None
     reasoning_output_tokens: int | None
     total_tokens: int | None
+    context_compactions: int
 
     @classmethod
-    def from_record(cls, execution: RuntimeExecution) -> "RuntimeExecutionResponse":
+    def from_record(cls, execution: RuntimeExecution) -> RuntimeExecutionResponse:
         return cls(
             runtime_execution_id=execution.runtime_execution_id,
             execution_id=execution.execution_id,
             provider=execution.provider,
+            runtime_binding_id=execution.runtime_binding_id,
+            runtime_binding_key=execution.runtime_binding_key,
+            requested_model=execution.requested_model,
+            actual_model=execution.actual_model,
+            reasoning_effort=execution.reasoning_effort,
+            security_mode=execution.security_mode,
+            approval_policy=execution.approval_policy,
+            sandbox_mode=execution.sandbox_mode,
+            network_access=execution.network_access,
             status=RuntimeExecutionStatus(execution.status),
             runtime_job_id=execution.runtime_job_id,
             thread_id=execution.thread_id,
@@ -60,6 +79,7 @@ class RuntimeExecutionResponse(BaseModel):
             output_tokens=execution.output_tokens,
             reasoning_output_tokens=execution.reasoning_output_tokens,
             total_tokens=execution.total_tokens,
+            context_compactions=execution.context_compactions,
         )
 
 
@@ -74,7 +94,7 @@ class AssignmentResponse(BaseModel):
     runtime_execution: RuntimeExecutionResponse | None
 
     @classmethod
-    def from_record(cls, assignment: Assignment) -> "AssignmentResponse":
+    def from_record(cls, assignment: Assignment) -> AssignmentResponse:
         return cls(
             assignment_id=assignment.assignment_id,
             agent_role_key=assignment.agent_role_key,
@@ -104,7 +124,7 @@ class TaskResponse(BaseModel):
     completed_at: datetime | None
 
     @classmethod
-    def from_record(cls, task: Task) -> "TaskResponse":
+    def from_record(cls, task: Task) -> TaskResponse:
         return cls(
             task_id=task.task_id,
             organization_id=task.organization_id,
@@ -138,7 +158,7 @@ class TaskEventResponse(BaseModel):
     payload: dict
 
     @classmethod
-    def from_record(cls, event: ProductEvent) -> "TaskEventResponse":
+    def from_record(cls, event: ProductEvent) -> TaskEventResponse:
         return cls(
             event_id=event.event_id,
             event_type=event.event_type,
