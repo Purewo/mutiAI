@@ -119,6 +119,27 @@ for line in sys.stdin:
                 }
             )
             continue
+        hang_marker = Path.cwd() / ".fake-codex-hang-seen"
+        should_hang_once = (
+            "hang-runtime-once" in instructions
+            and "Complete the task within this responsibility boundary" in instructions
+            and "Implement backend behavior" in instructions
+            and not hang_marker.exists()
+        )
+        if should_hang_once:
+            hang_marker.write_text("waiting", encoding="utf-8")
+            send({"id": message["id"], "result": {"turn": turn}})
+            continue
+        crash_marker = Path.cwd() / ".fake-codex-crash-seen"
+        should_crash_once = (
+            "crash-runtime-once" in instructions
+            and "Implement backend behavior" in instructions
+            and not crash_marker.exists()
+        )
+        if should_crash_once:
+            crash_marker.write_text("crashed", encoding="utf-8")
+            send({"id": message["id"], "result": {"turn": turn}})
+            raise SystemExit(17)
         output_schema = message["params"].get("outputSchema")
         is_lead_review = (
             isinstance(output_schema, dict)

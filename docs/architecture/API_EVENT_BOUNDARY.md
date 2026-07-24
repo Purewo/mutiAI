@@ -101,6 +101,8 @@ The first implementation may need these event types:
 
 The adapter may receive many Codex-specific events but should normalize only stable product-relevant facts into this catalog.
 
+`runtime.execution_failed` uses a product-level `reason`. The current Runtime boundary distinguishes a terminal Turn failure (`runtime_terminal_failure`) from loss of the process that owned an in-flight Turn (`runtime_owner_lost`). The browser must not infer recovery policy from raw Codex error text.
+
 ## SSE behavior
 
 - Each event has an SSE `id` derived from the product event identity or monotonic cursor.

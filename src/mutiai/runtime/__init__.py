@@ -5,6 +5,7 @@ from mutiai.runtime.codex import (
     CodexCompletion,
     CodexRuntimeAdapter,
     CodexTurnFailedError,
+    CodexTurnLostError,
     RuntimeWorkspaceBinding,
 )
 from mutiai.runtime.codex_app_server import CodexAppServerError, CodexAppServerSession
@@ -20,6 +21,7 @@ __all__ = [
     "CodexRuntimeAdapter",
     "CodexRuntimeSupervisor",
     "CodexTurnFailedError",
+    "CodexTurnLostError",
     "FakeRuntimeAdapter",
     "RuntimeResult",
     "RuntimeWorkspaceBinding",

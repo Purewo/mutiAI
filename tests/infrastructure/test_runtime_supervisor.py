@@ -162,3 +162,36 @@ def test_supervisor_delivers_terminal_turn_failure_once(tmp_path) -> None:
         assert orchestrator.errors == []
     finally:
         supervisor.close()
+
+
+def test_supervisor_converts_lost_app_server_owner_into_retryable_failure(
+    tmp_path,
+) -> None:
+    adapter = build_adapter(tmp_path)
+    orchestrator = RecordingOrchestrator()
+    supervisor = CodexRuntimeSupervisor(adapter, orchestrator)
+    execution_id = "execution-owner-lost"
+
+    try:
+        waiting = adapter.execute(
+            execution_id=execution_id,
+            role_key="backend",
+            instructions="Implement backend behavior: crash-runtime-once",
+        )
+        supervisor.watch(execution_id)
+
+        assert orchestrator.failure_recorded.wait(timeout=5)
+        wait_until_execution_closed(adapter, execution_id)
+
+        assert len(orchestrator.failures) == 1
+        failure = orchestrator.failures[0]
+        assert failure["execution_id"] == execution_id
+        assert failure["terminal_status"] == "owner_lost"
+        assert failure["reason"] == "runtime_owner_lost"
+        assert failure["thread_id"] == waiting.thread_id
+        assert failure["turn_id"] == waiting.turn_id
+        assert failure["runtime_event_id"].endswith(":owner_lost")
+        assert "Codex App Server exited" in failure["error"]
+        assert orchestrator.errors == []
+    finally:
+        supervisor.close()

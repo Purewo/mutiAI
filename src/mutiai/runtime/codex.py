@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,12 +45,41 @@ class CodexTurnFailedError(CodexAppServerError):
         self.thread_id = thread_id
         self.turn_id = turn_id
         self.status = status
-        self.runtime_event_id = f"codex:{thread_id}:{turn_id}:{status}"
+        self.reason = "runtime_terminal_failure"
+        self.runtime_event_id = self._runtime_event_id(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            status=status,
+        )
         self.failure_message = message or "Codex Turn ended without an error message"
         super().__init__(
             f"Codex turn '{turn_id}' ended with status '{status}': "
             f"{self.failure_message}"
         )
+
+    @staticmethod
+    def _runtime_event_id(*, thread_id: str, turn_id: str, status: str) -> str:
+        digest = hashlib.sha256(f"{thread_id}:{turn_id}:{status}".encode()).hexdigest()
+        return f"codex:{digest}:{status}"
+
+
+class CodexTurnLostError(CodexTurnFailedError):
+    """An in-flight Turn whose owned App Server connection disappeared."""
+
+    def __init__(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str,
+        message: str,
+    ) -> None:
+        super().__init__(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            status="owner_lost",
+            message=message,
+        )
+        self.reason = "runtime_owner_lost"
 
 
 @dataclass(slots=True)
@@ -209,11 +239,18 @@ class CodexRuntimeAdapter:
                 raise LookupError(
                     f"Codex execution '{execution_id}' now owns another Turn"
                 )
-            turn = active.session.wait_for_turn(
-                thread_id=waiting.thread_id,
-                turn_id=waiting.turn_id,
-                timeout=timeout,
-            )
+            try:
+                turn = active.session.wait_for_turn(
+                    thread_id=waiting.thread_id,
+                    turn_id=waiting.turn_id,
+                    timeout=timeout,
+                )
+            except CodexAppServerError as exc:
+                raise CodexTurnLostError(
+                    thread_id=waiting.thread_id,
+                    turn_id=waiting.turn_id,
+                    message=str(exc),
+                ) from exc
             status = turn.get("status")
             if status != "completed":
                 raise CodexTurnFailedError(

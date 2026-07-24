@@ -58,6 +58,12 @@ def create_app(
         ):
             with database.session() as session:
                 seed_development_admin(session, resolved_settings)
+        if runtime_supervisor is not None and isinstance(
+            runtime_adapter, CodexRuntimeAdapter
+        ):
+            task_orchestrator.recover_orphaned_runtime_executions(
+                is_active=runtime_adapter.is_active,
+            )
         try:
             yield
         finally:

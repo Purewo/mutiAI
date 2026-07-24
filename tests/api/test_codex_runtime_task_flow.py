@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 from pathlib import Path
@@ -332,3 +333,220 @@ def test_codex_terminal_failure_can_retry_same_thread_without_replaying_success(
             assert event_types[-1] == "task.completed"
     finally:
         adapter.close()
+
+
+def test_codex_app_server_exit_becomes_explicit_retryable_failure(tmp_path) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'app.db'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "rt",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+    manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+    provisioner = WorkspaceProvisioner(manager)
+    codex_home = provisioner.ensure_codex_home()
+
+    def unexpected_resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+        raise AssertionError(f"resolver should not be used for {execution_id}")
+
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=unexpected_resolver,
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    try:
+        with TestClient(app) as client:
+            login(client)
+            organization_id = publish_organization(client)
+            submitted = client.post(
+                f"/api/v1/organizations/{organization_id}/tasks",
+                headers={"Idempotency-Key": "codex-owner-lost"},
+                json={"request": "crash-runtime-once, then retry explicitly."},
+            )
+            assert submitted.status_code == 201
+            task_id = submitted.json()["task_id"]
+            failed = wait_for_task_status(client, task_id, statuses={"failed"})
+            failed_by_role = {
+                item["agent_role_key"]: item for item in failed["assignments"]
+            }
+            failed_backend = failed_by_role["backend"]["runtime_execution"]
+            assert failed_backend["status"] == "failed"
+
+            events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+            assert events_response.status_code == 200
+            events = [
+                json.loads(line.removeprefix("data: "))
+                for line in events_response.text.splitlines()
+                if line.startswith("data: ")
+            ]
+            owner_lost = [
+                event
+                for event in events
+                if event["event_type"] == "runtime.execution_failed"
+                and event["payload"].get("reason") == "runtime_owner_lost"
+            ]
+            assert len(owner_lost) == 1
+            assert not any(
+                event["event_type"] == "runtime.execution_watch_failed"
+                for event in events
+            )
+
+            retried = client.post(f"/api/v1/tasks/{task_id}/retry")
+            assert retried.status_code == 200
+            completed = wait_for_completed_task(client, task_id)
+            completed_by_role = {
+                item["agent_role_key"]: item
+                for item in completed["assignments"]
+            }
+            retried_backend = completed_by_role["backend"]["runtime_execution"]
+            assert retried_backend["workspace_id"] == failed_backend["workspace_id"]
+            assert retried_backend["thread_id"] == failed_backend["thread_id"]
+            assert retried_backend["turn_id"] != failed_backend["turn_id"]
+    finally:
+        adapter.close()
+
+
+def test_backend_restart_marks_orphaned_turns_retryable_without_implicit_replay(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'codex-restart.db'}",
+        langgraph_checkpoint_path=tmp_path / "restart-checkpoints.db",
+        runtime_workspace_root=tmp_path / "managed-restart-runtime",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+
+    def build_adapter() -> CodexRuntimeAdapter:
+        manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+        provisioner = WorkspaceProvisioner(manager)
+        codex_home = provisioner.ensure_codex_home()
+
+        def unexpected_resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+            raise AssertionError(f"resolver should not be used for {execution_id}")
+
+        return CodexRuntimeAdapter(
+            workspace_manager=manager,
+            resolve_workspace=unexpected_resolver,
+            codex_home=codex_home,
+            command=(sys.executable, str(FAKE_APP_SERVER)),
+        )
+
+    first_adapter = build_adapter()
+    first_app = create_app(settings, runtime_adapter=first_adapter)
+    with TestClient(first_app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "codex-backend-restart"},
+            json={"request": "hang-runtime-once until the backend restarts."},
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+        deadline = time.monotonic() + 5
+        waiting_by_role = None
+        while time.monotonic() < deadline:
+            task_response = client.get(f"/api/v1/tasks/{task_id}")
+            assert task_response.status_code == 200
+            candidate = {
+                item["agent_role_key"]: item
+                for item in task_response.json()["assignments"]
+            }
+            if (
+                candidate.get("backend", {}).get("status") == "waiting"
+                and candidate.get("test", {}).get("status") == "completed"
+            ):
+                waiting_by_role = candidate
+                break
+            time.sleep(0.01)
+        assert waiting_by_role is not None
+        assert set(waiting_by_role) == {"backend", "test"}
+        original_runtime_by_role = {
+            role_key: item["runtime_execution"]
+            for role_key, item in waiting_by_role.items()
+        }
+        assert original_runtime_by_role["backend"]["status"] == "waiting"
+        assert original_runtime_by_role["test"]["status"] == "completed"
+
+    second_adapter = build_adapter()
+    second_app = create_app(settings, runtime_adapter=second_adapter)
+    try:
+        with TestClient(second_app) as client:
+            login(client)
+            recovered_response = client.get(f"/api/v1/tasks/{task_id}")
+            assert recovered_response.status_code == 200
+            recovered = recovered_response.json()
+            assert recovered["status"] == "failed"
+            recovered_by_role = {
+                item["agent_role_key"]: item
+                for item in recovered["assignments"]
+            }
+            assert set(recovered_by_role) == {"backend", "test"}
+            assert recovered_by_role["backend"]["status"] == "failed"
+            assert (
+                recovered_by_role["backend"]["runtime_execution"]["status"]
+                == "failed"
+            )
+            assert recovered_by_role["test"]["status"] == "completed"
+            assert (
+                recovered_by_role["test"]["runtime_execution"]["status"]
+                == "completed"
+            )
+
+            events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+            assert events_response.status_code == 200
+            events = [
+                json.loads(line.removeprefix("data: "))
+                for line in events_response.text.splitlines()
+                if line.startswith("data: ")
+            ]
+            recovery_failures = [
+                event
+                for event in events
+                if event["event_type"] == "runtime.execution_failed"
+                and event["payload"].get("reason") == "runtime_owner_lost"
+            ]
+            assert len(recovery_failures) == 1
+            assert recovery_failures[0]["source"] == "runtime.supervisor"
+            assert (
+                second_app.state.task_orchestrator.recover_orphaned_runtime_executions(
+                    is_active=second_adapter.is_active,
+                )
+                == []
+            )
+
+            retried = client.post(f"/api/v1/tasks/{task_id}/retry")
+            assert retried.status_code == 200
+            completed = wait_for_completed_task(client, task_id)
+            completed_by_role = {
+                item["agent_role_key"]: item
+                for item in completed["assignments"]
+            }
+            assert set(completed_by_role) == {"backend", "lead", "test"}
+            original_backend = original_runtime_by_role["backend"]
+            retried_backend = completed_by_role["backend"]["runtime_execution"]
+            assert retried_backend["workspace_id"] == original_backend["workspace_id"]
+            assert retried_backend["thread_id"] == original_backend["thread_id"]
+            assert retried_backend["turn_id"] != original_backend["turn_id"]
+            assert (
+                completed_by_role["test"]["runtime_execution"]
+                == original_runtime_by_role["test"]
+            )
+            assert all(
+                second_app.state.runtime_supervisor.error_for(
+                    item["execution_id"]
+                )
+                is None
+                for item in completed_by_role.values()
+            )
+    finally:
+        second_adapter.close()

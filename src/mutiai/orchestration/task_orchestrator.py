@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from pathlib import Path
 from threading import RLock
@@ -355,6 +356,8 @@ class TaskOrchestrator:
         runtime_job_id: str | None = None,
         thread_id: str | None = None,
         turn_id: str | None = None,
+        reason: str = "runtime_terminal_failure",
+        source: str | None = None,
     ) -> Task:
         """Persist one terminal Runtime failure without resuming the graph."""
 
@@ -407,7 +410,7 @@ class TaskOrchestrator:
                 aggregate_id=execution.runtime_execution_id,
                 assignment_id=assignment.assignment_id,
                 runtime_execution_id=execution.runtime_execution_id,
-                source=f"runtime.{execution.provider}",
+                source=source or f"runtime.{execution.provider}",
                 payload={
                     "execution_id": execution.execution_id,
                     "runtime_event_id": runtime_event_id,
@@ -416,6 +419,7 @@ class TaskOrchestrator:
                     "turn_id": execution.turn_id,
                     "terminal_status": terminal_status,
                     "status": RuntimeExecutionStatus.FAILED,
+                    "reason": reason,
                     "error": error[:1000],
                 },
             )
@@ -429,7 +433,7 @@ class TaskOrchestrator:
                 source="langgraph",
                 payload={
                     "status": AssignmentStatus.FAILED,
-                    "reason": "runtime_terminal_failure",
+                    "reason": reason,
                 },
             )
             append_task_event(
@@ -441,13 +445,58 @@ class TaskOrchestrator:
                 source="langgraph",
                 payload={
                     "status": TaskStatus.FAILED,
-                    "reason": "runtime_terminal_failure",
+                    "reason": reason,
                     "execution_id": execution.execution_id,
                 },
             )
             session.commit()
             session.refresh(task)
             return task
+
+    def recover_orphaned_runtime_executions(
+        self,
+        *,
+        is_active: Callable[[str], bool],
+    ) -> list[str]:
+        """Fail waiting Codex executions with no owner in this process.
+
+        V1 owns one local Runtime supervisor per application process. A fresh
+        process cannot safely reconstruct an in-flight Turn, so it converts
+        stale waiting records into explicit, user-retryable failures instead of
+        replaying external work implicitly.
+        """
+
+        with self.database.session() as session:
+            waiting_executions = session.execute(
+                select(
+                    RuntimeExecution.execution_id,
+                    RuntimeExecution.turn_id,
+                ).where(
+                    RuntimeExecution.provider == self.runtime_adapter.provider,
+                    RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
+                )
+            ).all()
+
+        recovered: list[str] = []
+        for execution_id, turn_id in waiting_executions:
+            if is_active(execution_id):
+                continue
+            recovery_key = hashlib.sha256(
+                f"{execution_id}:{turn_id or 'unknown'}".encode()
+            ).hexdigest()
+            self.fail_runtime_execution(
+                execution_id=execution_id,
+                runtime_event_id=f"runtime-recovery:{recovery_key}",
+                terminal_status="orphaned",
+                error=(
+                    "The Runtime owner process ended while this Turn was waiting; "
+                    "an explicit retry is required."
+                ),
+                reason="runtime_owner_lost",
+                source="runtime.supervisor",
+            )
+            recovered.append(execution_id)
+        return recovered
 
     def record_runtime_watch_error(
         self,

@@ -6,7 +6,11 @@ import logging
 from threading import RLock, Thread
 from typing import Protocol
 
-from mutiai.runtime.codex import CodexRuntimeAdapter, CodexTurnFailedError
+from mutiai.runtime.codex import (
+    CodexRuntimeAdapter,
+    CodexTurnFailedError,
+    CodexTurnLostError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,7 @@ class RuntimeCompletionSink(Protocol):
         runtime_job_id: str | None = None,
         thread_id: str | None = None,
         turn_id: str | None = None,
+        reason: str = "runtime_terminal_failure",
     ) -> object: ...
 
     def record_runtime_watch_error(
@@ -112,46 +117,23 @@ class CodexRuntimeSupervisor:
             summary = completion.result.summary
             if not summary:
                 raise RuntimeError("Codex completion did not contain a summary")
-            self.orchestrator.complete_runtime_execution(
-                execution_id=execution_id,
-                runtime_event_id=completion.runtime_event_id,
-                summary=summary,
-                runtime_job_id=completion.result.runtime_job_id,
-                last_event_position=completion.result.last_event_position,
-            )
-        except CodexTurnFailedError as exc:
-            message = str(exc)[:1000]
             with self._lock:
-                self._errors[execution_id] = message
-            self.adapter.close_execution(
-                execution_id,
-                expected_turn_id=exc.turn_id,
-            )
-            try:
-                self.orchestrator.fail_runtime_execution(
+                if self._closed:
+                    return
+                self.orchestrator.complete_runtime_execution(
                     execution_id=execution_id,
-                    runtime_event_id=exc.runtime_event_id,
-                    terminal_status=exc.status,
-                    error=message,
-                    runtime_job_id=exc.turn_id,
-                    thread_id=exc.thread_id,
-                    turn_id=exc.turn_id,
+                    runtime_event_id=completion.runtime_event_id,
+                    summary=summary,
+                    runtime_job_id=completion.result.runtime_job_id,
+                    last_event_position=completion.result.last_event_position,
                 )
-            except Exception:
-                logger.exception(
-                    "failed to persist terminal Codex Runtime failure",
-                    extra={"execution_id": execution_id},
-                )
-                try:
-                    self.orchestrator.record_runtime_watch_error(
-                        execution_id=execution_id,
-                        error=message,
-                    )
-                except Exception:
-                    logger.exception(
-                        "failed to persist Codex Runtime failure fallback",
-                        extra={"execution_id": execution_id},
-                    )
+        except CodexTurnLostError as exc:
+            with self._lock:
+                if self._closed:
+                    return
+            self._record_runtime_failure(execution_id, exc)
+        except CodexTurnFailedError as exc:
+            self._record_runtime_failure(execution_id, exc)
         except Exception as exc:  # noqa: BLE001 - supervisor boundary
             message = str(exc)[:1000]
             with self._lock:
@@ -173,3 +155,42 @@ class CodexRuntimeSupervisor:
                 execution_id,
                 expected_turn_id=expected_turn_id,
             )
+
+    def _record_runtime_failure(
+        self,
+        execution_id: str,
+        failure: CodexTurnFailedError,
+    ) -> None:
+        message = str(failure)[:1000]
+        with self._lock:
+            self._errors[execution_id] = message
+        self.adapter.close_execution(
+            execution_id,
+            expected_turn_id=failure.turn_id,
+        )
+        try:
+            self.orchestrator.fail_runtime_execution(
+                execution_id=execution_id,
+                runtime_event_id=failure.runtime_event_id,
+                terminal_status=failure.status,
+                error=message,
+                runtime_job_id=failure.turn_id,
+                thread_id=failure.thread_id,
+                turn_id=failure.turn_id,
+                reason=failure.reason,
+            )
+        except Exception:
+            logger.exception(
+                "failed to persist terminal Codex Runtime failure",
+                extra={"execution_id": execution_id},
+            )
+            try:
+                self.orchestrator.record_runtime_watch_error(
+                    execution_id=execution_id,
+                    error=message,
+                )
+            except Exception:
+                logger.exception(
+                    "failed to persist Codex Runtime failure fallback",
+                    extra={"execution_id": execution_id},
+                )

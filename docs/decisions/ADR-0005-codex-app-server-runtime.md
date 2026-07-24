@@ -19,6 +19,8 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Consume streamed notifications in a Runtime worker. Convert a terminal Turn into one deterministic product Runtime event, persist it, then resume LangGraph through the existing idempotent completion boundary.
 - Treat a `turn/completed` notification with status `failed` or `interrupted` as a terminal Runtime failure. Persist the RuntimeExecution, Assignment, and Task failure without resuming the graph automatically.
 - Retry only through an explicit product command. Reset failed Assignments, reuse their recorded Workspace and Thread, start a new Turn, and keep completed sibling Assignments unchanged.
+- Treat loss of the owned App Server connection as `runtime_owner_lost`. During intentional supervisor shutdown, leave the durable wait for startup reconciliation; when a live supervisor detects the loss, persist the failure without replaying the Turn.
+- On startup, reconcile waiting Codex executions that have no active owner in the new process into the same explicit-retry state. Do not claim that a new process has safely resumed an in-flight Turn.
 - Use `workspaceWrite` for the managed workspace with network access disabled by default.
 - Use `on-request` approval behavior by default. Reject unhandled App Server requests rather than silently approving them.
 - Require an isolated product Codex home under the managed Runtime root. Do not write product App Server sessions into the user's interactive Codex home.
@@ -35,6 +37,8 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - A real two-specialist product Task completed through the API, LangGraph wait/resume path, Runtime supervisor, product database, and role-specific managed Workspaces.
 - A real three-role product Task completed through specialist fan-out and a separate organization-lead review Turn. The lead returned a schema-constrained `accepted` decision, and a separate run returned `needs_revision` when specialist claims conflicted.
 - A fake terminal Turn failure is normalized into a deterministic product event and exposed through an explicit retry API. The retry reuses the failed role's Thread and Workspace, creates a new Turn, and does not replay a successful parallel role.
+- An App Server process exit is normalized as `runtime_owner_lost`; the worker persists the failure and the retry API completes the assignment on a new Turn.
+- A backend restart with one completed specialist and one orphaned waiting specialist marks only the orphaned branch failed at startup. Explicit retry starts a new Turn for that branch while preserving the completed sibling's Runtime result and Turn identity.
 - The local relay rejected an optional lead schema when its default-valued `issues` property was not listed as required. The product contract now requires every lead response property, matching the relay's `response_format` validation rules.
 - A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread. Cross-process resume therefore remains an M2 acceptance item.
 
@@ -43,7 +47,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - The adapter is not the application default until approval routing and recovery controls are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
 - Product approval routing, cancellation, and reconnect supervision remain pending.
-- Explicit retry handles terminal Turn failure in one live backend process. Recovery after App Server or backend restart remains pending.
+- Explicit retry handles terminal Turn failure and owner loss. Restart recovery is conservative: it marks unknown in-flight work failed and starts a new Turn only after user retry. Transparent attachment to an in-flight Turn after process restart remains pending, and external side effects must remain idempotent.
 - Custom-provider API-key authentication is verified through the isolated home. Production must move the credential source to a dedicated secret store or environment injection rather than copying a personal home.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.
 

@@ -1,6 +1,6 @@
 # M2 local Codex Runtime acceptance
 
-Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, and explicit terminal-failure retry are implemented. Approval routing and cross-process Turn recovery remain.
+Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, and conservative owner-loss recovery are implemented. Approval routing and transparent cross-process Turn recovery remain.
 
 ## Verified locally
 
@@ -24,12 +24,14 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - A separate real smoke returned `needs_revision` because the lead detected inconsistent specialist claims about malformed upstream status handling. The product persisted the lead decision and did not mark the Task completed.
 - A terminal `failed` Turn becomes one deterministic `runtime.execution_failed` event and marks its RuntimeExecution, Assignment, and Task as failed. Ordinary task replay does not restart it.
 - `POST /api/v1/tasks/{task_id}/retry` resets only failed Assignments. A Codex retry reuses the recorded Workspace and Thread, starts a new Turn, preserves successful sibling results, and prevents late parallel completions from reviving a failed Task through an older checkpoint.
+- An unexpected App Server exit becomes a `runtime_owner_lost` failure instead of leaving the Assignment in `waiting`; the same explicit retry path can reuse its recorded Thread and Workspace.
+- On application startup, waiting Codex executions that have no active owner in the new process become `runtime_owner_lost` failures through `runtime.supervisor`. The reconciliation is idempotent and does not implicitly start a new Turn.
 - `bootstrap_codex_home.py` copies only `config.toml` and `auth.json`. It never copies `sessions`, history, state databases, or existing Threads.
 
 ## Not yet accepted
 
 - Route command/file approvals and persist approval decisions.
-- Recover a real Turn after App Server process or backend restart.
+- Transparently reconnect to and resume an in-flight real Turn after App Server or backend restart without starting a new Turn.
 - Handle cancellation, reconnect, provider rate limits, and process supervision.
 - Make the Codex adapter the application default after the approval and recovery controls are complete.
 
