@@ -17,6 +17,9 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         workspace_columns = {
             column["name"] for column in inspector.get_columns("workspaces")
         }
+        assignment_columns = {
+            column["name"] for column in inspector.get_columns("assignments")
+        }
         with engine.connect() as connection:
             revision = connection.scalar(
                 text("SELECT version_num FROM alembic_version")
@@ -28,9 +31,13 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "alembic_version",
         "browser_sessions",
         "assignments",
+        "artifact_input_bindings",
+        "artifacts",
         "approval_requests",
         "organization_spec_versions",
         "organizations",
+        "plan_step_dependencies",
+        "plan_steps",
         "product_events",
         "runtime_executions",
         "runtime_control_policies",
@@ -38,8 +45,10 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "runtime_bindings",
         "workspaces",
         "tasks",
+        "task_execution_plans",
         "users",
     } <= tables
+    assert "plan_step_id" in assignment_columns
     assert {
         "runtime_binding_id",
         "runtime_binding_key",
@@ -58,4 +67,4 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "last_compacted_at",
         "last_delivery_summary",
     } <= workspace_columns
-    assert revision == "20260725_0007"
+    assert revision == "20260725_0008"

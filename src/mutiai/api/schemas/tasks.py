@@ -7,11 +7,26 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from mutiai.api.schemas.organizations import as_utc
-from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task
+from mutiai.models import (
+    Artifact,
+    ArtifactInputBinding,
+    Assignment,
+    PlanStep,
+    ProductEvent,
+    RuntimeExecution,
+    Task,
+    TaskExecutionPlan,
+)
 from mutiai.models.task import (
     AssignmentStatus,
     RuntimeExecutionStatus,
     TaskStatus,
+)
+from mutiai.models.task_plan import (
+    ArtifactInputBindingStatus,
+    ArtifactStatus,
+    PlanStepStatus,
+    TaskExecutionPlanStatus,
 )
 
 
@@ -89,6 +104,7 @@ class AssignmentResponse(BaseModel):
     instructions: str
     acceptance_criteria: str
     execution_id: str
+    plan_step_id: str | None
     status: AssignmentStatus
     result_summary: str | None
     runtime_execution: RuntimeExecutionResponse | None
@@ -101,6 +117,7 @@ class AssignmentResponse(BaseModel):
             instructions=assignment.instructions,
             acceptance_criteria=assignment.acceptance_criteria,
             execution_id=assignment.execution_id,
+            plan_step_id=assignment.plan_step_id,
             status=AssignmentStatus(assignment.status),
             result_summary=assignment.result_summary,
             runtime_execution=(
@@ -108,6 +125,160 @@ class AssignmentResponse(BaseModel):
                 if assignment.runtime_execution is not None
                 else None
             ),
+        )
+
+
+class ArtifactInputBindingResponse(BaseModel):
+    input_binding_id: str
+    artifact_id: str
+    consumer_workspace_id: str
+    materialized_relative_path: str
+    artifact_sha256: str
+    status: ArtifactInputBindingStatus
+    created_at: datetime
+    revoked_at: datetime | None
+
+    @classmethod
+    def from_record(
+        cls,
+        binding: ArtifactInputBinding,
+    ) -> ArtifactInputBindingResponse:
+        return cls(
+            input_binding_id=binding.input_binding_id,
+            artifact_id=binding.artifact_id,
+            consumer_workspace_id=binding.consumer_workspace_id,
+            materialized_relative_path=binding.materialized_relative_path,
+            artifact_sha256=binding.artifact_sha256,
+            status=ArtifactInputBindingStatus(binding.status),
+            created_at=as_utc(binding.created_at),
+            revoked_at=as_utc(binding.revoked_at),
+        )
+
+
+class PlanStepResponse(BaseModel):
+    plan_step_id: str
+    step_key: str
+    role_key: str
+    step_kind: str
+    sequence: int
+    objective: str
+    acceptance_criteria: str
+    input_contracts: list[str]
+    output_contracts: list[dict]
+    dependency_step_ids: list[str]
+    status: PlanStepStatus
+    assignment_id: str | None
+    input_bindings: list[ArtifactInputBindingResponse]
+    created_at: datetime
+    ready_at: datetime | None
+    completed_at: datetime | None
+
+    @classmethod
+    def from_record(cls, step: PlanStep) -> PlanStepResponse:
+        return cls(
+            plan_step_id=step.plan_step_id,
+            step_key=step.step_key,
+            role_key=step.role_key,
+            step_kind=step.step_kind,
+            sequence=step.sequence,
+            objective=step.objective,
+            acceptance_criteria=step.acceptance_criteria,
+            input_contracts=list(step.input_contracts),
+            output_contracts=list(step.output_contracts),
+            dependency_step_ids=[
+                dependency.depends_on_step_id for dependency in step.dependencies
+            ],
+            status=PlanStepStatus(step.status),
+            assignment_id=(
+                step.assignment.assignment_id if step.assignment is not None else None
+            ),
+            input_bindings=[
+                ArtifactInputBindingResponse.from_record(binding)
+                for binding in step.input_bindings
+            ],
+            created_at=as_utc(step.created_at),
+            ready_at=as_utc(step.ready_at),
+            completed_at=as_utc(step.completed_at),
+        )
+
+
+class TaskExecutionPlanResponse(BaseModel):
+    plan_id: str
+    plan_version: int
+    schema_version: str
+    definition_hash: str
+    source: str
+    status: TaskExecutionPlanStatus
+    summary: str
+    validation_summary: str | None
+    initial_input_contracts: list[str]
+    steps: list[PlanStepResponse]
+    created_at: datetime
+    activated_at: datetime | None
+    completed_at: datetime | None
+
+    @classmethod
+    def from_record(cls, plan: TaskExecutionPlan) -> TaskExecutionPlanResponse:
+        return cls(
+            plan_id=plan.plan_id,
+            plan_version=plan.plan_version,
+            schema_version=plan.schema_version,
+            definition_hash=plan.definition_hash,
+            source=plan.source,
+            status=TaskExecutionPlanStatus(plan.status),
+            summary=plan.summary,
+            validation_summary=plan.validation_summary,
+            initial_input_contracts=list(plan.initial_input_contracts),
+            steps=[PlanStepResponse.from_record(step) for step in plan.steps],
+            created_at=as_utc(plan.created_at),
+            activated_at=as_utc(plan.activated_at),
+            completed_at=as_utc(plan.completed_at),
+        )
+
+
+class ArtifactResponse(BaseModel):
+    artifact_id: str
+    origin: str
+    source_delivery_id: str
+    producer_assignment_id: str | None
+    producer_plan_step_id: str | None
+    source_workspace_id: str | None
+    contract_key: str
+    schema_version: str
+    artifact_version: int
+    media_type: str
+    file_name: str
+    storage_relative_path: str
+    sha256: str
+    byte_size: int
+    status: ArtifactStatus
+    validation_summary: str | None
+    supersedes_artifact_id: str | None
+    created_at: datetime
+    released_at: datetime | None
+
+    @classmethod
+    def from_record(cls, artifact: Artifact) -> ArtifactResponse:
+        return cls(
+            artifact_id=artifact.artifact_id,
+            origin=artifact.origin,
+            source_delivery_id=artifact.source_delivery_id,
+            producer_assignment_id=artifact.producer_assignment_id,
+            producer_plan_step_id=artifact.producer_plan_step_id,
+            source_workspace_id=artifact.source_workspace_id,
+            contract_key=artifact.contract_key,
+            schema_version=artifact.schema_version,
+            artifact_version=artifact.artifact_version,
+            media_type=artifact.media_type,
+            file_name=artifact.file_name,
+            storage_relative_path=artifact.storage_relative_path,
+            sha256=artifact.sha256,
+            byte_size=artifact.byte_size,
+            status=ArtifactStatus(artifact.status),
+            validation_summary=artifact.validation_summary,
+            supersedes_artifact_id=artifact.supersedes_artifact_id,
+            created_at=as_utc(artifact.created_at),
+            released_at=as_utc(artifact.released_at),
         )
 
 
@@ -119,6 +290,8 @@ class TaskResponse(BaseModel):
     status: TaskStatus
     result_summary: str | None
     assignments: list[AssignmentResponse]
+    execution_plan: TaskExecutionPlanResponse | None
+    artifacts: list[ArtifactResponse]
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
@@ -135,6 +308,14 @@ class TaskResponse(BaseModel):
             assignments=[
                 AssignmentResponse.from_record(assignment)
                 for assignment in task.assignments
+            ],
+            execution_plan=(
+                TaskExecutionPlanResponse.from_record(task.execution_plans[-1])
+                if task.execution_plans
+                else None
+            ),
+            artifacts=[
+                ArtifactResponse.from_record(artifact) for artifact in task.artifacts
             ],
             created_at=as_utc(task.created_at),
             updated_at=as_utc(task.updated_at),

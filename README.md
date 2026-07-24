@@ -2,7 +2,7 @@
 
 `mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
 
-The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting.
+The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting. M2.2 now adds immutable TaskExecutionPlans, strict-linear dependency scheduling, structured Artifact delivery, isolated input materialization, and plan/Artifact task responses.
 
 ## Repository responsibilities
 
@@ -36,11 +36,13 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [M0 domain model](docs/product/M0_DOMAIN_MODEL.md)
 - [System boundaries](docs/architecture/SYSTEM_BOUNDARIES.md)
 - [M0 API and event boundary](docs/architecture/API_EVENT_BOUNDARY.md)
+- [Task execution plans and Artifact handoff](docs/architecture/TASK_PLAN_ARTIFACT_HANDOFF.md)
 - [Frontend contract workflow](docs/collaboration/FRONTEND_CONTRACT_WORKFLOW.md)
 - [M3 frontend task packet](docs/collaboration/M3_FRONTEND_TASK_PACKET.md)
 - [Two-repository decision](docs/decisions/ADR-0001-two-repository-boundary.md)
 - [V1 technology decision](docs/decisions/ADR-0002-v1-technology-stack.md)
 - [Browser session decision](docs/decisions/ADR-0003-browser-session-authentication.md)
+- [M2.2 linear Artifact handoff acceptance](docs/acceptance/M2_2_LINEAR_ARTIFACT_HANDOFF.md)
 - [M1 task orchestration decision](docs/decisions/ADR-0004-m1-task-orchestration.md)
 - [Codex App Server Runtime decision](docs/decisions/ADR-0005-codex-app-server-runtime.md)
 - [M2 Codex Runtime acceptance](docs/acceptance/M2_CODEX_RUNTIME.md)

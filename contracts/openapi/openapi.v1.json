@@ -1557,6 +1557,227 @@
         ],
         "title": "ApprovalStatus"
       },
+      "ArtifactInputBindingResponse": {
+        "properties": {
+          "input_binding_id": {
+            "type": "string",
+            "title": "Input Binding Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "consumer_workspace_id": {
+            "type": "string",
+            "title": "Consumer Workspace Id"
+          },
+          "materialized_relative_path": {
+            "type": "string",
+            "title": "Materialized Relative Path"
+          },
+          "artifact_sha256": {
+            "type": "string",
+            "title": "Artifact Sha256"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ArtifactInputBindingStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_binding_id",
+          "artifact_id",
+          "consumer_workspace_id",
+          "materialized_relative_path",
+          "artifact_sha256",
+          "status",
+          "created_at",
+          "revoked_at"
+        ],
+        "title": "ArtifactInputBindingResponse"
+      },
+      "ArtifactInputBindingStatus": {
+        "type": "string",
+        "enum": [
+          "materialized",
+          "revoked"
+        ],
+        "title": "ArtifactInputBindingStatus"
+      },
+      "ArtifactResponse": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "source_delivery_id": {
+            "type": "string",
+            "title": "Source Delivery Id"
+          },
+          "producer_assignment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producer Assignment Id"
+          },
+          "producer_plan_step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producer Plan Step Id"
+          },
+          "source_workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Workspace Id"
+          },
+          "contract_key": {
+            "type": "string",
+            "title": "Contract Key"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "artifact_version": {
+            "type": "integer",
+            "title": "Artifact Version"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "storage_relative_path": {
+            "type": "string",
+            "title": "Storage Relative Path"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ArtifactStatus"
+          },
+          "validation_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Summary"
+          },
+          "supersedes_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Artifact Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "released_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "origin",
+          "source_delivery_id",
+          "producer_assignment_id",
+          "producer_plan_step_id",
+          "source_workspace_id",
+          "contract_key",
+          "schema_version",
+          "artifact_version",
+          "media_type",
+          "file_name",
+          "storage_relative_path",
+          "sha256",
+          "byte_size",
+          "status",
+          "validation_summary",
+          "supersedes_artifact_id",
+          "created_at",
+          "released_at"
+        ],
+        "title": "ArtifactResponse"
+      },
+      "ArtifactStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "validated",
+          "released",
+          "rejected",
+          "superseded"
+        ],
+        "title": "ArtifactStatus"
+      },
       "AssignmentResponse": {
         "properties": {
           "assignment_id": {
@@ -1578,6 +1799,17 @@
           "execution_id": {
             "type": "string",
             "title": "Execution Id"
+          },
+          "plan_step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Step Id"
           },
           "status": {
             "$ref": "#/components/schemas/AssignmentStatus"
@@ -1611,6 +1843,7 @@
           "instructions",
           "acceptance_criteria",
           "execution_id",
+          "plan_step_id",
           "status",
           "result_summary",
           "runtime_execution"
@@ -1987,6 +2220,146 @@
           "archived"
         ],
         "title": "OrganizationVersionStatus"
+      },
+      "PlanStepResponse": {
+        "properties": {
+          "plan_step_id": {
+            "type": "string",
+            "title": "Plan Step Id"
+          },
+          "step_key": {
+            "type": "string",
+            "title": "Step Key"
+          },
+          "role_key": {
+            "type": "string",
+            "title": "Role Key"
+          },
+          "step_kind": {
+            "type": "string",
+            "title": "Step Kind"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "objective": {
+            "type": "string",
+            "title": "Objective"
+          },
+          "acceptance_criteria": {
+            "type": "string",
+            "title": "Acceptance Criteria"
+          },
+          "input_contracts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Input Contracts"
+          },
+          "output_contracts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Output Contracts"
+          },
+          "dependency_step_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dependency Step Ids"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanStepStatus"
+          },
+          "assignment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignment Id"
+          },
+          "input_bindings": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactInputBindingResponse"
+            },
+            "type": "array",
+            "title": "Input Bindings"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "ready_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_step_id",
+          "step_key",
+          "role_key",
+          "step_kind",
+          "sequence",
+          "objective",
+          "acceptance_criteria",
+          "input_contracts",
+          "output_contracts",
+          "dependency_step_ids",
+          "status",
+          "assignment_id",
+          "input_bindings",
+          "created_at",
+          "ready_at",
+          "completed_at"
+        ],
+        "title": "PlanStepResponse"
+      },
+      "PlanStepStatus": {
+        "type": "string",
+        "enum": [
+          "pending_dependency",
+          "ready",
+          "submitted",
+          "running",
+          "waiting",
+          "validating_output",
+          "completed",
+          "blocked",
+          "failed",
+          "cancelled"
+        ],
+        "title": "PlanStepStatus"
       },
       "RuntimeBindingResponse": {
         "properties": {
@@ -2543,6 +2916,121 @@
         ],
         "title": "TaskCreateRequest"
       },
+      "TaskExecutionPlanResponse": {
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "title": "Plan Id"
+          },
+          "plan_version": {
+            "type": "integer",
+            "title": "Plan Version"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "definition_hash": {
+            "type": "string",
+            "title": "Definition Hash"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskExecutionPlanStatus"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "validation_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Summary"
+          },
+          "initial_input_contracts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Initial Input Contracts"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/PlanStepResponse"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_id",
+          "plan_version",
+          "schema_version",
+          "definition_hash",
+          "source",
+          "status",
+          "summary",
+          "validation_summary",
+          "initial_input_contracts",
+          "steps",
+          "created_at",
+          "activated_at",
+          "completed_at"
+        ],
+        "title": "TaskExecutionPlanResponse"
+      },
+      "TaskExecutionPlanStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "validated",
+          "active",
+          "completed",
+          "needs_revision",
+          "failed",
+          "cancelled"
+        ],
+        "title": "TaskExecutionPlanStatus"
+      },
       "TaskResponse": {
         "properties": {
           "task_id": {
@@ -2582,6 +3070,23 @@
             "type": "array",
             "title": "Assignments"
           },
+          "execution_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskExecutionPlanResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactResponse"
+            },
+            "type": "array",
+            "title": "Artifacts"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2614,6 +3119,8 @@
           "status",
           "result_summary",
           "assignments",
+          "execution_plan",
+          "artifacts",
           "created_at",
           "updated_at",
           "completed_at"

@@ -21,6 +21,7 @@ from mutiai.domain import LeadReviewResult, OrganizationSpec
 from mutiai.models import (
     Assignment,
     OrganizationSpecVersion,
+    PlanStep,
     ProductEvent,
     RuntimeExecution,
     Task,
@@ -33,11 +34,14 @@ from mutiai.models.task import (
     RuntimeExecutionStatus,
     TaskStatus,
 )
+from mutiai.models.task_plan import PlanStepStatus, TaskExecutionPlanStatus
 from mutiai.orchestration.task_graph import (
     AssignmentResult,
     AssignmentWork,
     LeadReviewState,
+    LinearTaskGraphState,
     TaskGraphState,
+    build_linear_task_graph,
     build_task_graph,
 )
 from mutiai.runtime import (
@@ -48,6 +52,7 @@ from mutiai.runtime import (
     RuntimeTokenUsage,
 )
 from mutiai.services.events import append_task_event
+from mutiai.services.linear_scheduler import LinearTaskScheduler
 from mutiai.services.runtime_bindings import (
     RuntimeBindingResolutionError,
     RuntimeBindingService,
@@ -100,6 +105,15 @@ class TaskOrchestrator:
             settings,
             runtime_provider=self.runtime_adapter.provider,
         )
+        self.linear_scheduler = (
+            LinearTaskScheduler(
+                database,
+                runtime_provider=self.runtime_adapter.provider,
+                workspace_provisioner=workspace_provisioner,
+            )
+            if workspace_provisioner is not None
+            else None
+        )
 
     def set_runtime_watch(self, watch: Callable[[str], None]) -> None:
         """Register the post-checkpoint Runtime completion watcher."""
@@ -115,6 +129,9 @@ class TaskOrchestrator:
         self._approval_canceller = cancel
 
     def run(self, task_id: str) -> Task:
+        if self.linear_scheduler is not None and self.linear_scheduler.has_plan(task_id):
+            return self._run_linear(task_id)
+
         waiting_task: Task | None = None
         with self.database.session() as session:
             task = session.get(Task, task_id)
@@ -185,6 +202,71 @@ class TaskOrchestrator:
             raise RuntimeError(f"task '{task_id}' graph completed without a review")
         return self._finish_task(task_id, review)
 
+    def _run_linear(self, task_id: str) -> Task:
+        if self.linear_scheduler is None:
+            raise RuntimeError("linear plan execution requires Workspace provisioning")
+
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status in {
+                TaskStatus.COMPLETED,
+                TaskStatus.NEEDS_REVISION,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }:
+                return task
+            if task.status == TaskStatus.WAITING:
+                self._watch_waiting_executions(task_id)
+                return task
+
+        initial_state: LinearTaskGraphState = {
+            "task_id": task_id,
+            "work": None,
+            "result": None,
+            "review": None,
+            "done": False,
+        }
+        checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        config = {"configurable": {"thread_id": self._linear_thread_id(task_id)}}
+        with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
+            graph = build_linear_task_graph(
+                self.linear_scheduler.prepare_step,
+                self._execute_assignment,
+                self.linear_scheduler.finalize_step,
+            ).compile(checkpointer=saver)
+            snapshot = graph.get_state(config)
+            if snapshot.next:
+                result = graph.invoke(None, config=config)
+            elif snapshot.values and snapshot.values.get("done"):
+                result = snapshot.values
+            else:
+                result = graph.invoke(initial_state, config=config)
+
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status == TaskStatus.WAITING:
+                self._watch_waiting_executions(task_id)
+                return task
+            if task.status in {
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }:
+                return task
+
+        review = result.get("review")
+        if review:
+            return self._finish_task(task_id, review)
+        raise RuntimeError(f"task '{task_id}' linear graph completed without review")
+
+    @staticmethod
+    def _linear_thread_id(task_id: str) -> str:
+        return f"{task_id}:linear"
+
     def retry(self, task_id: str) -> Task:
         """Reset only failed assignments, then resume the persisted graph."""
 
@@ -226,6 +308,12 @@ class TaskOrchestrator:
                 assignment.status = AssignmentStatus.SUBMITTED
                 assignment.result_summary = None
                 assignment.completed_at = None
+                self._set_plan_step_status(
+                    session,
+                    task=task,
+                    assignment=assignment,
+                    status=PlanStepStatus.SUBMITTED,
+                )
                 retry_payload.append(
                     {
                         "assignment_id": assignment.assignment_id,
@@ -881,6 +969,12 @@ class TaskOrchestrator:
                 assignment.status = AssignmentStatus.COMPLETED
                 assignment.result_summary = summary
                 assignment.completed_at = completed_at
+                self._set_plan_step_status(
+                    session,
+                    task=task,
+                    assignment=assignment,
+                    status=PlanStepStatus.VALIDATING_OUTPUT,
+                )
                 append_task_event(
                     session,
                     task=task,
@@ -1003,6 +1097,12 @@ class TaskOrchestrator:
             execution.completed_at = failed_at
             assignment.status = AssignmentStatus.FAILED
             assignment.completed_at = failed_at
+            self._set_plan_step_status(
+                session,
+                task=task,
+                assignment=assignment,
+                status=PlanStepStatus.FAILED,
+            )
             task.status = TaskStatus.FAILED
             task.result_summary = None
             task.completed_at = None
@@ -1313,6 +1413,46 @@ class TaskOrchestrator:
             "instructions": assignment.instructions,
             "output_schema": output_schema,
         }
+
+    @staticmethod
+    def _set_plan_step_status(
+        session: Session,
+        *,
+        task: Task,
+        assignment: Assignment,
+        status: PlanStepStatus,
+    ) -> None:
+        if assignment.plan_step_id is None:
+            return
+        step = session.get(PlanStep, assignment.plan_step_id)
+        if step is None:
+            raise RuntimeError(
+                f"assignment '{assignment.assignment_id}' has no plan step"
+            )
+        if step.status == status:
+            return
+        step.status = status
+        if status == PlanStepStatus.FAILED:
+            step.plan.status = TaskExecutionPlanStatus.FAILED
+        elif (
+            status == PlanStepStatus.SUBMITTED
+            and step.plan.status == TaskExecutionPlanStatus.FAILED
+        ):
+            step.plan.status = TaskExecutionPlanStatus.ACTIVE
+        append_task_event(
+            session,
+            task=task,
+            event_type="plan.step_status_changed",
+            aggregate_type="plan_step",
+            aggregate_id=step.plan_step_id,
+            assignment_id=assignment.assignment_id,
+            source="langgraph",
+            payload={
+                "plan_step_id": step.plan_step_id,
+                "step_key": step.step_key,
+                "status": status,
+            },
+        )
 
     def _review_assignments(
         self,
@@ -1680,6 +1820,12 @@ class TaskOrchestrator:
                             "reason": CONCURRENCY_WAIT_REASON,
                         },
                     )
+                self._set_plan_step_status(
+                    session,
+                    task=task,
+                    assignment=assignment,
+                    status=PlanStepStatus.WAITING,
+                )
                 append_task_event(
                     session,
                     task=task,
@@ -1749,7 +1895,11 @@ class TaskOrchestrator:
                     },
                 )
 
-            workspace = None
+            workspace = (
+                session.get(Workspace, execution.workspace_id)
+                if execution.workspace_id is not None
+                else None
+            )
             if (
                 self.runtime_adapter.provider == "codex"
                 and self.workspace_provisioner is not None
@@ -1773,6 +1923,12 @@ class TaskOrchestrator:
             execution.status = RuntimeExecutionStatus.RUNNING
             execution.started_at = execution.started_at or now
             assignment.status = AssignmentStatus.RUNNING
+            self._set_plan_step_status(
+                session,
+                task=task,
+                assignment=assignment,
+                status=PlanStepStatus.RUNNING,
+            )
             append_task_event(
                 session,
                 task=task,
@@ -1843,6 +1999,12 @@ class TaskOrchestrator:
                 assignment.status = AssignmentStatus.FAILED
                 task.status = TaskStatus.FAILED
                 task.updated_at = failed_at
+                self._set_plan_step_status(
+                    session,
+                    task=task,
+                    assignment=assignment,
+                    status=PlanStepStatus.FAILED,
+                )
                 append_task_event(
                     session,
                     task=task,
@@ -1905,7 +2067,9 @@ class TaskOrchestrator:
                 execution.runtime_job_id = runtime_result.runtime_job_id
                 execution.thread_id = runtime_result.thread_id
                 execution.turn_id = runtime_result.turn_id
-                execution.workspace_id = runtime_result.workspace_id
+                execution.workspace_id = (
+                    runtime_result.workspace_id or execution.workspace_id
+                )
                 execution.actual_model = runtime_result.actual_model
                 execution.last_event_position = runtime_result.last_event_position
                 execution.wait_reason = None
@@ -1920,6 +2084,12 @@ class TaskOrchestrator:
                         )
                     workspace.codex_thread_id = runtime_result.thread_id
                 assignment.status = AssignmentStatus.WAITING
+                self._set_plan_step_status(
+                    session,
+                    task=task,
+                    assignment=assignment,
+                    status=PlanStepStatus.WAITING,
+                )
                 if task.status != TaskStatus.WAITING:
                     task.status = TaskStatus.WAITING
                     task.updated_at = utc_now()
@@ -1976,7 +2146,9 @@ class TaskOrchestrator:
             execution.runtime_job_id = runtime_result.runtime_job_id
             execution.thread_id = runtime_result.thread_id
             execution.turn_id = runtime_result.turn_id
-            execution.workspace_id = runtime_result.workspace_id
+            execution.workspace_id = (
+                runtime_result.workspace_id or execution.workspace_id
+            )
             execution.actual_model = runtime_result.actual_model
             execution.last_event_position = runtime_result.last_event_position
             execution.result_summary = runtime_result.summary
@@ -1991,6 +2163,12 @@ class TaskOrchestrator:
             assignment.status = AssignmentStatus.COMPLETED
             assignment.result_summary = runtime_result.summary
             assignment.completed_at = completed_at
+            self._set_plan_step_status(
+                session,
+                task=task,
+                assignment=assignment,
+                status=PlanStepStatus.VALIDATING_OUTPUT,
+            )
             append_task_event(
                 session,
                 task=task,
@@ -2193,13 +2371,32 @@ class TaskOrchestrator:
                 }:
                     return task
 
+            is_linear = (
+                self.linear_scheduler is not None
+                and self.linear_scheduler.has_plan(task_id)
+            )
             checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
-            config = {"configurable": {"thread_id": task_id}}
+            config = {
+                "configurable": {
+                    "thread_id": (
+                        self._linear_thread_id(task_id) if is_linear else task_id
+                    )
+                }
+            }
             with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
-                graph = build_task_graph(
-                    self._execute_assignment,
-                    self._review_assignments,
-                ).compile(checkpointer=saver)
+                if is_linear:
+                    if self.linear_scheduler is None:
+                        raise RuntimeError("linear scheduler is unavailable")
+                    graph = build_linear_task_graph(
+                        self.linear_scheduler.prepare_step,
+                        self._execute_assignment,
+                        self.linear_scheduler.finalize_step,
+                    ).compile(checkpointer=saver)
+                else:
+                    graph = build_task_graph(
+                        self._execute_assignment,
+                        self._review_assignments,
+                    ).compile(checkpointer=saver)
                 snapshot = graph.get_state(config)
                 matching_interrupts = [
                     item
@@ -2219,7 +2416,10 @@ class TaskOrchestrator:
                         Command(resume=resume_payload),
                         config=config,
                     )
-                elif snapshot.values and snapshot.values.get("review"):
+                elif snapshot.values and (
+                    snapshot.values.get("review")
+                    or (is_linear and snapshot.values.get("done"))
+                ):
                     result = snapshot.values
                 elif snapshot.interrupts:
                     result = None
@@ -2241,9 +2441,19 @@ class TaskOrchestrator:
             if result is None:
                 raise RuntimeError(f"task '{task_id}' resumed without a result")
             review = result.get("review")
-            if not review:
-                raise RuntimeError(f"task '{task_id}' resumed without a review")
-            return self._finish_task(task_id, review)
+            if review:
+                return self._finish_task(task_id, review)
+            if is_linear:
+                with self.database.session() as session:
+                    task = session.get(Task, task_id)
+                    if task is None:
+                        raise LookupError(f"task '{task_id}' does not exist")
+                    if task.status in {
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED,
+                    }:
+                        return task
+            raise RuntimeError(f"task '{task_id}' resumed without a review")
 
     def _finish_task(self, task_id: str, review_payload: dict) -> Task:
         with self.database.session() as session:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -20,6 +21,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mutiai.models.base import Base, new_id, utc_now
+
+if TYPE_CHECKING:
+    from mutiai.models.task_plan import Artifact, PlanStep, TaskExecutionPlan
 
 
 class TaskStatus(StrEnum):
@@ -108,6 +112,18 @@ class Task(Base):
         cascade="all, delete-orphan",
         order_by="ProductEvent.sequence",
     )
+    execution_plans: Mapped[list[TaskExecutionPlan]] = relationship(
+        "TaskExecutionPlan",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskExecutionPlan.plan_version",
+    )
+    artifacts: Mapped[list[Artifact]] = relationship(
+        "Artifact",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="Artifact.created_at",
+    )
 
 
 class Assignment(Base):
@@ -136,6 +152,12 @@ class Assignment(Base):
     instructions: Mapped[str] = mapped_column(Text)
     acceptance_criteria: Mapped[str] = mapped_column(Text)
     execution_id: Mapped[str] = mapped_column(String(36))
+    plan_step_id: Mapped[str | None] = mapped_column(
+        ForeignKey("plan_steps.plan_step_id", ondelete="CASCADE"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
     status: Mapped[str] = mapped_column(String(20), index=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -150,6 +172,10 @@ class Assignment(Base):
         back_populates="assignment",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    plan_step: Mapped[PlanStep | None] = relationship(
+        "PlanStep",
+        back_populates="assignment",
     )
 
 

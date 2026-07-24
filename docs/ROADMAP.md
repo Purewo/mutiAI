@@ -104,9 +104,28 @@ Status: Completed for the first-week local demo boundary.
 
 Reference: [M2.1 Runtime policy acceptance](acceptance/M2_1_RUNTIME_POLICY.md).
 
+## M2.2. Add dependency plans and Artifact handoff
+
+Status: Core implementation complete. The product now persists immutable plans and Artifacts, runs the strict-linear dependency scheduler, materializes exact input bindings, and exposes the resulting state. The remaining gate is a real local Codex invoice run with the user-provided source image and structured delivery envelopes.
+
+- Persist an immutable `TaskExecutionPlan` with validated role references and step dependencies.
+- Implement a generic strict-linear scheduler before extending the same representation to parallel DAG branches.
+- Create dependent Assignments only after required upstream Artifacts are released.
+- Add product-owned Artifact metadata, validation, immutable publication, and downstream input bindings.
+- Keep role Workspaces isolated and move deliverables through a Task Artifact store.
+- Replace unstructured specialist file claims with structured Runtime delivery envelopes.
+- Scope each specialist Assignment to declared inputs instead of copying the full original request to every role.
+- Expose plan and Artifact state through stable product API and event contracts.
+- Re-run the invoice workflow with `gpt-5.5`, `medium`, and the localhost Full Access demonstration policy.
+
+References:
+
+- [Task execution plans and Artifact handoff](architecture/TASK_PLAN_ARTIFACT_HANDOFF.md)
+- [M2.2 linear Artifact handoff acceptance](acceptance/M2_2_LINEAR_ARTIFACT_HANDOFF.md)
+
 ## M3. Integrate the web frontend
 
-Status: Ready to start. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available.
+Status: Waiting for the M2.2 linear Artifact handoff contract. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available, but frontend task visualization must consume plan and Artifact resources instead of the temporary all-specialist fan-out shape.
 
 Gemini implements bounded frontend tasks against versioned contracts. The integration gate is:
 
@@ -136,4 +155,4 @@ Add the first external channel through an adapter that routes messages to the us
 - Production distributed scheduling and sandbox infrastructure.
 - A complete knowledge-base product.
 - Large-scale parallel Git merge automation.
-- Artifact storage, retention, and Git-reference contracts. Product ownership is fixed, but implementation follows the first code-delivery workflow instead of blocking the Runtime boundary.
+- Long-term Artifact retention and Git-reference policies beyond the M2.2 local Task Artifact store.

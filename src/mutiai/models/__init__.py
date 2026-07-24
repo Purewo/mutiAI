@@ -15,15 +15,33 @@ from mutiai.models.task import (
     RuntimeExecution,
     Task,
 )
+from mutiai.models.task_plan import (
+    Artifact,
+    ArtifactInputBinding,
+    ArtifactInputBindingStatus,
+    ArtifactStatus,
+    PlanStep,
+    PlanStepDependency,
+    PlanStepStatus,
+    TaskExecutionPlan,
+    TaskExecutionPlanStatus,
+)
 from mutiai.models.workspace import Workspace, WorkspaceStatus
 
 __all__ = [
     "ApprovalRequest",
+    "Artifact",
+    "ArtifactInputBinding",
+    "ArtifactInputBindingStatus",
+    "ArtifactStatus",
     "Assignment",
     "Base",
     "BrowserSession",
     "Organization",
     "OrganizationSpecVersion",
+    "PlanStep",
+    "PlanStepDependency",
+    "PlanStepStatus",
     "ProductEvent",
     "RuntimeBinding",
     "RuntimeControlPolicy",
@@ -31,6 +49,8 @@ __all__ = [
     "RuntimeProviderCapacityRecord",
     "RuntimeSecurityMode",
     "Task",
+    "TaskExecutionPlan",
+    "TaskExecutionPlanStatus",
     "User",
     "Workspace",
     "WorkspaceStatus",
