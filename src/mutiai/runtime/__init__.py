@@ -13,7 +13,12 @@ from mutiai.runtime.codex import (
     CodexTurnLostError,
     RuntimeWorkspaceBinding,
 )
-from mutiai.runtime.codex_app_server import CodexAppServerError, CodexAppServerSession
+from mutiai.runtime.codex_app_server import (
+    CodexAppServerError,
+    CodexAppServerSession,
+    require_codex_app_server_ready,
+    validate_codex_app_server_endpoint,
+)
 from mutiai.runtime.fake import FakeRuntimeAdapter
 from mutiai.runtime.supervisor import CodexRuntimeSupervisor
 from mutiai.runtime.workspaces import WorkspaceBoundaryError, WorkspaceManager
@@ -34,4 +39,6 @@ __all__ = [
     "RuntimeWorkspaceBinding",
     "WorkspaceBoundaryError",
     "WorkspaceManager",
+    "require_codex_app_server_ready",
+    "validate_codex_app_server_endpoint",
 ]

@@ -426,7 +426,7 @@ class CodexRuntimeAdapter:
         *,
         expected_turn_id: str | None = None,
     ) -> None:
-        """Close the owned App Server process for one execution."""
+        """Close one execution's App Server connection or owned process."""
 
         with self._lock:
             active = self._active.get(execution_id)
@@ -441,7 +441,7 @@ class CodexRuntimeAdapter:
             active.session.close()
 
     def close(self) -> None:
-        """Close all App Server processes owned by this adapter."""
+        """Close all App Server connections and any processes it owns."""
 
         with self._lock:
             active_executions = list(self._active.values())

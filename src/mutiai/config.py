@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+pysqlite:///./var/mutiai.db"
     database_auto_migrate: bool = True
     langgraph_checkpoint_path: Path = Path("./var/langgraph-checkpoints.db")
+    runtime_provider: Literal["fake", "codex"] = "fake"
     runtime_workspace_root: Path = Field(
         default=Path(r"G:\AI\AI_private\mutiAI-runtime-workspaces"),
         validation_alias=AliasChoices(
@@ -33,6 +34,13 @@ class Settings(BaseSettings):
             "RUNTIME_WORKSPACE_ROOT",
         ),
     )
+    codex_app_server_endpoint: str = "ws://127.0.0.1:4500"
+    codex_app_server_ready_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        le=60,
+    )
+    codex_model: str | None = None
     bootstrap_admin_enabled: bool = True
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: SecretStr = SecretStr("change-me-before-network-access")

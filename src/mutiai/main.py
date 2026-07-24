@@ -20,7 +20,10 @@ from mutiai.runtime import (
     AgentRuntimeAdapter,
     CodexRuntimeAdapter,
     CodexRuntimeSupervisor,
+    FakeRuntimeAdapter,
+    RuntimeWorkspaceBinding,
     WorkspaceManager,
+    require_codex_app_server_ready,
 )
 from mutiai.services.approvals import RuntimeApprovalCoordinator
 from mutiai.services.workspaces import WorkspaceProvisioner
@@ -37,6 +40,30 @@ def create_app(
     product_mutation_lock = RLock()
     workspace_manager = WorkspaceManager(resolved_settings.runtime_workspace_root)
     workspace_provisioner = WorkspaceProvisioner(workspace_manager)
+    managed_codex_endpoint: str | None = None
+    resolved_runtime_adapter = runtime_adapter
+    if resolved_runtime_adapter is None:
+        if resolved_settings.runtime_provider == "codex":
+            codex_home = workspace_provisioner.ensure_codex_home()
+
+            def require_explicit_workspace(
+                execution_id: str,
+            ) -> RuntimeWorkspaceBinding:
+                raise RuntimeError(
+                    "Codex execution requires a product-owned Workspace: "
+                    f"{execution_id}"
+                )
+
+            managed_codex_endpoint = resolved_settings.codex_app_server_endpoint
+            resolved_runtime_adapter = CodexRuntimeAdapter(
+                workspace_manager=workspace_manager,
+                resolve_workspace=require_explicit_workspace,
+                codex_home=codex_home,
+                app_server_endpoint=managed_codex_endpoint,
+                model=resolved_settings.codex_model,
+            )
+        else:
+            resolved_runtime_adapter = FakeRuntimeAdapter()
     approval_coordinator = RuntimeApprovalCoordinator(
         database,
         mutation_lock=product_mutation_lock,
@@ -44,41 +71,48 @@ def create_app(
     task_orchestrator = TaskOrchestrator(
         database,
         resolved_settings,
-        runtime_adapter,
+        resolved_runtime_adapter,
         workspace_provisioner,
         mutation_lock=product_mutation_lock,
     )
     runtime_supervisor = (
-        CodexRuntimeSupervisor(runtime_adapter, task_orchestrator)
-        if isinstance(runtime_adapter, CodexRuntimeAdapter)
+        CodexRuntimeSupervisor(resolved_runtime_adapter, task_orchestrator)
+        if isinstance(resolved_runtime_adapter, CodexRuntimeAdapter)
         else None
     )
     if runtime_supervisor is not None:
         task_orchestrator.set_runtime_watch(runtime_supervisor.watch)
-    if isinstance(runtime_adapter, CodexRuntimeAdapter):
-        runtime_adapter.set_approval_handler(
+    if isinstance(resolved_runtime_adapter, CodexRuntimeAdapter):
+        resolved_runtime_adapter.set_approval_handler(
             approval_coordinator.request_approval
         )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        if resolved_settings.database_auto_migrate:
-            upgrade_database(resolved_settings.database_url)
-        if (
-            resolved_settings.bootstrap_admin_enabled
-            and resolved_settings.app_env != "production"
-        ):
-            with database.session() as session:
-                seed_development_admin(session, resolved_settings)
-        if runtime_supervisor is not None and isinstance(
-            runtime_adapter, CodexRuntimeAdapter
-        ):
-            task_orchestrator.recover_orphaned_runtime_executions(
-                is_active=runtime_adapter.is_active,
-                try_recover=runtime_adapter.recover,
-            )
-            approval_coordinator.recover_orphaned_approvals()
         try:
+            if managed_codex_endpoint is not None:
+                require_codex_app_server_ready(
+                    managed_codex_endpoint,
+                    timeout=(
+                        resolved_settings.codex_app_server_ready_timeout_seconds
+                    ),
+                )
+            if resolved_settings.database_auto_migrate:
+                upgrade_database(resolved_settings.database_url)
+            if (
+                resolved_settings.bootstrap_admin_enabled
+                and resolved_settings.app_env != "production"
+            ):
+                with database.session() as session:
+                    seed_development_admin(session, resolved_settings)
+            if runtime_supervisor is not None and isinstance(
+                resolved_runtime_adapter, CodexRuntimeAdapter
+            ):
+                task_orchestrator.recover_orphaned_runtime_executions(
+                    is_active=resolved_runtime_adapter.is_active,
+                    try_recover=resolved_runtime_adapter.recover,
+                )
+                approval_coordinator.recover_orphaned_approvals()
             yield
         finally:
             approval_coordinator.close()
@@ -96,6 +130,7 @@ def create_app(
     )
     app.state.settings = resolved_settings
     app.state.database = database
+    app.state.runtime_adapter = resolved_runtime_adapter
     app.state.task_orchestrator = task_orchestrator
     app.state.approval_coordinator = approval_coordinator
     app.state.workspace_manager = workspace_manager

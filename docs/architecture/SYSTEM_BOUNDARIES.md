@@ -20,6 +20,8 @@ Owns the current task workflow: decomposition routing, fan-out to existing roles
 
 Owns Runtime process lifecycle, task submission, event collection, reconnection, cancellation, and OS-specific operations. It maps stable product execution IDs to Codex thread and turn IDs.
 
+The local Codex App Server runs as an independent sidecar. FastAPI owns client connections and recovery coordination, but it does not own the sidecar lifetime. This separation lets Codex continue an active Turn while the API process restarts.
+
 ### Codex Runtime
 
 Owns execution inside one bounded assignment: reading a repository, planning, running commands, modifying files, running tests, and maintaining its own thread context.

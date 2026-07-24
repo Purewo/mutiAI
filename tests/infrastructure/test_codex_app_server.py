@@ -1,4 +1,5 @@
 import json
+import socket
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -6,17 +7,24 @@ from pathlib import Path
 from threading import Thread
 
 import pytest
+from fastapi.testclient import TestClient
+from websockets.datastructures import Headers
+from websockets.http11 import Request, Response
 from websockets.sync.server import ServerConnection, serve
 
+from mutiai.config import Settings
+from mutiai.main import create_app
 from mutiai.runtime import (
     CodexApprovalRequest,
     CodexAppServerError,
     CodexAppServerSession,
     CodexRuntimeAdapter,
     CodexTurnFailedError,
+    FakeRuntimeAdapter,
     RuntimeRecoveryRequest,
     RuntimeWorkspaceBinding,
     WorkspaceManager,
+    require_codex_app_server_ready,
 )
 
 FAKE_APP_SERVER = (
@@ -166,7 +174,32 @@ def persistent_fake_endpoint(
                     )
                 )
 
-    server = serve(handler, "127.0.0.1", 0)
+    def process_request(
+        websocket: ServerConnection,
+        request: Request,
+    ) -> Response | None:
+        del websocket
+        if request.path != "/readyz":
+            return None
+        body = b"ready"
+        return Response(
+            200,
+            "OK",
+            Headers(
+                [
+                    ("Content-Type", "text/plain"),
+                    ("Content-Length", str(len(body))),
+                ]
+            ),
+            body,
+        )
+
+    server = serve(
+        handler,
+        "127.0.0.1",
+        0,
+        process_request=process_request,
+    )
     worker = Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
@@ -241,6 +274,71 @@ def test_codex_app_server_session_rejects_nonlocal_endpoint(
 
     assert "failed to connect" in str(captured.value)
     assert isinstance(captured.value.__cause__, CodexAppServerError)
+
+
+def test_codex_app_server_readiness_uses_local_readyz(tmp_path) -> None:
+    with persistent_fake_endpoint(tmp_path) as endpoint:
+        require_codex_app_server_ready(endpoint, timeout=1)
+
+
+def test_create_app_builds_codex_adapter_from_settings(tmp_path) -> None:
+    with persistent_fake_endpoint(tmp_path) as endpoint:
+        settings = Settings(
+            app_env="test",
+            database_url=f"sqlite+pysqlite:///{tmp_path / 'db.sqlite'}",
+            langgraph_checkpoint_path=tmp_path / "cp.db",
+            runtime_workspace_root=tmp_path / "runtime",
+            runtime_provider="codex",
+            codex_app_server_endpoint=endpoint,
+            bootstrap_admin_enabled=True,
+            bootstrap_admin_username="admin",
+            bootstrap_admin_password="123456",
+        )
+        app = create_app(settings)
+        with TestClient(app) as client:
+            assert client.get("/api/v1/health").status_code == 200
+        assert isinstance(app.state.runtime_adapter, CodexRuntimeAdapter)
+        assert app.state.runtime_adapter.app_server_endpoint == endpoint
+
+
+def test_create_app_rejects_unavailable_codex_sidecar(tmp_path) -> None:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'db.sqlite'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "runtime",
+        runtime_provider="codex",
+        codex_app_server_endpoint=f"ws://127.0.0.1:{port}",
+        codex_app_server_ready_timeout_seconds=0.1,
+        bootstrap_admin_enabled=False,
+    )
+    app = create_app(settings)
+
+    with pytest.raises(
+        CodexAppServerError,
+        match="endpoint is not ready",
+    ), TestClient(app):
+        pass
+
+
+def test_create_app_keeps_explicit_adapter_outside_sidecar_assembly(tmp_path) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'db.sqlite'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "runtime",
+        runtime_provider="codex",
+        codex_app_server_endpoint="ws://127.0.0.1:1",
+        bootstrap_admin_enabled=False,
+    )
+
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+    with TestClient(app) as client:
+        assert client.get("/api/v1/health").status_code == 200
+    assert app.state.runtime_adapter.provider == "fake"
 
 
 def test_codex_runtime_adapter_rejoins_external_app_server_turn(tmp_path) -> None:

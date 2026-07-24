@@ -80,6 +80,18 @@ The bootstrap copies `config.toml` and `auth.json` only. It does not copy `sessi
 
 The current Windows test root is `G:\AI\AI_private\mutiAI-runtime-workspaces`. Linux deployment should inject provider credentials through a dedicated secret mechanism instead of copying a developer Codex home.
 
+### Run the local Codex Runtime sidecar
+
+The default `RUNTIME_PROVIDER=fake` keeps the backend self-contained for contract and orchestration tests. To run the real local Codex Runtime, start the App Server in a separate process so it survives an API restart:
+
+```powershell
+$env:RUNTIME_PROVIDER="codex"
+$env:CODEX_APP_SERVER_ENDPOINT="ws://127.0.0.1:4500"
+uv run python scripts/run_codex_app_server.py
+```
+
+In another terminal, start the API with the same environment. The API checks `/readyz` before recovering waiting Runtime executions. The sidecar uses the isolated managed `CODEX_HOME`; it does not use the interactive Codex session directory. Plain WebSocket transport is restricted to loopback. Linux production should prefer a Unix socket and an external service manager.
+
 ## Local development account
 
 The first local environment may seed an `admin` account with a simple development-only password. Keep the real value in the ignored `.env` file. Never expose that account on a network or reuse it in production.

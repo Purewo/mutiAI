@@ -14,7 +14,9 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Self
-from urllib.parse import urlsplit
+from urllib.error import URLError
+from urllib.parse import SplitResult, urlsplit
+from urllib.request import Request, urlopen
 
 from websockets.sync.client import connect as websocket_connect
 from websockets.sync.client import unix_connect
@@ -24,6 +26,79 @@ logger = logging.getLogger(__name__)
 
 class CodexAppServerError(RuntimeError):
     """Raised when the App Server process or JSON-RPC request fails."""
+
+
+def validate_codex_app_server_endpoint(endpoint: str) -> SplitResult:
+    """Validate a local App Server endpoint and return its parsed URL."""
+
+    parsed = urlsplit(endpoint)
+    if parsed.scheme in {"ws", "wss"}:
+        host = parsed.hostname
+        if (
+            host is None
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise CodexAppServerError(
+                "Codex App Server WebSocket endpoint is invalid"
+            )
+        if host.lower() != "localhost":
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError as exc:
+                raise CodexAppServerError(
+                    "Codex App Server WebSocket endpoint must use a loopback host"
+                ) from exc
+            if not address.is_loopback:
+                raise CodexAppServerError(
+                    "Codex App Server WebSocket endpoint must use a loopback host"
+                )
+        return parsed
+    if parsed.scheme == "unix":
+        path = endpoint.removeprefix("unix://")
+        if not path or not Path(path).is_absolute():
+            raise CodexAppServerError(
+                "unix:// endpoint must include an absolute socket path"
+            )
+        return parsed
+    raise CodexAppServerError(
+        "Codex App Server endpoint must use ws://, wss://, or unix://"
+    )
+
+
+def require_codex_app_server_ready(
+    endpoint: str,
+    *,
+    timeout: float = 5.0,
+) -> None:
+    """Require the configured App Server transport to accept connections."""
+
+    parsed = validate_codex_app_server_endpoint(endpoint)
+    if timeout <= 0:
+        raise ValueError("App Server readiness timeout must be positive")
+    try:
+        if parsed.scheme in {"ws", "wss"}:
+            health_scheme = "https" if parsed.scheme == "wss" else "http"
+            health_url = f"{health_scheme}://{parsed.netloc}/readyz"
+            request = Request(health_url, headers={"User-Agent": "mutiai"})
+            with urlopen(request, timeout=timeout) as response:
+                if response.status != 200:
+                    raise CodexAppServerError(
+                        f"Codex App Server readiness returned HTTP {response.status}"
+                    )
+            return
+        websocket = unix_connect(
+            endpoint.removeprefix("unix://"),
+            open_timeout=timeout,
+            close_timeout=2,
+        )
+        websocket.close()
+    except CodexAppServerError:
+        raise
+    except (OSError, URLError, TimeoutError) as exc:
+        raise CodexAppServerError(
+            f"Codex App Server endpoint is not ready: {endpoint}"
+        ) from exc
 
 
 class CodexAppServerSession:
@@ -536,32 +611,11 @@ class CodexAppServerSession:
 
     @staticmethod
     def _connect_endpoint(endpoint: str) -> Any:
-        if endpoint.startswith(("ws://", "wss://")):
-            parsed = urlsplit(endpoint)
-            host = parsed.hostname
-            if host is None or parsed.username is not None or parsed.password is not None:
-                raise CodexAppServerError(
-                    "Codex App Server WebSocket endpoint is invalid"
-                )
-            if host.lower() != "localhost":
-                try:
-                    address = ipaddress.ip_address(host)
-                except ValueError as exc:
-                    raise CodexAppServerError(
-                        "Codex App Server WebSocket endpoint must use a loopback host"
-                    ) from exc
-                if not address.is_loopback:
-                    raise CodexAppServerError(
-                        "Codex App Server WebSocket endpoint must use a loopback host"
-                    )
+        parsed = validate_codex_app_server_endpoint(endpoint)
+        if parsed.scheme in {"ws", "wss"}:
             return websocket_connect(endpoint, open_timeout=30, close_timeout=2)
-        if endpoint.startswith("unix://"):
-            path = endpoint.removeprefix("unix://")
-            if not path or not Path(path).is_absolute():
-                raise CodexAppServerError(
-                    "unix:// endpoint must include an absolute socket path"
-                )
-            return unix_connect(path, open_timeout=30, close_timeout=2)
-        raise CodexAppServerError(
-            "Codex App Server endpoint must use ws://, wss://, or unix://"
+        return unix_connect(
+            endpoint.removeprefix("unix://"),
+            open_timeout=30,
+            close_timeout=2,
         )

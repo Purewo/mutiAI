@@ -15,6 +15,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Start a new execution with `thread/start`, then immediately submit its work with `turn/start`.
 - Resume only a product-recorded Thread ID with `thread/resume`. Always send the recorded canonical workspace path as the `cwd` consistency check.
 - For transparent cross-process recovery, connect to a long-lived external App Server over a loopback WebSocket on Windows or a Unix socket on Linux. Rejoin with `thread/resume`, validate the returned Thread and `cwd`, and continue observing the recorded Turn. Recovery never calls `turn/start`.
+- Run that App Server as an independent sidecar rather than as a child owned by the FastAPI lifespan. The API performs the documented `/readyz` health check, closes only its client connections during shutdown, and reconnects on the next startup.
 - If `thread/resume` reports a terminal Turn, read the persisted Thread with `thread/read(includeTurns=true)` and deliver that terminal result through the normal supervisor boundary.
 - Treat a pending command/file approval as a recovery boundary. The public App Server lifecycle documents the approval request/response exchange but does not guarantee replay of an unanswered server request after client loss. Startup reconciliation therefore marks such executions `runtime_owner_lost` and requires explicit retry.
 - Set `clientUserMessageId` to the product `execution_id` when starting a Turn.
@@ -48,6 +49,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - A fake terminal Turn failure is normalized into a deterministic product event and exposed through an explicit retry API. The retry reuses the failed role's Thread and Workspace, creates a new Turn, and does not replay a successful parallel role.
 - An App Server process exit is normalized as `runtime_owner_lost`; the worker persists the failure and the retry API completes the assignment on a new Turn.
 - A persistent external App Server preserves an in-flight Turn across a client/backend disconnect. A second client rejoined the same Thread, observed the original Turn completion, and the product retained the original Thread and Turn IDs.
+- `RUNTIME_PROVIDER=codex` assembles the real Adapter from settings and refuses to enter its lifespan when the configured sidecar is not ready. The default `RUNTIME_PROVIDER=fake` remains unchanged.
 - A Turn completed while the client was disconnected is recovered from Thread history without starting a replacement Turn. Startup emits `runtime.execution_reconnected` before the supervisor consumes the terminal state.
 - A backend restart with one completed specialist and one orphaned waiting specialist marks only the orphaned branch failed at startup. Explicit retry starts a new Turn for that branch while preserving the completed sibling's Runtime result and Turn identity.
 - Fake App Server integration covers command and file-change approval requests plus `accept`, `decline`, and `cancel` responses. API integration verifies authenticated ownership, durable request and resolution events, same-decision idempotency, conflicting-decision rejection, and continued or interrupted Turn outcomes.
@@ -56,7 +58,7 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 
 ## Current limitations
 
-- The adapter is not the application default until the remaining recovery controls are implemented.
+- The adapter is not the application default until sidecar supervision, cancellation, and rate-limit controls are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
 - Task cancellation and reconnect supervision remain pending beyond the verified App Server reattachment path. Approval routing is implemented for command and file-change requests with one-time decisions only; approval-waiting executions remain conservative across owner restart.
 - Explicit retry handles terminal Turn failure and owner loss. Per-execution stdio remains conservative because its owner process cannot be rejoined after a backend restart. External App Server reattachment is available only when that server remains alive, identities and Workspace binding validate, and no approval request is pending. External side effects must remain idempotent.
