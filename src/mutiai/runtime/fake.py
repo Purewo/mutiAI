@@ -28,6 +28,7 @@ class FakeRuntimeAdapter:
             "The organization lead accepted the specialist deliveries."
         ),
         lead_review_issues: tuple[str, ...] = (),
+        planning_plan: dict[str, Any] | None = None,
         capacity: RuntimeCapacity | None = None,
     ) -> None:
         self._lock = Lock()
@@ -42,6 +43,7 @@ class FakeRuntimeAdapter:
         self._lead_review_decision = lead_review_decision
         self._lead_review_final_summary = lead_review_final_summary
         self._lead_review_issues = lead_review_issues
+        self._planning_plan = planning_plan
         self._capacity = capacity or RuntimeCapacity(status="available")
 
     def capacity(self) -> RuntimeCapacity:
@@ -94,6 +96,14 @@ class FakeRuntimeAdapter:
                 },
                 ensure_ascii=False,
             )
+        elif output_schema is not None and "steps" in output_schema.get(
+            "properties", {}
+        ):
+            if self._planning_plan is None:
+                raise RuntimeError(
+                    "Fake Runtime requires planning_plan for planning output"
+                )
+            summary = json.dumps(self._planning_plan, ensure_ascii=False)
         return RuntimeResult(
             status="completed",
             runtime_job_id=f"fake:{execution_id}",

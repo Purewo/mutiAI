@@ -106,7 +106,7 @@ Reference: [M2.1 Runtime policy acceptance](acceptance/M2_1_RUNTIME_POLICY.md).
 
 ## M2.2. Add dependency plans and Artifact handoff
 
-Status: Core implementation complete. The product now persists immutable plans and Artifacts, runs the strict-linear dependency scheduler, materializes exact input bindings, and exposes the resulting state. The remaining gate is a real local Codex invoice run with the user-provided source image and structured delivery envelopes.
+Status: Core implementation complete. The product now persists immutable plans and Artifacts, runs a recoverable organization-lead planning boundary, accepts controlled initial input Artifacts, runs the strict-linear dependency scheduler, materializes exact input bindings, and exposes the resulting state. The remaining gate is a real local Codex invoice run with the user-provided source image and structured delivery envelopes.
 
 - Persist an immutable `TaskExecutionPlan` with validated role references and step dependencies.
 - Implement a generic strict-linear scheduler before extending the same representation to parallel DAG branches.
@@ -116,6 +116,8 @@ Status: Core implementation complete. The product now persists immutable plans a
 - Replace unstructured specialist file claims with structured Runtime delivery envelopes.
 - Scope each specialist Assignment to declared inputs instead of copying the full original request to every role.
 - Expose plan and Artifact state through stable product API and event contracts.
+- Keep `legacy` fan-out compatibility while `planned` Tasks use `lead.plan`, explicit input upload, and `/start`.
+- Support separate `{task_id}:planning` and `{task_id}:linear` LangGraph checkpoint threads with external Runtime resume.
 - Re-run the invoice workflow with `gpt-5.5`, `medium`, and the localhost Full Access demonstration policy.
 
 References:

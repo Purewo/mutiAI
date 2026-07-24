@@ -20,6 +20,9 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         assignment_columns = {
             column["name"] for column in inspector.get_columns("assignments")
         }
+        task_columns = {
+            column["name"] for column in inspector.get_columns("tasks")
+        }
         with engine.connect() as connection:
             revision = connection.scalar(
                 text("SELECT version_num FROM alembic_version")
@@ -49,6 +52,8 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "users",
     } <= tables
     assert "plan_step_id" in assignment_columns
+    assert {"assignment_key", "assignment_kind"} <= assignment_columns
+    assert "orchestration_mode" in task_columns
     assert {
         "runtime_binding_id",
         "runtime_binding_key",
@@ -67,4 +72,4 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "last_compacted_at",
         "last_delivery_summary",
     } <= workspace_columns
-    assert revision == "20260725_0008"
+    assert revision == "20260725_0010"

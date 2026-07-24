@@ -14,6 +14,7 @@ from mutiai.models.task import (
     ProductEvent,
     RuntimeExecution,
     Task,
+    TaskOrchestrationMode,
 )
 from mutiai.models.task_plan import (
     Artifact,
@@ -51,6 +52,7 @@ __all__ = [
     "Task",
     "TaskExecutionPlan",
     "TaskExecutionPlanStatus",
+    "TaskOrchestrationMode",
     "User",
     "Workspace",
     "WorkspaceStatus",

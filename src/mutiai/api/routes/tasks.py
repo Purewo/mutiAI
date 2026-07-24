@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Response
@@ -22,13 +24,16 @@ from mutiai.api.schemas.approvals import (
     ApprovalResponse,
 )
 from mutiai.api.schemas.tasks import (
+    ArtifactResponse,
     TaskCreateRequest,
     TaskEventResponse,
+    TaskInputArtifactRequest,
     TaskResponse,
 )
 from mutiai.models import ApprovalRequest, ProductEvent, Task
 from mutiai.models.task import TaskStatus
 from mutiai.orchestration import TaskCancellationIncompleteError
+from mutiai.services.artifacts import ArtifactError
 from mutiai.services.runtime_bindings import RuntimeBindingResolutionError
 from mutiai.services.runtime_controls import (
     RuntimeBudgetExceededError,
@@ -52,6 +57,33 @@ def load_task_response(session: DbSession, task_id: str) -> TaskResponse:
     if task is None:
         raise ApiError(404, "TASK_NOT_FOUND", "Task not found.")
     return TaskResponse.from_record(task)
+
+
+def run_orchestration(operation: Callable[[], Task]) -> Task:
+    try:
+        return operation()
+    except RuntimeProviderRateLimitedError as exc:
+        raise ApiError(
+            429,
+            "PROVIDER_RATE_LIMITED",
+            "The Runtime Provider is rate limited. Try again after it resets.",
+            details={"provider": exc.provider, "resets_at": exc.resets_at},
+        ) from exc
+    except RuntimeBudgetExceededError as exc:
+        raise ApiError(
+            409,
+            "RUNTIME_BUDGET_EXCEEDED",
+            "The configured Runtime token budget cannot admit this execution.",
+            details={
+                "provider": exc.provider,
+                "budget_limit": exc.limit,
+                "tokens_consumed": exc.consumed,
+                "tokens_reserved": exc.reserved,
+                "requested_tokens": exc.requested,
+            },
+        ) from exc
+    except RuntimeBindingResolutionError as exc:
+        raise ApiError(409, "RUNTIME_BINDING_INVALID", str(exc)) from exc
 
 
 @router.post(
@@ -82,38 +114,96 @@ def submit_task(
         organization_id=organization_id,
         request_text=payload.request,
         idempotency_key=idempotency_key,
+        orchestration_mode=payload.orchestration_mode,
     )
-    try:
-        orchestrator.run(task.task_id)
-    except RuntimeProviderRateLimitedError as exc:
-        raise ApiError(
-            429,
-            "PROVIDER_RATE_LIMITED",
-            "The Runtime Provider is rate limited. Try again after it resets.",
-            details={"provider": exc.provider, "resets_at": exc.resets_at},
-        ) from exc
-    except RuntimeBudgetExceededError as exc:
-        raise ApiError(
-            409,
-            "RUNTIME_BUDGET_EXCEEDED",
-            "The configured Runtime token budget cannot admit this execution.",
-            details={
-                "provider": exc.provider,
-                "budget_limit": exc.limit,
-                "tokens_consumed": exc.consumed,
-                "tokens_reserved": exc.reserved,
-                "requested_tokens": exc.requested,
-            },
-        ) from exc
-    except RuntimeBindingResolutionError as exc:
-        raise ApiError(
-            409,
-            "RUNTIME_BINDING_INVALID",
-            str(exc),
-        ) from exc
+    if payload.orchestration_mode.value == "planned":
+        run_orchestration(lambda: orchestrator.plan(task.task_id))
+    else:
+        run_orchestration(lambda: orchestrator.run(task.task_id))
     if not created:
         response.status_code = 200
     return load_task_response(session, task.task_id)
+
+
+@router.post(
+    "/tasks/{task_id}/plan",
+    response_model=TaskResponse,
+    responses=ERROR_RESPONSES,
+)
+def plan_task(
+    task_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    orchestrator: TaskRunner,
+) -> TaskResponse:
+    get_owned_task(session, task_id=task_id, owner_user_id=user.user_id)
+    try:
+        run_orchestration(lambda: orchestrator.plan(task_id))
+    except ValueError as exc:
+        raise ApiError(409, "TASK_PLAN_NOT_ALLOWED", str(exc)) from exc
+    return load_task_response(session, task_id)
+
+
+@router.post(
+    "/tasks/{task_id}/start",
+    response_model=TaskResponse,
+    responses=ERROR_RESPONSES,
+)
+def start_task(
+    task_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    orchestrator: TaskRunner,
+) -> TaskResponse:
+    get_owned_task(session, task_id=task_id, owner_user_id=user.user_id)
+    try:
+        run_orchestration(lambda: orchestrator.start(task_id))
+    except ValueError as exc:
+        raise ApiError(409, "TASK_NOT_READY_TO_START", str(exc)) from exc
+    return load_task_response(session, task_id)
+
+
+@router.post(
+    "/tasks/{task_id}/inputs",
+    response_model=ArtifactResponse,
+    status_code=201,
+    responses=ERROR_RESPONSES,
+)
+def upload_task_input(
+    task_id: str,
+    payload: TaskInputArtifactRequest,
+    user: CurrentUser,
+    session: DbSession,
+    orchestrator: TaskRunner,
+) -> ArtifactResponse:
+    get_owned_task(session, task_id=task_id, owner_user_id=user.user_id)
+    try:
+        content = base64.b64decode(payload.content_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ApiError(
+            422,
+            "TASK_INPUT_BASE64_INVALID",
+            "The Task input content_base64 is invalid.",
+        ) from exc
+    try:
+        artifact = orchestrator.publish_task_input(
+            task_id=task_id,
+            contract_key=payload.contract_key,
+            schema_version=payload.schema_version,
+            media_type=payload.media_type,
+            file_name=payload.file_name,
+            content=content,
+            source_delivery_id=payload.source_delivery_id,
+        )
+    except ValueError as exc:
+        raise ApiError(
+            422,
+            "TASK_INPUT_INVALID",
+            str(exc),
+        ) from exc
+    except ArtifactError as exc:
+        raise ApiError(409, exc.code, str(exc)) from exc
+    return ArtifactResponse.from_record(artifact)
 
 
 @router.get(

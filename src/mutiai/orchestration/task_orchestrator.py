@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import RLock
 from typing import Any
+from uuid import uuid4
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command, interrupt
@@ -15,33 +16,49 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mutiai.api.errors import ApiError
 from mutiai.config import Settings
 from mutiai.db import Database
-from mutiai.domain import LeadReviewResult, OrganizationSpec
+from mutiai.domain import (
+    ArtifactContractSpec,
+    LeadReviewResult,
+    OrganizationSpec,
+    TaskExecutionPlanSpec,
+)
 from mutiai.models import (
+    Artifact,
     Assignment,
     OrganizationSpecVersion,
     PlanStep,
     ProductEvent,
     RuntimeExecution,
     Task,
+    TaskExecutionPlan,
     Workspace,
 )
 from mutiai.models.approval import ApprovalRequest, ApprovalStatus
 from mutiai.models.base import utc_now
 from mutiai.models.task import (
+    AssignmentKind,
     AssignmentStatus,
     RuntimeExecutionStatus,
+    TaskOrchestrationMode,
     TaskStatus,
 )
-from mutiai.models.task_plan import PlanStepStatus, TaskExecutionPlanStatus
+from mutiai.models.task_plan import (
+    ArtifactStatus,
+    PlanStepStatus,
+    TaskExecutionPlanStatus,
+)
 from mutiai.orchestration.task_graph import (
     AssignmentResult,
     AssignmentWork,
     LeadReviewState,
     LinearTaskGraphState,
+    PlanningGraphState,
     TaskGraphState,
     build_linear_task_graph,
+    build_planning_graph,
     build_task_graph,
 )
 from mutiai.runtime import (
@@ -51,6 +68,7 @@ from mutiai.runtime import (
     RuntimeRecoveryRequest,
     RuntimeTokenUsage,
 )
+from mutiai.services.artifacts import ArtifactManager
 from mutiai.services.events import append_task_event
 from mutiai.services.linear_scheduler import LinearTaskScheduler
 from mutiai.services.runtime_bindings import (
@@ -63,7 +81,12 @@ from mutiai.services.runtime_controls import (
     RuntimeControlService,
     RuntimeProviderRateLimitedError,
 )
-from mutiai.services.tasks import prepare_assignments, prepare_lead_review
+from mutiai.services.task_plans import create_task_execution_plan
+from mutiai.services.tasks import (
+    prepare_assignments,
+    prepare_lead_plan,
+    prepare_lead_review,
+)
 from mutiai.services.workspaces import WorkspaceProvisioner
 
 
@@ -105,6 +128,11 @@ class TaskOrchestrator:
             settings,
             runtime_provider=self.runtime_adapter.provider,
         )
+        self.artifact_manager = (
+            ArtifactManager(workspace_provisioner.manager)
+            if workspace_provisioner is not None
+            else None
+        )
         self.linear_scheduler = (
             LinearTaskScheduler(
                 database,
@@ -128,7 +156,303 @@ class TaskOrchestrator:
 
         self._approval_canceller = cancel
 
+    def plan(self, task_id: str) -> Task:
+        """Run or resume the durable organization-lead planning boundary."""
+
+        with self._execution_lock:
+            with self.database.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise LookupError(f"task '{task_id}' does not exist")
+                if task.orchestration_mode != TaskOrchestrationMode.PLANNED:
+                    raise ValueError("only planned Tasks support a planning phase")
+                if task.execution_plans:
+                    assignment = session.scalar(
+                        select(Assignment).where(
+                            Assignment.task_id == task_id,
+                            Assignment.assignment_key == "lead.plan",
+                        )
+                    )
+                    if assignment is not None:
+                        self._mark_planning_ready(
+                            session,
+                            task=task,
+                            plan=task.execution_plans[-1],
+                            assignment_id=assignment.assignment_id,
+                        )
+                    return task
+                if task.status in {
+                    TaskStatus.COMPLETED,
+                    TaskStatus.NEEDS_REVISION,
+                    TaskStatus.FAILED,
+                    TaskStatus.CANCELLED,
+                }:
+                    return task
+                assignment = prepare_lead_plan(
+                    session,
+                    task=task,
+                    runtime_provider=self.runtime_adapter.provider,
+                )
+                work = self._work(
+                    assignment,
+                    output_schema=TaskExecutionPlanSpec.model_json_schema(),
+                )
+
+            checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            config = {"configurable": {"thread_id": self._planning_thread_id(task_id)}}
+            initial_state: PlanningGraphState = {
+                "task_id": task_id,
+                "work": work,
+                "result": None,
+            }
+            with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
+                graph = build_planning_graph(self._execute_assignment).compile(
+                    checkpointer=saver
+                )
+                snapshot = graph.get_state(config)
+                if snapshot.next:
+                    result = graph.invoke(None, config=config)
+                elif (
+                    snapshot.values
+                    and snapshot.values.get("result")
+                    and assignment.status == AssignmentStatus.COMPLETED
+                ):
+                    result = snapshot.values
+                else:
+                    result = graph.invoke(initial_state, config=config)
+
+            with self.database.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise LookupError(f"task '{task_id}' does not exist")
+                if task.status == TaskStatus.WAITING:
+                    self._watch_waiting_executions(task_id)
+                    return task
+
+            return self._complete_planning(task_id, result)
+
+    def start(self, task_id: str) -> Task:
+        """Start planned execution only after every declared input is released."""
+
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.orchestration_mode != TaskOrchestrationMode.PLANNED:
+                raise ValueError("only planned Tasks support an explicit start")
+            plan = self._current_plan(session, task_id)
+            if plan is None:
+                raise ValueError("the Task must complete lead planning before start")
+            missing = [
+                contract_key
+                for contract_key in plan.initial_input_contracts
+                if not session.scalar(
+                    select(Artifact.artifact_id).where(
+                        Artifact.task_id == task_id,
+                        Artifact.contract_key == contract_key,
+                        Artifact.origin == "task_input",
+                        Artifact.status == ArtifactStatus.RELEASED,
+                    )
+                )
+            ]
+            if missing:
+                raise ValueError(
+                    "Task inputs are missing: " + ", ".join(sorted(missing))
+                )
+        return self.run(task_id)
+
+    def publish_task_input(
+        self,
+        *,
+        task_id: str,
+        contract_key: str,
+        schema_version: str,
+        media_type: str,
+        file_name: str,
+        content: bytes,
+        source_delivery_id: str,
+    ) -> Artifact:
+        """Stage and publish one user input without exposing source paths."""
+
+        if self.artifact_manager is None or self.workspace_provisioner is None:
+            raise RuntimeError("Artifact input publishing requires Workspace support")
+        if len(content) > 20 * 1024 * 1024:
+            raise ValueError("Task input content exceeds the 20 MiB limit")
+        contract = ArtifactContractSpec(
+            contract_key=contract_key,
+            schema_version=schema_version,
+            media_type=media_type,
+            file_name=file_name,
+        )
+        staging_dir = self.workspace_provisioner.manager.provision(
+            Path("staging") / task_id / str(uuid4())
+        )
+        staging_path = staging_dir / contract.file_name
+        try:
+            staging_path.write_bytes(content)
+            with self.database.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise LookupError(f"task '{task_id}' does not exist")
+                if task.orchestration_mode != TaskOrchestrationMode.PLANNED:
+                    raise ValueError("Task inputs are supported only for planned Tasks")
+                plan = self._current_plan(session, task_id)
+                if plan is None:
+                    raise ValueError("the Task must complete lead planning first")
+                artifact = self.artifact_manager.publish_task_input(
+                    session,
+                    task=task,
+                    plan=plan,
+                    contract=contract,
+                    source_path=staging_path,
+                    source_delivery_id=source_delivery_id,
+                )
+                return artifact
+        finally:
+            try:
+                staging_path.unlink(missing_ok=True)
+                staging_dir.rmdir()
+            except OSError:
+                pass
+
+    def _complete_planning(self, task_id: str, result: dict[str, Any]) -> Task:
+        planning_result = result.get("result") if result else None
+        if not planning_result or not planning_result.get("summary"):
+            raise RuntimeError(f"task '{task_id}' planning completed without output")
+        try:
+            plan_spec = TaskExecutionPlanSpec.model_validate_json(
+                planning_result["summary"]
+            )
+        except (ValidationError, ValueError) as exc:
+            self._record_planning_failure(task_id, str(exc))
+            raise RuntimeError("organization lead returned an invalid execution plan") from exc
+        try:
+            with self._execution_lock, self.database.session() as session:
+                task = session.get(Task, task_id)
+                if task is None:
+                    raise LookupError(f"task '{task_id}' does not exist")
+                plan, _ = create_task_execution_plan(
+                    session,
+                    task=task,
+                    plan_spec=plan_spec,
+                    source="lead.plan",
+                )
+                self._mark_planning_ready(
+                    session,
+                    task=task,
+                    plan=plan,
+                    assignment_id=planning_result["assignment_id"],
+                )
+                return task
+        except ApiError as exc:
+            self._record_planning_failure(task_id, exc.message)
+            raise
+
+    def _mark_planning_ready(
+        self,
+        session: Session,
+        *,
+        task: Task,
+        plan: TaskExecutionPlan,
+        assignment_id: str,
+    ) -> None:
+        completed_event = session.scalar(
+            select(ProductEvent).where(
+                ProductEvent.task_id == task.task_id,
+                ProductEvent.assignment_id == assignment_id,
+                ProductEvent.event_type == "lead.plan_completed",
+            )
+        )
+        if completed_event is None:
+            append_task_event(
+                session,
+                task=task,
+                event_type="lead.plan_completed",
+                aggregate_type="assignment",
+                aggregate_id=assignment_id,
+                assignment_id=assignment_id,
+                source=f"runtime.{self.runtime_adapter.provider}",
+                payload={
+                    "plan_id": plan.plan_id,
+                    "definition_hash": plan.definition_hash,
+                    "status": "ready_for_inputs",
+                },
+            )
+        if (
+            plan.status == TaskExecutionPlanStatus.VALIDATED
+            and task.status in {TaskStatus.PLANNING, TaskStatus.WAITING}
+        ):
+            task.status = TaskStatus.CREATED
+            task.updated_at = utc_now()
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.status_changed",
+                aggregate_type="task",
+                aggregate_id=task.task_id,
+                source="langgraph",
+                payload={"status": TaskStatus.CREATED, "reason": "plan_ready"},
+            )
+        session.commit()
+        session.refresh(task)
+
+    def _record_planning_failure(self, task_id: str, error: str) -> None:
+        with self._execution_lock, self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return
+            assignment = session.scalar(
+                select(Assignment).where(
+                    Assignment.task_id == task_id,
+                    Assignment.assignment_key == "lead.plan",
+                )
+            )
+            if assignment is not None:
+                assignment.status = AssignmentStatus.FAILED
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="assignment.status_changed",
+                    aggregate_type="assignment",
+                    aggregate_id=assignment.assignment_id,
+                    assignment_id=assignment.assignment_id,
+                    source="langgraph",
+                    payload={
+                        "status": AssignmentStatus.FAILED,
+                        "reason": "invalid_plan",
+                    },
+                )
+            task.status = TaskStatus.FAILED
+            task.result_summary = "Organization lead planning failed."
+            task.updated_at = utc_now()
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.failed",
+                aggregate_type="task",
+                aggregate_id=task.task_id,
+                source="langgraph",
+                payload={
+                    "status": TaskStatus.FAILED,
+                    "reason": "invalid_plan",
+                    "error": error[:1000],
+                },
+            )
+            session.commit()
+
     def run(self, task_id: str) -> Task:
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            orchestration_mode = TaskOrchestrationMode(task.orchestration_mode)
+        if orchestration_mode == TaskOrchestrationMode.PLANNED:
+            if self.linear_scheduler is None:
+                raise RuntimeError("planned execution requires Workspace provisioning")
+            if not self.linear_scheduler.has_plan(task_id):
+                return self.plan(task_id)
+            return self._run_linear(task_id)
         if self.linear_scheduler is not None and self.linear_scheduler.has_plan(task_id):
             return self._run_linear(task_id)
 
@@ -266,6 +590,22 @@ class TaskOrchestrator:
     @staticmethod
     def _linear_thread_id(task_id: str) -> str:
         return f"{task_id}:linear"
+
+    @staticmethod
+    def _planning_thread_id(task_id: str) -> str:
+        return f"{task_id}:planning"
+
+    @staticmethod
+    def _current_plan(
+        session: Session,
+        task_id: str,
+    ) -> TaskExecutionPlan | None:
+        return session.scalar(
+            select(TaskExecutionPlan)
+            .where(TaskExecutionPlan.task_id == task_id)
+            .order_by(TaskExecutionPlan.plan_version.desc())
+            .limit(1)
+        )
 
     def retry(self, task_id: str) -> Task:
         """Reset only failed assignments, then resume the persisted graph."""
@@ -938,6 +1278,8 @@ class TaskOrchestrator:
                         "execution already completed with another Runtime event"
                     )
                 task_id = task.task_id
+                if assignment.assignment_kind == AssignmentKind.LEAD_PLAN:
+                    should_resume = self._current_plan(session, task_id) is None
             else:
                 if execution.status != RuntimeExecutionStatus.WAITING:
                     raise ValueError(
@@ -1013,7 +1355,7 @@ class TaskOrchestrator:
             task_id = task.task_id
             owner_user_id = task.owner_user_id
             provider = execution.provider
-            should_resume = task.status not in {
+            should_resume = should_resume and task.status not in {
                 TaskStatus.FAILED,
                 TaskStatus.COMPLETED,
                 TaskStatus.NEEDS_REVISION,
@@ -2375,11 +2717,19 @@ class TaskOrchestrator:
                 self.linear_scheduler is not None
                 and self.linear_scheduler.has_plan(task_id)
             )
+            is_planning = (
+                not is_linear
+                and task.orchestration_mode == TaskOrchestrationMode.PLANNED
+            )
             checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
             config = {
                 "configurable": {
                     "thread_id": (
-                        self._linear_thread_id(task_id) if is_linear else task_id
+                        self._linear_thread_id(task_id)
+                        if is_linear
+                        else self._planning_thread_id(task_id)
+                        if is_planning
+                        else task_id
                     )
                 }
             }
@@ -2391,6 +2741,10 @@ class TaskOrchestrator:
                         self.linear_scheduler.prepare_step,
                         self._execute_assignment,
                         self.linear_scheduler.finalize_step,
+                    ).compile(checkpointer=saver)
+                elif is_planning:
+                    graph = build_planning_graph(
+                        self._execute_assignment,
                     ).compile(checkpointer=saver)
                 else:
                     graph = build_task_graph(
@@ -2419,6 +2773,7 @@ class TaskOrchestrator:
                 elif snapshot.values and (
                     snapshot.values.get("review")
                     or (is_linear and snapshot.values.get("done"))
+                    or (is_planning and snapshot.values.get("result"))
                 ):
                     result = snapshot.values
                 elif snapshot.interrupts:
@@ -2443,6 +2798,8 @@ class TaskOrchestrator:
             review = result.get("review")
             if review:
                 return self._finish_task(task_id, review)
+            if is_planning and result.get("result"):
+                return self._complete_planning(task_id, result)
             if is_linear:
                 with self.database.session() as session:
                     task = session.get(Task, task_id)

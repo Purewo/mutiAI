@@ -19,8 +19,10 @@ from mutiai.models import (
     Task,
 )
 from mutiai.models.task import (
+    AssignmentKind,
     AssignmentStatus,
     RuntimeExecutionStatus,
+    TaskOrchestrationMode,
     TaskStatus,
 )
 from mutiai.services.events import append_task_event
@@ -44,7 +46,25 @@ def get_owned_task(
     return task
 
 
-def _request_hash(organization_id: str, request_text: str) -> str:
+def _request_hash(
+    organization_id: str,
+    request_text: str,
+    orchestration_mode: str,
+) -> str:
+    canonical = json.dumps(
+        {
+            "organization_id": organization_id,
+            "request": request_text,
+            "orchestration_mode": orchestration_mode,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _legacy_request_hash(organization_id: str, request_text: str) -> str:
     canonical = json.dumps(
         {"organization_id": organization_id, "request": request_text},
         ensure_ascii=False,
@@ -61,13 +81,18 @@ def create_task(
     organization_id: str,
     request_text: str,
     idempotency_key: str,
+    orchestration_mode: TaskOrchestrationMode = TaskOrchestrationMode.LEGACY,
 ) -> tuple[Task, bool]:
     organization = get_owned_organization(
         session,
         organization_id=organization_id,
         owner_user_id=owner_user_id,
     )
-    request_hash = _request_hash(organization_id, request_text)
+    request_hash = _request_hash(
+        organization_id,
+        request_text,
+        orchestration_mode,
+    )
     existing = session.scalar(
         select(Task).where(
             Task.owner_user_id == owner_user_id,
@@ -76,7 +101,17 @@ def create_task(
         )
     )
     if existing is not None:
-        if existing.request_hash != request_hash:
+        compatible_legacy_hash = (
+            orchestration_mode == TaskOrchestrationMode.LEGACY
+            and existing.request_hash == _legacy_request_hash(
+                organization_id,
+                request_text,
+            )
+        )
+        if (
+            existing.request_hash != request_hash
+            and not compatible_legacy_hash
+        ):
             raise ApiError(
                 409,
                 "TASK_IDEMPOTENCY_CONFLICT",
@@ -98,6 +133,7 @@ def create_task(
         request_text=request_text,
         request_hash=request_hash,
         idempotency_key=idempotency_key,
+        orchestration_mode=orchestration_mode,
         status=TaskStatus.CREATED,
     )
     session.add(task)
@@ -119,12 +155,24 @@ def create_task(
     return task, True
 
 
-def deterministic_assignment_id(task_id: str, role_key: str) -> str:
-    return str(uuid5(NAMESPACE_URL, f"mutiai:assignment:{task_id}:{role_key}"))
+def deterministic_assignment_id(
+    task_id: str,
+    role_key: str,
+    *,
+    assignment_key: str | None = None,
+) -> str:
+    identity = assignment_key or role_key
+    return str(uuid5(NAMESPACE_URL, f"mutiai:assignment:{task_id}:{identity}"))
 
 
-def deterministic_execution_id(task_id: str, role_key: str) -> str:
-    return str(uuid5(NAMESPACE_URL, f"mutiai:execution:{task_id}:{role_key}"))
+def deterministic_execution_id(
+    task_id: str,
+    role_key: str,
+    *,
+    assignment_key: str | None = None,
+) -> str:
+    identity = assignment_key or role_key
+    return str(uuid5(NAMESPACE_URL, f"mutiai:execution:{task_id}:{identity}"))
 
 
 def prepare_assignments(
@@ -187,6 +235,8 @@ def prepare_assignments(
         assignment = Assignment(
             assignment_id=deterministic_assignment_id(task.task_id, role.role_key),
             task_id=task.task_id,
+            assignment_key=f"legacy.specialist:{role.role_key}",
+            assignment_kind=AssignmentKind.LEGACY_SPECIALIST,
             agent_role_key=role.role_key,
             instructions=(
                 f"Complete the task within this responsibility boundary: "
@@ -250,6 +300,147 @@ def prepare_assignments(
     return assignments
 
 
+def prepare_lead_plan(
+    session: Session,
+    *,
+    task: Task,
+    runtime_provider: str,
+) -> Assignment:
+    """Create the durable planning Assignment for a planned Task."""
+
+    if task.orchestration_mode != TaskOrchestrationMode.PLANNED:
+        raise ApiError(
+            409,
+            "TASK_NOT_PLANNED",
+            "Only a planned Task can create a lead planning Assignment.",
+        )
+    version = session.get(
+        OrganizationSpecVersion,
+        task.organization_spec_version_id,
+    )
+    if version is None:
+        raise ApiError(
+            409,
+            "ORGANIZATION_VERSION_MISSING",
+            "The task organization version is unavailable.",
+        )
+    spec = OrganizationSpec.model_validate(version.spec_payload)
+    lead = next(role for role in spec.roles if role.is_lead)
+    assignment_key = "lead.plan"
+    instructions = (
+        f"Act as the organization lead within this responsibility boundary: "
+        f"{lead.responsibility}\n\n"
+        "Design a strict linear execution plan for the original request. "
+        "Use only the already published organization roles below. Do not add "
+        "or persist new formal roles, do not execute specialist work, and do "
+        "not modify project files. Return only JSON matching the supplied "
+        "TaskExecutionPlanSpec schema. The final step must be your lead_review.\n\n"
+        f"Original request:\n{task.request_text}\n\n"
+        f"Published OrganizationSpec:\n"
+        f"{json.dumps(version.spec_payload, ensure_ascii=False, indent=2)}"
+    )
+    existing = session.scalar(
+        select(Assignment).where(
+            Assignment.task_id == task.task_id,
+            Assignment.assignment_key == assignment_key,
+        )
+    )
+    if existing is not None:
+        if existing.agent_role_key != lead.role_key:
+            raise RuntimeError("persisted lead plan assignment has the wrong role")
+        if (
+            existing.status in {AssignmentStatus.SUBMITTED, AssignmentStatus.RUNNING}
+            and task.status != TaskStatus.PLANNING
+        ):
+            task.status = TaskStatus.PLANNING
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.status_changed",
+                aggregate_type="task",
+                aggregate_id=task.task_id,
+                source="langgraph",
+                payload={"status": TaskStatus.PLANNING, "reason": "lead_plan"},
+            )
+            session.commit()
+        return existing
+
+    task.status = TaskStatus.PLANNING
+    append_task_event(
+        session,
+        task=task,
+        event_type="task.status_changed",
+        aggregate_type="task",
+        aggregate_id=task.task_id,
+        source="langgraph",
+        payload={"status": TaskStatus.PLANNING, "reason": "lead_plan"},
+    )
+    assignment = Assignment(
+        assignment_id=deterministic_assignment_id(
+            task.task_id,
+            lead.role_key,
+            assignment_key=assignment_key,
+        ),
+        task_id=task.task_id,
+        assignment_key=assignment_key,
+        assignment_kind=AssignmentKind.LEAD_PLAN,
+        agent_role_key=lead.role_key,
+        instructions=instructions,
+        acceptance_criteria=(
+            "Return only a valid TaskExecutionPlanSpec using existing roles, "
+            "with a strict linear sequence ending in lead_review."
+        ),
+        execution_id=deterministic_execution_id(
+            task.task_id,
+            lead.role_key,
+            assignment_key=assignment_key,
+        ),
+        status=AssignmentStatus.SUBMITTED,
+    )
+    runtime_execution = RuntimeExecution(
+        execution_id=assignment.execution_id,
+        assignment_id=assignment.assignment_id,
+        provider=runtime_provider,
+        status=RuntimeExecutionStatus.SUBMITTED,
+    )
+    session.add_all([assignment, runtime_execution])
+    session.flush()
+    append_task_event(
+        session,
+        task=task,
+        event_type="assignment.created",
+        aggregate_type="assignment",
+        aggregate_id=assignment.assignment_id,
+        assignment_id=assignment.assignment_id,
+        source="langgraph",
+        payload={
+            "agent_role_key": lead.role_key,
+            "assignment_key": assignment_key,
+            "assignment_kind": AssignmentKind.LEAD_PLAN,
+            "status": AssignmentStatus.SUBMITTED,
+        },
+    )
+    append_task_event(
+        session,
+        task=task,
+        event_type="runtime.execution_submitted",
+        aggregate_type="runtime_execution",
+        aggregate_id=runtime_execution.runtime_execution_id,
+        assignment_id=assignment.assignment_id,
+        runtime_execution_id=runtime_execution.runtime_execution_id,
+        source=f"runtime.{runtime_provider}",
+        payload={
+            "execution_id": assignment.execution_id,
+            "provider": runtime_provider,
+            "status": RuntimeExecutionStatus.SUBMITTED,
+            "assignment_kind": AssignmentKind.LEAD_PLAN,
+        },
+    )
+    session.commit()
+    session.refresh(assignment)
+    return assignment
+
+
 def prepare_lead_review(
     session: Session,
     *,
@@ -307,9 +498,21 @@ def prepare_lead_review(
     existing = session.scalar(
         select(Assignment).where(
             Assignment.task_id == task.task_id,
-            Assignment.agent_role_key == lead.role_key,
+            Assignment.assignment_key == "legacy.lead_review",
         )
     )
+    if existing is None:
+        existing = session.scalar(
+            select(Assignment).where(
+                Assignment.task_id == task.task_id,
+                Assignment.agent_role_key == lead.role_key,
+                Assignment.assignment_kind == AssignmentKind.LEGACY,
+            )
+        )
+        if existing is not None:
+            existing.assignment_key = "legacy.lead_review"
+            existing.assignment_kind = AssignmentKind.LEGACY_LEAD_REVIEW
+            session.commit()
     if existing is not None:
         if existing.instructions != instructions:
             raise RuntimeError("persisted lead review instructions do not match")
@@ -318,6 +521,8 @@ def prepare_lead_review(
     assignment = Assignment(
         assignment_id=deterministic_assignment_id(task.task_id, lead.role_key),
         task_id=task.task_id,
+        assignment_key="legacy.lead_review",
+        assignment_kind=AssignmentKind.LEGACY_LEAD_REVIEW,
         agent_role_key=lead.role_key,
         instructions=instructions,
         acceptance_criteria=(

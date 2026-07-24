@@ -29,6 +29,7 @@ from mutiai.models import (
 )
 from mutiai.models.base import utc_now
 from mutiai.models.task import (
+    AssignmentKind,
     AssignmentStatus,
     RuntimeExecutionStatus,
     TaskStatus,
@@ -179,6 +180,8 @@ class LinearTaskScheduler:
                 assignment = Assignment(
                     assignment_id=self._assignment_id(task.task_id, step.step_key),
                     task_id=task.task_id,
+                    assignment_key=f"plan_step:{step.step_key}",
+                    assignment_kind=AssignmentKind.PLAN_STEP,
                     agent_role_key=step.role_key,
                     instructions=instructions,
                     acceptance_criteria=step.acceptance_criteria,

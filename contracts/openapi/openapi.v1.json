@@ -792,6 +792,262 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/plan": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Plan Task",
+        "operationId": "plan_task_api_v1_tasks__task_id__plan_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/start": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Start Task",
+        "operationId": "start_task_api_v1_tasks__task_id__start_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/inputs": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Upload Task Input",
+        "operationId": "upload_task_input_api_v1_tasks__task_id__inputs_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskInputArtifactRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}": {
       "get": {
         "tags": [
@@ -1784,6 +2040,14 @@
             "type": "string",
             "title": "Assignment Id"
           },
+          "assignment_key": {
+            "type": "string",
+            "title": "Assignment Key"
+          },
+          "assignment_kind": {
+            "type": "string",
+            "title": "Assignment Kind"
+          },
           "agent_role_key": {
             "type": "string",
             "title": "Agent Role Key"
@@ -1839,6 +2103,8 @@
         "type": "object",
         "required": [
           "assignment_id",
+          "assignment_key",
+          "assignment_kind",
           "agent_role_key",
           "instructions",
           "acceptance_criteria",
@@ -2908,6 +3174,10 @@
             "maxLength": 10000,
             "minLength": 1,
             "title": "Request"
+          },
+          "orchestration_mode": {
+            "$ref": "#/components/schemas/TaskOrchestrationMode",
+            "default": "legacy"
           }
         },
         "type": "object",
@@ -3031,6 +3301,64 @@
         ],
         "title": "TaskExecutionPlanStatus"
       },
+      "TaskInputArtifactRequest": {
+        "properties": {
+          "contract_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Contract Key"
+          },
+          "schema_version": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "media_type": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Media Type"
+          },
+          "file_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "File Name"
+          },
+          "content_base64": {
+            "type": "string",
+            "maxLength": 28000000,
+            "minLength": 1,
+            "title": "Content Base64"
+          },
+          "source_delivery_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source Delivery Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "contract_key",
+          "media_type",
+          "file_name",
+          "content_base64",
+          "source_delivery_id"
+        ],
+        "title": "TaskInputArtifactRequest"
+      },
+      "TaskOrchestrationMode": {
+        "type": "string",
+        "enum": [
+          "legacy",
+          "planned"
+        ],
+        "title": "TaskOrchestrationMode",
+        "description": "Select the compatibility workflow or the planned linear workflow."
+      },
       "TaskResponse": {
         "properties": {
           "task_id": {
@@ -3048,6 +3376,9 @@
           "request": {
             "type": "string",
             "title": "Request"
+          },
+          "orchestration_mode": {
+            "$ref": "#/components/schemas/TaskOrchestrationMode"
           },
           "status": {
             "$ref": "#/components/schemas/TaskStatus"
@@ -3116,6 +3447,7 @@
           "organization_id",
           "organization_spec_version_id",
           "request",
+          "orchestration_mode",
           "status",
           "result_summary",
           "assignments",

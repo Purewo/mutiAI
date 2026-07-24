@@ -37,6 +37,13 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class TaskOrchestrationMode(StrEnum):
+    """Select the compatibility workflow or the planned linear workflow."""
+
+    LEGACY = "legacy"
+    PLANNED = "planned"
+
+
 class AssignmentStatus(StrEnum):
     PENDING = "pending"
     SUBMITTED = "submitted"
@@ -45,6 +52,14 @@ class AssignmentStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class AssignmentKind(StrEnum):
+    LEGACY = "legacy"
+    LEGACY_SPECIALIST = "legacy_specialist"
+    LEGACY_LEAD_REVIEW = "legacy_lead_review"
+    LEAD_PLAN = "lead_plan"
+    PLAN_STEP = "plan_step"
 
 
 class RuntimeExecutionStatus(StrEnum):
@@ -63,6 +78,10 @@ class Task(Base):
             "status IN ('created', 'planning', 'running', 'waiting', "
             "'needs_revision', 'completed', 'failed', 'cancelled')",
             name="valid_status",
+        ),
+        CheckConstraint(
+            "orchestration_mode IN ('legacy', 'planned')",
+            name="valid_orchestration_mode",
         ),
         UniqueConstraint(
             "owner_user_id",
@@ -90,6 +109,9 @@ class Task(Base):
     request_text: Mapped[str] = mapped_column(Text)
     request_hash: Mapped[str] = mapped_column(String(64))
     idempotency_key: Mapped[str] = mapped_column(String(128))
+    orchestration_mode: Mapped[str] = mapped_column(
+        String(16), default=TaskOrchestrationMode.LEGACY
+    )
     status: Mapped[str] = mapped_column(String(20), index=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -134,10 +156,15 @@ class Assignment(Base):
             "'completed', 'failed', 'cancelled')",
             name="valid_status",
         ),
+        CheckConstraint(
+            "assignment_kind IN ('legacy', 'legacy_specialist', "
+            "'legacy_lead_review', 'lead_plan', 'plan_step')",
+            name="valid_assignment_kind",
+        ),
         UniqueConstraint(
             "task_id",
-            "agent_role_key",
-            name="uq_assignments_task_role_key",
+            "assignment_key",
+            name="uq_assignments_task_key",
         ),
         UniqueConstraint("execution_id", name="uq_assignments_execution_id"),
     )
@@ -148,6 +175,8 @@ class Assignment(Base):
     task_id: Mapped[str] = mapped_column(
         ForeignKey("tasks.task_id", ondelete="CASCADE"), index=True
     )
+    assignment_key: Mapped[str] = mapped_column(String(128))
+    assignment_kind: Mapped[str] = mapped_column(String(32), index=True)
     agent_role_key: Mapped[str] = mapped_column(String(64))
     instructions: Mapped[str] = mapped_column(Text)
     acceptance_criteria: Mapped[str] = mapped_column(Text)

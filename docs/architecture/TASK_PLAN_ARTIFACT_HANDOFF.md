@@ -40,6 +40,51 @@ Each `PlanStep` records:
 - Required output Artifact contracts.
 - Current dependency and execution state.
 
+## Planned Task lifecycle
+
+The product supports two explicit orchestration modes during the compatibility
+period:
+
+- `legacy` preserves the original fan-out workflow for existing Tasks.
+- `planned` runs a durable `lead.plan` Assignment first, then waits for the
+  declared user input Artifacts before entering the linear scheduler.
+
+The planning boundary is a separate LangGraph thread, `{task_id}:planning`.
+The graph stores only the Assignment identifiers and a compact result. The lead
+Runtime receives `TaskExecutionPlanSpec.model_json_schema()` as its structured
+output contract. The product validates the returned plan against the frozen
+OrganizationSpec version and persists it as an immutable
+`TaskExecutionPlan`. Planning never creates roles, specialist Assignments, or
+specialist Workspaces. A Codex planning Turn uses the organization lead's
+product-owned Workspace and persistent Thread binding.
+
+The public lifecycle is:
+
+```text
+POST /organizations/{organization_id}/tasks
+  orchestration_mode=planned
+  -> lead.plan
+  -> TaskExecutionPlan persisted
+  -> Task status created, waiting for inputs
+POST /tasks/{task_id}/inputs
+  -> task_input Artifact released
+POST /tasks/{task_id}/start
+  -> strict linear step scheduler
+```
+
+Planning and Runtime waiting use the same submit, checkpoint, external event,
+and resume boundary as execution steps. A duplicate completion event is
+idempotent after a plan is persisted. Invalid plan output marks the planning
+Assignment and Task failed so the existing product retry boundary can replay
+the planning Runtime.
+
+Initial input upload uses JSON Base64 only for the first local API slice. The
+service decodes into a temporary directory below the managed Runtime root,
+publishes through `ArtifactManager`, and removes the staging file. Callers
+cannot provide a source filesystem path. The input contract key must be listed
+in `TaskExecutionPlan.initial_input_contracts`; media, filename, size, and
+supported file syntax are validated before release.
+
 The compiler rejects unknown roles, duplicate step keys, cycles, missing producers, and output contracts that cannot satisfy downstream input contracts.
 
 ## Assignment lifecycle

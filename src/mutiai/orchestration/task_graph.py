@@ -52,6 +52,12 @@ class LinearTaskGraphState(TypedDict):
     done: bool
 
 
+class PlanningGraphState(TypedDict):
+    task_id: str
+    work: AssignmentWork
+    result: AssignmentResult | None
+
+
 def build_task_graph(
     execute_assignment: Callable[[AssignmentWork], AssignmentResult],
     review_assignments: Callable[[str, list[AssignmentResult]], LeadReviewState],
@@ -124,4 +130,19 @@ def build_linear_task_graph(
     builder.add_conditional_edges("prepare", route_prepare, ["execute", END])
     builder.add_edge("execute", "finalize")
     builder.add_conditional_edges("finalize", route_finalize, ["prepare", END])
+    return builder
+
+
+def build_planning_graph(
+    execute_assignment: Callable[[AssignmentWork], AssignmentResult],
+) -> StateGraph:
+    """Build the single durable Runtime boundary used by lead planning."""
+
+    def execute(state: PlanningGraphState) -> dict[str, Any]:
+        return {"result": execute_assignment(state["work"])}
+
+    builder = StateGraph(PlanningGraphState)
+    builder.add_node("execute", execute)
+    builder.add_edge(START, "execute")
+    builder.add_edge("execute", END)
     return builder

@@ -31,6 +31,7 @@ from mutiai.models import (
 )
 from mutiai.models.organization import OrganizationVersionStatus
 from mutiai.models.task import (
+    AssignmentKind,
     AssignmentStatus,
     RuntimeExecutionStatus,
     TaskStatus,
@@ -203,6 +204,8 @@ def artifact_environment(tmp_path) -> ArtifactEnvironment:
         for role_key, step_key in (("extractor", "extract"), ("excel", "excel")):
             assignment = Assignment(
                 task_id=task.task_id,
+                assignment_key=f"plan_step:{step_key}",
+                assignment_kind=AssignmentKind.PLAN_STEP,
                 agent_role_key=role_key,
                 instructions=f"Complete {step_key}.",
                 acceptance_criteria="Satisfy the output contract.",

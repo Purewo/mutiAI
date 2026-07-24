@@ -20,6 +20,7 @@ from mutiai.models import (
 from mutiai.models.task import (
     AssignmentStatus,
     RuntimeExecutionStatus,
+    TaskOrchestrationMode,
     TaskStatus,
 )
 from mutiai.models.task_plan import (
@@ -32,6 +33,16 @@ from mutiai.models.task_plan import (
 
 class TaskCreateRequest(BaseModel):
     request: str = Field(min_length=1, max_length=10_000)
+    orchestration_mode: TaskOrchestrationMode = TaskOrchestrationMode.LEGACY
+
+
+class TaskInputArtifactRequest(BaseModel):
+    contract_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    schema_version: str = Field(default="1.0", min_length=1, max_length=20)
+    media_type: str = Field(min_length=1, max_length=255)
+    file_name: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1, max_length=28_000_000)
+    source_delivery_id: str = Field(min_length=1, max_length=100)
 
 
 class RuntimeExecutionResponse(BaseModel):
@@ -100,6 +111,8 @@ class RuntimeExecutionResponse(BaseModel):
 
 class AssignmentResponse(BaseModel):
     assignment_id: str
+    assignment_key: str
+    assignment_kind: str
     agent_role_key: str
     instructions: str
     acceptance_criteria: str
@@ -113,6 +126,8 @@ class AssignmentResponse(BaseModel):
     def from_record(cls, assignment: Assignment) -> AssignmentResponse:
         return cls(
             assignment_id=assignment.assignment_id,
+            assignment_key=assignment.assignment_key,
+            assignment_kind=assignment.assignment_kind,
             agent_role_key=assignment.agent_role_key,
             instructions=assignment.instructions,
             acceptance_criteria=assignment.acceptance_criteria,
@@ -287,6 +302,7 @@ class TaskResponse(BaseModel):
     organization_id: str
     organization_spec_version_id: str
     request: str
+    orchestration_mode: TaskOrchestrationMode
     status: TaskStatus
     result_summary: str | None
     assignments: list[AssignmentResponse]
@@ -303,6 +319,7 @@ class TaskResponse(BaseModel):
             organization_id=task.organization_id,
             organization_spec_version_id=task.organization_spec_version_id,
             request=task.request_text,
+            orchestration_mode=TaskOrchestrationMode(task.orchestration_mode),
             status=TaskStatus(task.status),
             result_summary=task.result_summary,
             assignments=[

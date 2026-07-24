@@ -19,6 +19,8 @@ M2.2 closes the gap found by the invoice role-boundary acceptance run: specialis
 - Keep released Artifacts immutable. Retry creates a new version.
 - Preserve submit, checkpoint, wait, external event, and resume semantics for every Runtime step.
 - Expose plan steps, dependency state, Artifact metadata, and Runtime facts without exposing Codex transcripts or LangGraph checkpoints.
+- For a `planned` Task, complete `lead.plan` before specialist submission, persist the validated plan, and keep the Task ready until all declared initial inputs are released.
+- Resume a waiting `lead.plan` through the same external Runtime event boundary used by specialist steps.
 
 ## Invoice exit condition
 
