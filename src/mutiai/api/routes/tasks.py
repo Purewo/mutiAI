@@ -10,14 +10,23 @@ from fastapi import APIRouter, Header, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from mutiai.api.dependencies import CurrentUser, DbSession, TaskRunner
+from mutiai.api.dependencies import (
+    ApprovalManager,
+    CurrentUser,
+    DbSession,
+    TaskRunner,
+)
 from mutiai.api.errors import ApiError, ErrorEnvelope
+from mutiai.api.schemas.approvals import (
+    ApprovalDecisionRequest,
+    ApprovalResponse,
+)
 from mutiai.api.schemas.tasks import (
     TaskCreateRequest,
     TaskEventResponse,
     TaskResponse,
 )
-from mutiai.models import ProductEvent, Task
+from mutiai.models import ApprovalRequest, ProductEvent, Task
 from mutiai.models.task import TaskStatus
 from mutiai.services.tasks import create_task, get_owned_task
 
@@ -115,6 +124,75 @@ def retry_failed_task(
         )
     orchestrator.retry(task_id)
     return load_task_response(session, task_id)
+
+
+@router.get(
+    "/tasks/{task_id}/approvals",
+    response_model=list[ApprovalResponse],
+    responses=ERROR_RESPONSES,
+)
+def list_task_approvals(
+    task_id: str,
+    user: CurrentUser,
+    session: DbSession,
+) -> list[ApprovalResponse]:
+    get_owned_task(
+        session,
+        task_id=task_id,
+        owner_user_id=user.user_id,
+    )
+    approvals = session.scalars(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.task_id == task_id)
+        .order_by(ApprovalRequest.created_at, ApprovalRequest.approval_id)
+    ).all()
+    return [ApprovalResponse.from_record(approval) for approval in approvals]
+
+
+@router.post(
+    "/tasks/{task_id}/approvals/{approval_id}/decision",
+    response_model=ApprovalResponse,
+    responses=ERROR_RESPONSES,
+)
+def decide_task_approval(
+    task_id: str,
+    approval_id: str,
+    payload: ApprovalDecisionRequest,
+    user: CurrentUser,
+    session: DbSession,
+    approval_manager: ApprovalManager,
+) -> ApprovalResponse:
+    get_owned_task(
+        session,
+        task_id=task_id,
+        owner_user_id=user.user_id,
+    )
+    try:
+        approval = approval_manager.decide(
+            approval_id=approval_id,
+            task_id=task_id,
+            owner_user_id=user.user_id,
+            decision=payload.decision,
+        )
+    except LookupError as exc:
+        raise ApiError(
+            404,
+            "APPROVAL_NOT_FOUND",
+            "Approval request not found.",
+        ) from exc
+    except ValueError as exc:
+        raise ApiError(
+            409,
+            "APPROVAL_ALREADY_RESOLVED",
+            "The approval request was already resolved with another decision.",
+        ) from exc
+    except RuntimeError as exc:
+        raise ApiError(
+            409,
+            "APPROVAL_NOT_ACTIVE",
+            "The Runtime is no longer waiting for this approval.",
+        ) from exc
+    return ApprovalResponse.from_record(approval)
 
 
 @router.get(

@@ -776,6 +776,173 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/approvals": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List Task Approvals",
+        "operationId": "list_task_approvals_api_v1_tasks__task_id__approvals_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApprovalResponse"
+                  },
+                  "title": "Response List Task Approvals Api V1 Tasks  Task Id  Approvals Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/approvals/{approval_id}/decision": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Decide Task Approval",
+        "operationId": "decide_task_approval_api_v1_tasks__task_id__approvals__approval_id__decision_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "approval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Approval Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/events": {
       "get": {
         "tags": [
@@ -918,6 +1085,185 @@
         ],
         "title": "AgentRoleSpec",
         "description": "One persistent formal role in an organization definition."
+      },
+      "ApprovalDecision": {
+        "type": "string",
+        "enum": [
+          "accept",
+          "decline",
+          "cancel"
+        ],
+        "title": "ApprovalDecision"
+      },
+      "ApprovalDecisionRequest": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ApprovalDecision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "ApprovalDecisionRequest"
+      },
+      "ApprovalKind": {
+        "type": "string",
+        "enum": [
+          "command_execution",
+          "file_change"
+        ],
+        "title": "ApprovalKind"
+      },
+      "ApprovalResponse": {
+        "properties": {
+          "approval_id": {
+            "type": "string",
+            "title": "Approval Id"
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "assignment_id": {
+            "type": "string",
+            "title": "Assignment Id"
+          },
+          "runtime_execution_id": {
+            "type": "string",
+            "title": "Runtime Execution Id"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ApprovalKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApprovalStatus"
+          },
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "turn_id": {
+            "type": "string",
+            "title": "Turn Id"
+          },
+          "item_id": {
+            "type": "string",
+            "title": "Item Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decided_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approval_id",
+          "task_id",
+          "assignment_id",
+          "runtime_execution_id",
+          "provider",
+          "kind",
+          "status",
+          "thread_id",
+          "turn_id",
+          "item_id",
+          "reason",
+          "command",
+          "cwd",
+          "details",
+          "decision",
+          "decided_by_user_id",
+          "created_at",
+          "decided_at"
+        ],
+        "title": "ApprovalResponse"
+      },
+      "ApprovalStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "accepted",
+          "declined",
+          "cancelled"
+        ],
+        "title": "ApprovalStatus"
       },
       "AssignmentResponse": {
         "properties": {

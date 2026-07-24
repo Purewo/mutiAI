@@ -8,7 +8,7 @@ import queue
 import shutil
 import subprocess
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Self
@@ -291,6 +291,10 @@ class CodexAppServerSession:
         thread_id: str,
         turn_id: str,
         timeout: float | None = None,
+        server_request_handler: Callable[
+            [Mapping[str, Any]], Mapping[str, Any]
+        ]
+        | None = None,
     ) -> dict[str, Any]:
         """Wait for the terminal notification for one turn."""
 
@@ -301,6 +305,17 @@ class CodexAppServerSession:
             if remaining is not None and remaining <= 0:
                 raise CodexAppServerError("timed out waiting for Codex turn")
             event = self.next_event(timeout=remaining)
+            if "id" in event and isinstance(event.get("method"), str):
+                if server_request_handler is None:
+                    self._reject_server_request(event)
+                else:
+                    result = server_request_handler(event)
+                    if not isinstance(result, Mapping):
+                        raise CodexAppServerError(
+                            "App Server request handler returned no object"
+                        )
+                    self.respond_server_request(event["id"], result)
+                continue
             params = event.get("params")
             if (
                 event.get("method") == "item/completed"
@@ -346,6 +361,15 @@ class CodexAppServerSession:
                     ]
                 return turn
 
+    def respond_server_request(
+        self,
+        request_id: str | int,
+        result: Mapping[str, Any],
+    ) -> None:
+        """Respond to one server-initiated JSON-RPC request."""
+
+        self._write({"id": request_id, "result": dict(result)})
+
     def next_event(self, *, timeout: float | None = None) -> dict[str, Any]:
         """Return the next server notification."""
 
@@ -376,10 +400,7 @@ class CodexAppServerSession:
                     continue
                 if isinstance(message, dict):
                     if "id" in message and "method" in message:
-                        try:
-                            self._reject_server_request(message)
-                        except CodexAppServerError:
-                            pass
+                        self._events.put(message)
                     elif "id" in message:
                         self._responses.put(message)
                     else:

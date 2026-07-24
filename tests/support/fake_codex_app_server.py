@@ -10,6 +10,7 @@ run_id = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
 thread = {"id": f"thread-test-{run_id}", "status": {"type": "idle"}}
 turn = {"id": f"turn-test-{run_id}", "status": "inProgress", "items": []}
 account = None
+pending_approval = None
 
 
 def send(message: dict) -> None:
@@ -20,6 +21,84 @@ def send(message: dict) -> None:
 for line in sys.stdin:
     message = json.loads(line)
     method = message.get("method")
+    if (
+        pending_approval is not None
+        and method is None
+        and message.get("id") == pending_approval["request_id"]
+    ):
+        decision = message.get("result", {}).get("decision")
+        thread_id = pending_approval["thread_id"]
+        approval_item = dict(pending_approval["item"])
+        send(
+            {
+                "method": "serverRequest/resolved",
+                "params": {
+                    "threadId": thread_id,
+                    "requestId": pending_approval["request_id"],
+                },
+            }
+        )
+        approval_item["status"] = (
+            "completed" if decision == "accept" else "declined"
+        )
+        send(
+            {
+                "method": "item/completed",
+                "params": {
+                    "threadId": thread_id,
+                    "turnId": turn["id"],
+                    "item": approval_item,
+                    "completedAtMs": 0,
+                },
+            }
+        )
+        if decision == "cancel":
+            send(
+                {
+                    "method": "turn/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turn": {
+                            "id": turn["id"],
+                            "status": "interrupted",
+                            "items": [],
+                            "error": {"message": "approval cancelled the Turn"},
+                        },
+                    },
+                }
+            )
+        else:
+            item = {
+                "id": "message-after-approval",
+                "type": "agentMessage",
+                "text": f"Approval decision '{decision}' was applied.",
+            }
+            send(
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turnId": turn["id"],
+                        "item": item,
+                        "completedAtMs": 0,
+                    },
+                }
+            )
+            send(
+                {
+                    "method": "turn/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turn": {
+                            "id": turn["id"],
+                            "status": "completed",
+                            "items": [],
+                        },
+                    },
+                }
+            )
+        pending_approval = None
+        continue
     if method == "initialize":
         send({"id": message["id"], "result": {"platformOs": "windows"}})
     elif method == "initialized":
@@ -92,6 +171,83 @@ for line in sys.stdin:
             for item in input_items
             if isinstance(item, dict) and item.get("type") == "text"
         )
+        approval_kind = None
+        if (
+            "request-command-approval" in instructions
+            and "Implement backend behavior" in instructions
+        ):
+            approval_kind = "command"
+        elif (
+            "request-file-approval" in instructions
+            and "Implement backend behavior" in instructions
+        ):
+            approval_kind = "file"
+        if approval_kind is not None:
+            request_id = f"approval-request-{run_id}"
+            if approval_kind == "command":
+                approval_item = {
+                    "id": "command-approval-item",
+                    "type": "commandExecution",
+                    "command": "python -m pytest",
+                    "cwd": str(Path.cwd()),
+                    "status": "inProgress",
+                }
+                approval_method = "item/commandExecution/requestApproval"
+                approval_params = {
+                    "threadId": thread_id,
+                    "turnId": turn["id"],
+                    "itemId": approval_item["id"],
+                    "startedAtMs": 1,
+                    "reason": "Run the bounded verification command.",
+                    "command": approval_item["command"],
+                    "cwd": approval_item["cwd"],
+                    "commandActions": [
+                        {
+                            "type": "unknown",
+                            "command": approval_item["command"],
+                        }
+                    ],
+                }
+            else:
+                approval_item = {
+                    "id": "file-approval-item",
+                    "type": "fileChange",
+                    "changes": [{"path": "approved-change.txt"}],
+                    "status": "inProgress",
+                }
+                approval_method = "item/fileChange/requestApproval"
+                approval_params = {
+                    "threadId": thread_id,
+                    "turnId": turn["id"],
+                    "itemId": approval_item["id"],
+                    "startedAtMs": 1,
+                    "reason": "Apply the bounded file change.",
+                    "grantRoot": str(Path.cwd()),
+                }
+            send(
+                {
+                    "method": "item/started",
+                    "params": {
+                        "threadId": thread_id,
+                        "turnId": turn["id"],
+                        "item": approval_item,
+                    },
+                }
+            )
+            send({"id": message["id"], "result": {"turn": turn}})
+            send(
+                {
+                    "id": request_id,
+                    "method": approval_method,
+                    "params": approval_params,
+                }
+            )
+            pending_approval = {
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "item": approval_item,
+            }
+            continue
         failure_marker = Path.cwd() / ".fake-codex-terminal-failure-seen"
         should_fail_once = (
             "fail-runtime-once" in instructions

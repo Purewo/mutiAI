@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock, RLock
-from typing import Any
+from typing import Any, Literal
 
 from mutiai.runtime.base import RuntimeResult
 from mutiai.runtime.codex_app_server import CodexAppServerError, CodexAppServerSession
@@ -29,6 +29,23 @@ class CodexCompletion:
     execution_id: str
     runtime_event_id: str
     result: RuntimeResult
+
+
+@dataclass(frozen=True, slots=True)
+class CodexApprovalRequest:
+    """Stable subset of one App Server command or file approval request."""
+
+    execution_id: str
+    request_id: str | int
+    kind: Literal["command_execution", "file_change"]
+    thread_id: str
+    turn_id: str
+    item_id: str
+    reason: str | None
+    command: str | None
+    cwd: str | None
+    details: dict[str, Any]
+    runtime_started_at_ms: int | None
 
 
 class CodexTurnFailedError(CodexAppServerError):
@@ -105,6 +122,10 @@ class CodexRuntimeAdapter:
         model: str | None = None,
         approval_policy: str = "on-request",
         output_schema: Mapping[str, Any] | None = None,
+        approval_handler: Callable[
+            [CodexApprovalRequest], Mapping[str, Any]
+        ]
+        | None = None,
     ) -> None:
         self.workspace_manager = workspace_manager
         self.resolve_workspace = resolve_workspace
@@ -115,8 +136,18 @@ class CodexRuntimeAdapter:
         self.model = model
         self.approval_policy = approval_policy
         self.output_schema = dict(output_schema) if output_schema is not None else None
+        self._approval_handler = approval_handler
         self._active: dict[str, _ActiveExecution] = {}
         self._lock = RLock()
+
+    def set_approval_handler(
+        self,
+        handler: Callable[[CodexApprovalRequest], Mapping[str, Any]],
+    ) -> None:
+        """Register the product-owned blocking approval boundary."""
+
+        with self._lock:
+            self._approval_handler = handler
 
     def execute(
         self,
@@ -222,6 +253,7 @@ class CodexRuntimeAdapter:
 
         with self._lock:
             active = self._active.get(execution_id)
+            approval_handler = self._approval_handler
         if active is None:
             raise LookupError(f"Codex execution '{execution_id}' is not active")
         with active.completion_lock:
@@ -244,6 +276,18 @@ class CodexRuntimeAdapter:
                     thread_id=waiting.thread_id,
                     turn_id=waiting.turn_id,
                     timeout=timeout,
+                    server_request_handler=(
+                        (
+                            lambda request: self._handle_approval_request(
+                                execution_id=execution_id,
+                                waiting=waiting,
+                                request=request,
+                                handler=approval_handler,
+                            )
+                        )
+                        if approval_handler is not None
+                        else None
+                    ),
                 )
             except CodexAppServerError as exc:
                 raise CodexTurnLostError(
@@ -374,3 +418,88 @@ class CodexRuntimeAdapter:
         if isinstance(message, str) and isinstance(codex_error_info, str):
             return f"{message} ({codex_error_info})"
         return message if isinstance(message, str) else None
+
+    @staticmethod
+    def _handle_approval_request(
+        *,
+        execution_id: str,
+        waiting: RuntimeResult,
+        request: Mapping[str, Any],
+        handler: Callable[[CodexApprovalRequest], Mapping[str, Any]],
+    ) -> Mapping[str, Any]:
+        method = request.get("method")
+        kind_by_method = {
+            "item/commandExecution/requestApproval": "command_execution",
+            "item/fileChange/requestApproval": "file_change",
+        }
+        kind = kind_by_method.get(method)
+        if kind is None:
+            raise CodexAppServerError(
+                f"unsupported App Server request '{method}' during Turn"
+            )
+        request_id = request.get("id")
+        if isinstance(request_id, bool) or not isinstance(request_id, (str, int)):
+            raise CodexAppServerError("approval request has no valid JSON-RPC ID")
+        params = request.get("params")
+        if not isinstance(params, Mapping):
+            raise CodexAppServerError("approval request has no params object")
+        thread_id = params.get("threadId")
+        turn_id = params.get("turnId")
+        item_id = params.get("itemId")
+        if not all(isinstance(value, str) and value for value in (thread_id, turn_id, item_id)):
+            raise CodexAppServerError("approval request has incomplete Runtime IDs")
+        if thread_id != waiting.thread_id or turn_id != waiting.turn_id:
+            raise CodexAppServerError("approval request does not belong to the active Turn")
+
+        details: dict[str, Any] = {}
+        detail_fields = {
+            "commandActions": "command_actions",
+            "networkApprovalContext": "network_approval_context",
+            "proposedExecpolicyAmendment": "proposed_execpolicy_amendment",
+            "proposedNetworkPolicyAmendments": (
+                "proposed_network_policy_amendments"
+            ),
+            "grantRoot": "grant_root",
+        }
+        for wire_name, product_name in detail_fields.items():
+            value = params.get(wire_name)
+            if value is not None:
+                details[product_name] = value
+
+        started_at_ms = params.get("startedAtMs")
+        normalized_started_at_ms = (
+            started_at_ms
+            if isinstance(started_at_ms, int) and not isinstance(started_at_ms, bool)
+            else None
+        )
+        response = handler(
+            CodexApprovalRequest(
+                execution_id=execution_id,
+                request_id=request_id,
+                kind=kind,
+                thread_id=thread_id,
+                turn_id=turn_id,
+                item_id=item_id,
+                reason=(
+                    params.get("reason")
+                    if isinstance(params.get("reason"), str)
+                    else None
+                ),
+                command=(
+                    params.get("command")
+                    if isinstance(params.get("command"), str)
+                    else None
+                ),
+                cwd=(
+                    params.get("cwd")
+                    if isinstance(params.get("cwd"), str)
+                    else None
+                ),
+                details=details,
+                runtime_started_at_ms=normalized_started_at_ms,
+            )
+        )
+        decision = response.get("decision")
+        if decision not in {"accept", "decline", "cancel"}:
+            raise CodexAppServerError("product returned an unsupported approval decision")
+        return {"decision": decision}

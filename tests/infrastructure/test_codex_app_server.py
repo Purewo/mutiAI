@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from mutiai.runtime import (
+    CodexApprovalRequest,
     CodexAppServerSession,
     CodexRuntimeAdapter,
     CodexTurnFailedError,
@@ -145,5 +146,69 @@ def test_codex_runtime_adapter_exposes_terminal_turn_failure(tmp_path) -> None:
         assert failure.runtime_event_id.endswith(":failed")
         assert "simulated terminal Turn failure" in str(failure)
         assert "test_failure" in str(failure)
+    finally:
+        adapter.close()
+
+
+@pytest.mark.parametrize(
+    ("marker", "decision", "expected_kind"),
+    [
+        ("request-command-approval", "accept", "command_execution"),
+        ("request-file-approval", "decline", "file_change"),
+    ],
+)
+def test_codex_runtime_adapter_routes_approval_response_to_active_turn(
+    tmp_path,
+    marker: str,
+    decision: str,
+    expected_kind: str,
+) -> None:
+    managed_root = tmp_path / "managed"
+    codex_home = managed_root / "codex-home"
+    workspace = managed_root / "workspaces" / "workspace-1"
+    codex_home.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    manager = WorkspaceManager(managed_root, protected_roots=())
+    captured: list[CodexApprovalRequest] = []
+
+    def decide(request: CodexApprovalRequest) -> dict[str, str]:
+        captured.append(request)
+        return {"decision": decision}
+
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=lambda execution_id: RuntimeWorkspaceBinding(
+            workspace_id=f"workspace:{execution_id}",
+            path=workspace,
+        ),
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+        approval_handler=decide,
+    )
+    execution_id = f"execution-{expected_kind}"
+
+    try:
+        waiting = adapter.execute(
+            execution_id=execution_id,
+            role_key="backend",
+            instructions=f"Implement backend behavior: {marker}",
+        )
+        completion = adapter.wait_for_completion(execution_id)
+
+        assert completion.result.summary == f"Approval decision '{decision}' was applied."
+        assert len(captured) == 1
+        approval = captured[0]
+        assert approval.execution_id == execution_id
+        assert approval.kind == expected_kind
+        assert approval.thread_id == waiting.thread_id
+        assert approval.turn_id == waiting.turn_id
+        assert approval.item_id
+        if expected_kind == "command_execution":
+            assert approval.command == "python -m pytest"
+            assert approval.cwd == str(workspace.resolve())
+            assert approval.details["command_actions"][0]["type"] == "unknown"
+        else:
+            assert approval.command is None
+            assert approval.details["grant_root"] == str(workspace.resolve())
     finally:
         adapter.close()

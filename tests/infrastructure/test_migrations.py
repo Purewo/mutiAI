@@ -22,6 +22,7 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "alembic_version",
         "browser_sessions",
         "assignments",
+        "approval_requests",
         "organization_spec_versions",
         "organizations",
         "product_events",
@@ -30,4 +31,4 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "tasks",
         "users",
     } <= tables
-    assert revision == "20260724_0004"
+    assert revision == "20260724_0005"

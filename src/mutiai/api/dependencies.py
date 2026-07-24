@@ -15,6 +15,7 @@ from mutiai.models import BrowserSession, User
 from mutiai.models.base import utc_now
 from mutiai.orchestration import TaskOrchestrator
 from mutiai.security import hash_session_token
+from mutiai.services.approvals import RuntimeApprovalCoordinator
 
 
 def get_db_session(request: Request) -> Iterator[Session]:
@@ -35,6 +36,16 @@ def get_task_orchestrator(request: Request) -> TaskOrchestrator:
 
 
 TaskRunner = Annotated[TaskOrchestrator, Depends(get_task_orchestrator)]
+
+
+def get_approval_coordinator(request: Request) -> RuntimeApprovalCoordinator:
+    return request.app.state.approval_coordinator
+
+
+ApprovalManager = Annotated[
+    RuntimeApprovalCoordinator,
+    Depends(get_approval_coordinator),
+]
 
 
 def require_current_user(

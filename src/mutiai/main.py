@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from threading import RLock
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
@@ -21,6 +22,7 @@ from mutiai.runtime import (
     CodexRuntimeSupervisor,
     WorkspaceManager,
 )
+from mutiai.services.approvals import RuntimeApprovalCoordinator
 from mutiai.services.workspaces import WorkspaceProvisioner
 
 
@@ -32,13 +34,19 @@ def create_app(
 
     resolved_settings = settings or get_settings()
     database = Database(resolved_settings)
+    product_mutation_lock = RLock()
     workspace_manager = WorkspaceManager(resolved_settings.runtime_workspace_root)
     workspace_provisioner = WorkspaceProvisioner(workspace_manager)
+    approval_coordinator = RuntimeApprovalCoordinator(
+        database,
+        mutation_lock=product_mutation_lock,
+    )
     task_orchestrator = TaskOrchestrator(
         database,
         resolved_settings,
         runtime_adapter,
         workspace_provisioner,
+        mutation_lock=product_mutation_lock,
     )
     runtime_supervisor = (
         CodexRuntimeSupervisor(runtime_adapter, task_orchestrator)
@@ -47,6 +55,10 @@ def create_app(
     )
     if runtime_supervisor is not None:
         task_orchestrator.set_runtime_watch(runtime_supervisor.watch)
+    if isinstance(runtime_adapter, CodexRuntimeAdapter):
+        runtime_adapter.set_approval_handler(
+            approval_coordinator.request_approval
+        )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -64,9 +76,11 @@ def create_app(
             task_orchestrator.recover_orphaned_runtime_executions(
                 is_active=runtime_adapter.is_active,
             )
+            approval_coordinator.recover_orphaned_approvals()
         try:
             yield
         finally:
+            approval_coordinator.close()
             if runtime_supervisor is not None:
                 runtime_supervisor.close()
             database.dispose()
@@ -82,6 +96,7 @@ def create_app(
     app.state.settings = resolved_settings
     app.state.database = database
     app.state.task_orchestrator = task_orchestrator
+    app.state.approval_coordinator = approval_coordinator
     app.state.workspace_manager = workspace_manager
     app.state.workspace_provisioner = workspace_provisioner
     app.state.runtime_supervisor = runtime_supervisor

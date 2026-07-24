@@ -22,7 +22,12 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - Treat loss of the owned App Server connection as `runtime_owner_lost`. During intentional supervisor shutdown, leave the durable wait for startup reconciliation; when a live supervisor detects the loss, persist the failure without replaying the Turn.
 - On startup, reconcile waiting Codex executions that have no active owner in the new process into the same explicit-retry state. Do not claim that a new process has safely resumed an in-flight Turn.
 - Use `workspaceWrite` for the managed workspace with network access disabled by default.
-- Use `on-request` approval behavior by default. Reject unhandled App Server requests rather than silently approving them.
+- Use `on-request` approval behavior by default. Convert command-execution and file-change approval requests into product-owned database records, then let the Runtime worker wait outside LangGraph for a one-time user decision.
+- Expose only `accept`, `decline`, and `cancel` in V1. Do not expose `acceptForSession`, exec-policy amendments, or network-policy amendments.
+- Preserve the App Server JSON-RPC request ID with the RuntimeExecution, Thread, Turn, and item identities. Reply through the same owned App Server connection only after the product decision is committed.
+- Persist `runtime.approval_requested` and `runtime.approval_resolved` events through the product event sequence. Keep approval state out of LangGraph State.
+- Cancel active approvals during controlled backend shutdown. After owner loss or restart, cancel stale pending approval records and require explicit Runtime retry instead of claiming that the old App Server request can be resumed.
+- Reject other unhandled App Server requests rather than silently approving them.
 - Require an isolated product Codex home under the managed Runtime root. Do not write product App Server sessions into the user's interactive Codex home.
 - For the current local relay setup, bootstrap that home by copying only `config.toml` and `auth.json`. Do not copy `sessions`, history, SQLite state, or other interactive-home data. Official ChatGPT device-code login remains an optional alternative, not a prerequisite for custom-provider API-key authentication.
 - Resolve the Windows command shim through `PATH` before starting the process. Python cannot directly launch the PowerShell `codex` shim on this host, while the resolved `codex.cmd` works.
@@ -39,14 +44,15 @@ The local implementation was checked against `codex-cli 0.145.0`, its generated 
 - A fake terminal Turn failure is normalized into a deterministic product event and exposed through an explicit retry API. The retry reuses the failed role's Thread and Workspace, creates a new Turn, and does not replay a successful parallel role.
 - An App Server process exit is normalized as `runtime_owner_lost`; the worker persists the failure and the retry API completes the assignment on a new Turn.
 - A backend restart with one completed specialist and one orphaned waiting specialist marks only the orphaned branch failed at startup. Explicit retry starts a new Turn for that branch while preserving the completed sibling's Runtime result and Turn identity.
+- Fake App Server integration covers command and file-change approval requests plus `accept`, `decline`, and `cancel` responses. API integration verifies authenticated ownership, durable request and resolution events, same-decision idempotency, conflicting-decision rejection, and continued or interrupted Turn outcomes.
 - The local relay rejected an optional lead schema when its default-valued `issues` property was not listed as required. The product contract now requires every lead response property, matching the relay's `response_format` validation rules.
 - A Thread with no Turn did not survive App Server restart as a resumable rollout. Local `thread/resume` returned `no rollout found` for that empty Thread. Cross-process resume therefore remains an M2 acceptance item.
 
 ## Current limitations
 
-- The adapter is not the application default until approval routing and recovery controls are implemented.
+- The adapter is not the application default until the remaining recovery controls are implemented.
 - Durable role Workspace records and first-use directory provisioning now exist. The application still defaults to FakeRuntime until the remaining Runtime controls are ready.
-- Product approval routing, cancellation, and reconnect supervision remain pending.
+- Task cancellation and reconnect supervision remain pending. Product approval routing is implemented for command and file-change requests with one-time decisions only.
 - Explicit retry handles terminal Turn failure and owner loss. Restart recovery is conservative: it marks unknown in-flight work failed and starts a new Turn only after user retry. Transparent attachment to an in-flight Turn after process restart remains pending, and external side effects must remain idempotent.
 - Custom-provider API-key authentication is verified through the isolated home. Production must move the credential source to a dedicated secret store or environment injection rather than copying a personal home.
 - One local App Server process is currently owned per active execution. Process pooling is a later optimization, not an M2 correctness requirement.

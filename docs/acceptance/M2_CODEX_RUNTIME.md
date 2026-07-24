@@ -1,6 +1,6 @@
 # M2 local Codex Runtime acceptance
 
-Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, and conservative owner-loss recovery are implemented. Approval routing and transparent cross-process Turn recovery remain.
+Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, and product-owned approval routing are implemented. Transparent cross-process Turn recovery remains.
 
 ## Verified locally
 
@@ -26,13 +26,19 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - `POST /api/v1/tasks/{task_id}/retry` resets only failed Assignments. A Codex retry reuses the recorded Workspace and Thread, starts a new Turn, preserves successful sibling results, and prevents late parallel completions from reviving a failed Task through an older checkpoint.
 - An unexpected App Server exit becomes a `runtime_owner_lost` failure instead of leaving the Assignment in `waiting`; the same explicit retry path can reuse its recorded Thread and Workspace.
 - On application startup, waiting Codex executions that have no active owner in the new process become `runtime_owner_lost` failures through `runtime.supervisor`. The reconciliation is idempotent and does not implicitly start a new Turn.
+- Command and file-change App Server approval requests become durable product records associated with the Task, Assignment, RuntimeExecution, Thread, Turn, item, and original JSON-RPC request ID.
+- `GET /api/v1/tasks/{task_id}/approvals` lists approval records owned by the authenticated Task owner. `POST /api/v1/tasks/{task_id}/approvals/{approval_id}/decision` accepts one-time `accept`, `decline`, or `cancel` decisions.
+- The Runtime worker, not the LangGraph graph, waits for a user decision. The graph remains checkpointed while the Runtime Turn is waiting.
+- Approval decisions are idempotent when the same decision is repeated. A different second decision returns a conflict, and a decision without an active Runtime waiter is rejected.
+- Approval lifecycle changes persist as `runtime.approval_requested` and `runtime.approval_resolved` product events. Approval state is not copied into LangGraph State.
+- Backend shutdown cancels active approval requests before stopping Runtime supervisors. Startup recovery cancels pending approval records whose Runtime owner was lost; the failed execution must use the explicit retry path.
+- V1 intentionally excludes `acceptForSession`, exec-policy amendments, and network-policy amendments. It never broadens approval policy beyond the current request.
 - `bootstrap_codex_home.py` copies only `config.toml` and `auth.json`. It never copies `sessions`, history, state databases, or existing Threads.
 
 ## Not yet accepted
 
-- Route command/file approvals and persist approval decisions.
 - Transparently reconnect to and resume an in-flight real Turn after App Server or backend restart without starting a new Turn.
-- Handle cancellation, reconnect, provider rate limits, and process supervision.
+- Handle task cancellation, reconnect, provider rate limits, and process supervision.
 - Make the Codex adapter the application default after the approval and recovery controls are complete.
 
 The web frontend does not need changes for this milestone. Its existing task and SSE contracts remain product-level and do not expose App Server protocol details.

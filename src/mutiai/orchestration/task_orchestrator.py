@@ -45,13 +45,14 @@ class TaskOrchestrator:
         settings: Settings,
         runtime_adapter: AgentRuntimeAdapter | None = None,
         workspace_provisioner: WorkspaceProvisioner | None = None,
+        mutation_lock: RLock | None = None,
     ) -> None:
         self.database = database
         self.settings = settings
         self.runtime_adapter = runtime_adapter or FakeRuntimeAdapter()
         self.workspace_provisioner = workspace_provisioner
         self._runtime_watch: Callable[[str], None] | None = None
-        self._execution_lock = RLock()
+        self._execution_lock = mutation_lock or RLock()
         self._graph_resume_lock = RLock()
 
     def set_runtime_watch(self, watch: Callable[[str], None]) -> None:

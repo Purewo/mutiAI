@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -111,6 +112,26 @@ def wait_for_task_status(
             return last_payload
         time.sleep(0.01)
     raise AssertionError(f"task did not reach {statuses}: {last_payload}")
+
+
+def wait_for_pending_approval(
+    client: TestClient,
+    task_id: str,
+    *,
+    timeout: float = 5,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    last_payload = None
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/v1/tasks/{task_id}/approvals")
+        assert response.status_code == 200
+        last_payload = response.json()
+        pending = [item for item in last_payload if item["status"] == "pending"]
+        if pending:
+            assert len(pending) == 1
+            return pending[0]
+        time.sleep(0.01)
+    raise AssertionError(f"task did not request approval: {last_payload}")
 
 
 def test_codex_runtime_submission_persists_workspace_and_resumes_task(tmp_path) -> None:
@@ -550,3 +571,131 @@ def test_backend_restart_marks_orphaned_turns_retryable_without_implicit_replay(
             )
     finally:
         second_adapter.close()
+
+
+@pytest.mark.parametrize(
+    ("marker", "decision", "kind", "approval_status", "task_status"),
+    [
+        (
+            "request-command-approval",
+            "accept",
+            "command_execution",
+            "accepted",
+            "completed",
+        ),
+        (
+            "request-file-approval",
+            "decline",
+            "file_change",
+            "declined",
+            "completed",
+        ),
+        (
+            "request-command-approval",
+            "cancel",
+            "command_execution",
+            "cancelled",
+            "failed",
+        ),
+    ],
+)
+def test_codex_runtime_approval_decision_resumes_original_turn(
+    tmp_path,
+    marker: str,
+    decision: str,
+    kind: str,
+    approval_status: str,
+    task_status: str,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'app.db'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "rt",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+    manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+    provisioner = WorkspaceProvisioner(manager)
+    codex_home = provisioner.ensure_codex_home()
+
+    def unexpected_resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+        raise AssertionError(f"resolver should not be used for {execution_id}")
+
+    adapter = CodexRuntimeAdapter(
+        workspace_manager=manager,
+        resolve_workspace=unexpected_resolver,
+        codex_home=codex_home,
+        command=(sys.executable, str(FAKE_APP_SERVER)),
+    )
+    app = create_app(settings, runtime_adapter=adapter)
+
+    try:
+        with TestClient(app) as client:
+            login(client)
+            organization_id = publish_organization(client)
+            submitted = client.post(
+                f"/api/v1/organizations/{organization_id}/tasks",
+                headers={"Idempotency-Key": f"approval-{decision}"},
+                json={"request": f"{marker} for the backend assignment."},
+            )
+            assert submitted.status_code == 201
+            task_id = submitted.json()["task_id"]
+            approval = wait_for_pending_approval(client, task_id)
+            assert approval["kind"] == kind
+            assert approval["decision"] is None
+            assert approval["decided_by_user_id"] is None
+            assert approval["thread_id"]
+            assert approval["turn_id"]
+            if kind == "command_execution":
+                assert approval["command"] == "python -m pytest"
+                assert approval["details"]["command_actions"][0]["type"] == "unknown"
+            else:
+                assert approval["command"] is None
+                assert approval["details"]["grant_root"]
+
+            decision_url = (
+                f"/api/v1/tasks/{task_id}/approvals/"
+                f"{approval['approval_id']}/decision"
+            )
+            resolved_response = client.post(
+                decision_url,
+                json={"decision": decision},
+            )
+            assert resolved_response.status_code == 200
+            resolved = resolved_response.json()
+            assert resolved["status"] == approval_status
+            assert resolved["decision"] == decision
+            assert resolved["decided_by_user_id"]
+            assert resolved["thread_id"] == approval["thread_id"]
+            assert resolved["turn_id"] == approval["turn_id"]
+
+            duplicate = client.post(decision_url, json={"decision": decision})
+            assert duplicate.status_code == 200
+            conflicting_decision = "decline" if decision == "accept" else "accept"
+            conflict = client.post(
+                decision_url,
+                json={"decision": conflicting_decision},
+            )
+            assert conflict.status_code == 409
+            assert conflict.json()["code"] == "APPROVAL_ALREADY_RESOLVED"
+
+            terminal = wait_for_task_status(
+                client,
+                task_id,
+                statuses={task_status},
+            )
+            assert terminal["status"] == task_status
+            events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+            events = [
+                json.loads(line.removeprefix("data: "))
+                for line in events_response.text.splitlines()
+                if line.startswith("data: ")
+            ]
+            event_types = [event["event_type"] for event in events]
+            assert event_types.count("runtime.approval_requested") == 1
+            assert event_types.count("runtime.approval_resolved") == 1
+            assert "runtime.execution_watch_failed" not in event_types
+    finally:
+        adapter.close()

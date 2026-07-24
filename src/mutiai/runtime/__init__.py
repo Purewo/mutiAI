@@ -2,6 +2,7 @@
 
 from mutiai.runtime.base import AgentRuntimeAdapter, RuntimeResult
 from mutiai.runtime.codex import (
+    CodexApprovalRequest,
     CodexCompletion,
     CodexRuntimeAdapter,
     CodexTurnFailedError,
@@ -17,6 +18,7 @@ __all__ = [
     "AgentRuntimeAdapter",
     "CodexAppServerError",
     "CodexAppServerSession",
+    "CodexApprovalRequest",
     "CodexCompletion",
     "CodexRuntimeAdapter",
     "CodexRuntimeSupervisor",

@@ -42,11 +42,17 @@ During the M1 walking skeleton, the proposal route accepts an already structured
 - `GET /api/v1/tasks/{task_id}`: return current task, assignment, Runtime summary, and result summary.
 - `POST /api/v1/tasks/{task_id}/retry`: explicitly retry failed Assignments without replaying completed siblings.
 - `POST /api/v1/tasks/{task_id}/cancel`: request cancellation.
+- `GET /api/v1/tasks/{task_id}/approvals`: list product-owned Runtime approval requests for the Task.
+- `POST /api/v1/tasks/{task_id}/approvals/{approval_id}/decision`: submit one one-time `accept`, `decline`, or `cancel` decision.
 - `GET /api/v1/tasks/{task_id}/events`: stream normalized task events through SSE.
 
 Task creation must accept an idempotency key. The same key must return the original task identity rather than create a second external execution.
 
 The HTTP header name is `Idempotency-Key`. Reusing a key with a different request payload returns an idempotency conflict.
+
+An approval is a product database entity, not a LangGraph interrupt or a copy of Codex internal state. The Runtime worker waits outside the graph while LangGraph remains checkpointed. V1 decisions apply only to one App Server request; session-wide acceptance and policy amendments are not public API options.
+
+Repeating the same approval decision is idempotent. Submitting a different decision after resolution returns a conflict. If the Runtime no longer owns and waits on the request, the API returns a conflict instead of claiming that Codex received the decision.
 
 ### Organization-lead conversation
 
@@ -94,6 +100,8 @@ The first implementation may need these event types:
 - `runtime.execution_completed`
 - `runtime.execution_failed`
 - `runtime.execution_retry_requested`
+- `runtime.approval_requested`
+- `runtime.approval_resolved`
 - `task.retry_requested`
 - `artifact.created`
 - `task.completed`
@@ -102,6 +110,8 @@ The first implementation may need these event types:
 The adapter may receive many Codex-specific events but should normalize only stable product-relevant facts into this catalog.
 
 `runtime.execution_failed` uses a product-level `reason`. The current Runtime boundary distinguishes a terminal Turn failure (`runtime_terminal_failure`) from loss of the process that owned an in-flight Turn (`runtime_owner_lost`). The browser must not infer recovery policy from raw Codex error text.
+
+`runtime.approval_requested` identifies the product approval record, approval kind, and pending status. `runtime.approval_resolved` records the one-time decision, resulting status, and resolution reason. Command details remain available through the owned approval resource rather than being copied into LangGraph State.
 
 ## SSE behavior
 
