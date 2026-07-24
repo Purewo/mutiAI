@@ -1,6 +1,10 @@
 """External Agent Runtime adapter boundary."""
 
-from mutiai.runtime.base import AgentRuntimeAdapter, RuntimeResult
+from mutiai.runtime.base import (
+    AgentRuntimeAdapter,
+    RuntimeRecoveryRequest,
+    RuntimeResult,
+)
 from mutiai.runtime.codex import (
     CodexApprovalRequest,
     CodexCompletion,
@@ -25,6 +29,7 @@ __all__ = [
     "CodexTurnFailedError",
     "CodexTurnLostError",
     "FakeRuntimeAdapter",
+    "RuntimeRecoveryRequest",
     "RuntimeResult",
     "RuntimeWorkspaceBinding",
     "WorkspaceBoundaryError",

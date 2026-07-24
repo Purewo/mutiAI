@@ -17,6 +17,18 @@ class RuntimeResult:
     last_event_position: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeRecoveryRequest:
+    """Durable Runtime identities needed to reattach after owner restart."""
+
+    execution_id: str
+    runtime_job_id: str | None
+    thread_id: str
+    turn_id: str
+    workspace_id: str
+    workspace_path: str
+
+
 class AgentRuntimeAdapter(Protocol):
     provider: str
 
@@ -31,3 +43,5 @@ class AgentRuntimeAdapter(Protocol):
         thread_id: str | None = None,
         output_schema: dict[str, Any] | None = None,
     ) -> RuntimeResult: ...
+
+    def recover(self, request: RuntimeRecoveryRequest) -> bool: ...

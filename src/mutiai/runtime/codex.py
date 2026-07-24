@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import Any, Literal
 
-from mutiai.runtime.base import RuntimeResult
+from mutiai.runtime.base import RuntimeRecoveryRequest, RuntimeResult
 from mutiai.runtime.codex_app_server import CodexAppServerError, CodexAppServerSession
 from mutiai.runtime.workspaces import WorkspaceManager
 
@@ -105,6 +105,7 @@ class _ActiveExecution:
     waiting_result: RuntimeResult
     completion_lock: Lock = field(default_factory=Lock)
     completion: CodexCompletion | None = None
+    recovered_turn: dict[str, Any] | None = None
 
 
 class CodexRuntimeAdapter:
@@ -119,6 +120,7 @@ class CodexRuntimeAdapter:
         resolve_workspace: Callable[[str], RuntimeWorkspaceBinding],
         codex_home: str | Path,
         command: Sequence[str] = ("codex", "app-server", "--listen", "stdio://"),
+        app_server_endpoint: str | None = None,
         model: str | None = None,
         approval_policy: str = "on-request",
         output_schema: Mapping[str, Any] | None = None,
@@ -133,6 +135,7 @@ class CodexRuntimeAdapter:
         if not self.codex_home.is_dir():
             raise CodexAppServerError("Codex home must be a managed directory")
         self.command = tuple(command)
+        self.app_server_endpoint = app_server_endpoint
         self.model = model
         self.approval_policy = approval_policy
         self.output_schema = dict(output_schema) if output_schema is not None else None
@@ -185,6 +188,7 @@ class CodexRuntimeAdapter:
             session = CodexAppServerSession(
                 cwd=workspace,
                 command=self.command,
+                endpoint=self.app_server_endpoint,
                 env={"CODEX_HOME": str(self.codex_home)},
             )
             try:
@@ -242,6 +246,85 @@ class CodexRuntimeAdapter:
                 session.close()
                 raise
 
+    def recover(self, request: RuntimeRecoveryRequest) -> bool:
+        """Reattach to a waiting Turn through an external App Server endpoint."""
+
+        if self.app_server_endpoint is None:
+            return False
+        with self._lock:
+            existing = self._active.get(request.execution_id)
+            if existing is not None:
+                return True
+
+        workspace = self.workspace_manager.canonicalize(request.workspace_path)
+        session = CodexAppServerSession(
+            cwd=workspace,
+            command=self.command,
+            endpoint=self.app_server_endpoint,
+            env={"CODEX_HOME": str(self.codex_home)},
+        )
+        try:
+            session.connect()
+            thread_response = session.resume_thread(
+                request.thread_id,
+                model=self.model,
+                approval_policy=self.approval_policy,
+            )
+            resolved_thread_id = self._require_id(
+                thread_response,
+                container="thread",
+                label="thread",
+            )
+            if resolved_thread_id != request.thread_id:
+                raise CodexAppServerError(
+                    "Codex App Server resumed a different Thread ID"
+                )
+            self._require_cwd(thread_response, workspace)
+            thread = thread_response.get("thread")
+            turn = self._find_turn(thread, request.turn_id)
+            if turn is None or turn.get("status") in {
+                "completed",
+                "failed",
+                "interrupted",
+            }:
+                read_response = session.read_thread(
+                    request.thread_id,
+                    include_turns=True,
+                )
+                turn = self._find_turn(read_response.get("thread"), request.turn_id)
+            if turn is None:
+                raise CodexAppServerError(
+                    f"Codex Thread has no recorded Turn '{request.turn_id}'"
+                )
+            waiting_result = RuntimeResult(
+                status="waiting",
+                runtime_job_id=request.runtime_job_id or request.turn_id,
+                thread_id=request.thread_id,
+                turn_id=request.turn_id,
+                workspace_id=request.workspace_id,
+            )
+            duplicate = False
+            with self._lock:
+                if request.execution_id in self._active:
+                    duplicate = True
+                else:
+                    self._active[request.execution_id] = _ActiveExecution(
+                        session=session,
+                        waiting_result=waiting_result,
+                        recovered_turn=(
+                            dict(turn)
+                            if turn.get("status")
+                            in {"completed", "failed", "interrupted"}
+                            else None
+                        ),
+                    )
+            if duplicate:
+                session.close()
+            return True
+        except Exception:
+            session.close()
+            raise
+
     def wait_for_completion(
         self,
         execution_id: str,
@@ -272,23 +355,26 @@ class CodexRuntimeAdapter:
                     f"Codex execution '{execution_id}' now owns another Turn"
                 )
             try:
-                turn = active.session.wait_for_turn(
-                    thread_id=waiting.thread_id,
-                    turn_id=waiting.turn_id,
-                    timeout=timeout,
-                    server_request_handler=(
-                        (
-                            lambda request: self._handle_approval_request(
-                                execution_id=execution_id,
-                                waiting=waiting,
-                                request=request,
-                                handler=approval_handler,
+                turn = active.recovered_turn
+                active.recovered_turn = None
+                if turn is None:
+                    turn = active.session.wait_for_turn(
+                        thread_id=waiting.thread_id,
+                        turn_id=waiting.turn_id,
+                        timeout=timeout,
+                        server_request_handler=(
+                            (
+                                lambda request: self._handle_approval_request(
+                                    execution_id=execution_id,
+                                    waiting=waiting,
+                                    request=request,
+                                    handler=approval_handler,
+                                )
                             )
-                        )
-                        if approval_handler is not None
-                        else None
-                    ),
-                )
+                            if approval_handler is not None
+                            else None
+                        ),
+                    )
             except CodexAppServerError as exc:
                 raise CodexTurnLostError(
                     thread_id=waiting.thread_id,
@@ -407,6 +493,25 @@ class CodexRuntimeAdapter:
         if not summary:
             raise CodexAppServerError("completed Codex turn has no agent summary")
         return summary
+
+    @staticmethod
+    def _find_turn(
+        thread: Mapping[str, Any] | None,
+        turn_id: str,
+    ) -> dict[str, Any] | None:
+        if not isinstance(thread, Mapping):
+            return None
+        turns = thread.get("turns")
+        if not isinstance(turns, list):
+            return None
+        return next(
+            (
+                turn
+                for turn in turns
+                if isinstance(turn, dict) and turn.get("id") == turn_id
+            ),
+            None,
+        )
 
     @staticmethod
     def _turn_error_message(turn: Mapping[str, Any]) -> str | None:

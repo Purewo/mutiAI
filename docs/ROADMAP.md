@@ -64,7 +64,7 @@ The FakeRuntimeAdapter is a test seam. It proves the product database, orchestra
 
 ## M2. Replace the fake Runtime with local Codex
 
-Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization, Thread-start handshake, and relay-backed Turn. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output from live `item/completed` notifications. A background supervisor now consumes terminal events outside LangGraph, persists the completion or failure, resumes eligible waiting branches, and closes the owned App Server process. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, parallel branch recovery, isolated custom-provider configuration, organization-lead structured review, terminal Turn failure persistence, explicit failed-task retry, App Server owner-loss handling, startup reconciliation of orphaned waiting executions, and product-owned command/file approval routing are covered. Transparent cross-process Turn recovery remains pending.
+Status: In progress. The local `codex-cli 0.145.0` protocol client now completes a real isolated initialization, Thread-start handshake, and relay-backed Turn. A non-blocking CodexRuntimeAdapter submits `thread/start` or `thread/resume` plus `turn/start`, returns Runtime IDs with `waiting`, and normalizes terminal Turn output from live `item/completed` notifications. A background supervisor now consumes terminal events outside LangGraph, persists the completion or failure, resumes eligible waiting branches, and closes the owned App Server process. Durable role Workspaces, fake-server Thread reuse, duplicate worker suppression, parallel branch recovery, isolated custom-provider configuration, organization-lead structured review, terminal Turn failure persistence, explicit failed-task retry, App Server owner-loss handling, startup reconciliation of orphaned waiting executions, product-owned command/file approval routing, and cross-process Turn reattachment through a persistent App Server endpoint are covered.
 
 Implement the local Windows Codex adapter through the App Server boundary:
 
@@ -75,6 +75,7 @@ Implement the local Windows Codex adapter through the App Server boundary:
 - Dedicated Runtime workspace allocation.
 - Thread-to-workspace binding.
 - Completion, failure, interruption, reconnect, and cancellation handling.
+- Cross-process reconnect through a long-lived App Server endpoint. Rejoin the recorded Thread with `thread/resume`, observe the original Turn, and never issue a replacement `turn/start` during recovery.
 - Product-owned command and file-change approval requests, one-time user decisions, and normalized approval events.
 - One organization lead delegating to two existing specialist roles.
 - Organization-lead review with a required structured decision, final summary, and issue list. The lead can complete a Task as `completed` or return it as `needs_revision` for user-directed follow-up.

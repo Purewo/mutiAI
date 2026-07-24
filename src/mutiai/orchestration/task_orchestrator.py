@@ -16,7 +16,8 @@ from sqlalchemy import select
 from mutiai.config import Settings
 from mutiai.db import Database
 from mutiai.domain import LeadReviewResult
-from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task
+from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task, Workspace
+from mutiai.models.approval import ApprovalRequest, ApprovalStatus
 from mutiai.models.base import utc_now
 from mutiai.models.task import (
     AssignmentStatus,
@@ -30,7 +31,11 @@ from mutiai.orchestration.task_graph import (
     TaskGraphState,
     build_task_graph,
 )
-from mutiai.runtime import AgentRuntimeAdapter, FakeRuntimeAdapter
+from mutiai.runtime import (
+    AgentRuntimeAdapter,
+    FakeRuntimeAdapter,
+    RuntimeRecoveryRequest,
+)
 from mutiai.services.events import append_task_event
 from mutiai.services.tasks import prepare_assignments, prepare_lead_review
 from mutiai.services.workspaces import WorkspaceProvisioner
@@ -458,20 +463,37 @@ class TaskOrchestrator:
         self,
         *,
         is_active: Callable[[str], bool],
+        try_recover: Callable[[RuntimeRecoveryRequest], bool] | None = None,
     ) -> list[str]:
-        """Fail waiting Codex executions with no owner in this process.
+        """Reattach waiting executions or fail those with no recoverable owner.
 
-        V1 owns one local Runtime supervisor per application process. A fresh
-        process cannot safely reconstruct an in-flight Turn, so it converts
-        stale waiting records into explicit, user-retryable failures instead of
-        replaying external work implicitly.
+        An external App Server endpoint can keep a Turn alive across backend
+        restarts. Without that endpoint, or when identity validation fails, the
+        execution becomes an explicit, user-retryable failure instead of being
+        replayed implicitly.
         """
 
         with self.database.session() as session:
             waiting_executions = session.execute(
                 select(
                     RuntimeExecution.execution_id,
+                    RuntimeExecution.runtime_job_id,
+                    RuntimeExecution.thread_id,
                     RuntimeExecution.turn_id,
+                    RuntimeExecution.workspace_id,
+                    Workspace.canonical_path,
+                    select(ApprovalRequest.approval_id)
+                    .where(
+                        ApprovalRequest.runtime_execution_id
+                        == RuntimeExecution.runtime_execution_id,
+                        ApprovalRequest.status == ApprovalStatus.PENDING,
+                    )
+                    .exists()
+                    .label("has_pending_approval"),
+                )
+                .outerjoin(
+                    Workspace,
+                    Workspace.workspace_id == RuntimeExecution.workspace_id,
                 ).where(
                     RuntimeExecution.provider == self.runtime_adapter.provider,
                     RuntimeExecution.status == RuntimeExecutionStatus.WAITING,
@@ -479,25 +501,119 @@ class TaskOrchestrator:
             ).all()
 
         recovered: list[str] = []
-        for execution_id, turn_id in waiting_executions:
+        for (
+            execution_id,
+            runtime_job_id,
+            thread_id,
+            turn_id,
+            workspace_id,
+            workspace_path,
+            has_pending_approval,
+        ) in waiting_executions:
             if is_active(execution_id):
                 continue
+            recovery_error: str | None = None
+            if has_pending_approval:
+                recovery_error = (
+                    "Transparent recovery is disabled while a Runtime approval "
+                    "request is pending; explicit retry is required."
+                )
+            elif (
+                try_recover is not None
+                and thread_id is not None
+                and turn_id is not None
+                and workspace_id is not None
+                and workspace_path is not None
+            ):
+                try:
+                    reattached = try_recover(
+                        RuntimeRecoveryRequest(
+                            execution_id=execution_id,
+                            runtime_job_id=runtime_job_id,
+                            thread_id=thread_id,
+                            turn_id=turn_id,
+                            workspace_id=workspace_id,
+                            workspace_path=workspace_path,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 - recovery boundary
+                    recovery_error = str(exc)[:500]
+                else:
+                    if reattached:
+                        self._record_runtime_reconnected(execution_id)
+                        if self._runtime_watch is None:
+                            raise RuntimeError(
+                                "reattached Runtime execution has no supervisor"
+                            )
+                        self._runtime_watch(execution_id)
+                        continue
             recovery_key = hashlib.sha256(
                 f"{execution_id}:{turn_id or 'unknown'}".encode()
             ).hexdigest()
+            error = (
+                "The Runtime owner process ended while this Turn was waiting; "
+                "an explicit retry is required."
+            )
+            if recovery_error:
+                error = f"{error} Reattach failed: {recovery_error}"
             self.fail_runtime_execution(
                 execution_id=execution_id,
                 runtime_event_id=f"runtime-recovery:{recovery_key}",
                 terminal_status="orphaned",
-                error=(
-                    "The Runtime owner process ended while this Turn was waiting; "
-                    "an explicit retry is required."
-                ),
+                error=error,
                 reason="runtime_owner_lost",
                 source="runtime.supervisor",
             )
             recovered.append(execution_id)
         return recovered
+
+    def _record_runtime_reconnected(self, execution_id: str) -> None:
+        with self._execution_lock, self.database.session() as session:
+            execution = session.scalar(
+                select(RuntimeExecution).where(
+                    RuntimeExecution.execution_id == execution_id
+                )
+            )
+            if execution is None:
+                raise LookupError(f"execution '{execution_id}' does not exist")
+            assignment = session.get(Assignment, execution.assignment_id)
+            if assignment is None:
+                raise LookupError(
+                    f"assignment '{execution.assignment_id}' does not exist"
+                )
+            task = session.get(Task, assignment.task_id)
+            if task is None:
+                raise LookupError(f"task '{assignment.task_id}' does not exist")
+            prior_reconnects = session.scalars(
+                select(ProductEvent).where(
+                    ProductEvent.event_type == "runtime.execution_reconnected",
+                    ProductEvent.runtime_execution_id
+                    == execution.runtime_execution_id,
+                )
+            ).all()
+            if any(
+                event.payload.get("turn_id") == execution.turn_id
+                for event in prior_reconnects
+            ):
+                return
+            append_task_event(
+                session,
+                task=task,
+                event_type="runtime.execution_reconnected",
+                aggregate_type="runtime_execution",
+                aggregate_id=execution.runtime_execution_id,
+                assignment_id=assignment.assignment_id,
+                runtime_execution_id=execution.runtime_execution_id,
+                source="runtime.supervisor",
+                payload={
+                    "execution_id": execution.execution_id,
+                    "runtime_job_id": execution.runtime_job_id,
+                    "thread_id": execution.thread_id,
+                    "turn_id": execution.turn_id,
+                    "status": execution.status,
+                },
+            )
+            session.commit()
 
     def record_runtime_watch_error(
         self,

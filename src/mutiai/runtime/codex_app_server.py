@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import logging
 import os
 import queue
 import shutil
@@ -12,6 +14,12 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Self
+from urllib.parse import urlsplit
+
+from websockets.sync.client import connect as websocket_connect
+from websockets.sync.client import unix_connect
+
+logger = logging.getLogger(__name__)
 
 
 class CodexAppServerError(RuntimeError):
@@ -31,6 +39,7 @@ class CodexAppServerSession:
         *,
         cwd: str | Path,
         command: Sequence[str] = ("codex", "app-server", "--listen", "stdio://"),
+        endpoint: str | None = None,
         env: Mapping[str, str] | None = None,
         client_name: str = "mutiai",
         client_title: str = "mutiAI Runtime",
@@ -41,12 +50,14 @@ class CodexAppServerSession:
         if not self.cwd.is_dir():
             raise CodexAppServerError("Codex App Server cwd must be a directory")
         self.command = tuple(command)
+        self.endpoint = endpoint
         self.env = dict(env) if env is not None else None
         self.client_name = client_name
         self.client_title = client_title
         self.client_version = client_version
         self.experimental_api = experimental_api
         self._process: subprocess.Popen[str] | None = None
+        self._websocket: Any | None = None
         self._reader_thread: Thread | None = None
         self._responses: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._events: queue.Queue[dict[str, Any] | None] = queue.Queue()
@@ -62,31 +73,41 @@ class CodexAppServerSession:
         self.close()
 
     def connect(self) -> dict[str, Any]:
-        """Start the owned process and complete the required handshake."""
+        """Connect a process or external endpoint and complete the handshake."""
 
-        if self._process is not None:
+        if self._process is not None or self._websocket is not None:
             raise CodexAppServerError("Codex App Server session is already connected")
-        process_env = os.environ.copy()
-        if self.env is not None:
-            process_env.update(self.env)
-        executable = shutil.which(self.command[0], path=process_env.get("PATH"))
-        resolved_command = [executable or self.command[0], *self.command[1:]]
-        try:
-            self._process = subprocess.Popen(
-                resolved_command,
-                cwd=self.cwd,
-                env=process_env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                encoding="utf-8",
-                bufsize=1,
-            )
-        except OSError as exc:
-            raise CodexAppServerError("failed to start Codex App Server") from exc
+        if self.endpoint is None:
+            process_env = os.environ.copy()
+            if self.env is not None:
+                process_env.update(self.env)
+            executable = shutil.which(self.command[0], path=process_env.get("PATH"))
+            resolved_command = [executable or self.command[0], *self.command[1:]]
+            try:
+                self._process = subprocess.Popen(
+                    resolved_command,
+                    cwd=self.cwd,
+                    env=process_env,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    encoding="utf-8",
+                    bufsize=1,
+                )
+            except OSError as exc:
+                raise CodexAppServerError("failed to start Codex App Server") from exc
+            reader = self._read_messages
+        else:
+            try:
+                self._websocket = self._connect_endpoint(self.endpoint)
+            except Exception as exc:
+                raise CodexAppServerError(
+                    "failed to connect to Codex App Server endpoint"
+                ) from exc
+            reader = self._read_websocket_messages
         self._reader_thread = Thread(
-            target=self._read_messages,
+            target=reader,
             name="mutiai-codex-app-server-reader",
             daemon=True,
         )
@@ -112,10 +133,18 @@ class CodexAppServerSession:
             raise
 
     def close(self) -> None:
-        """Stop only the App Server process owned by this session."""
+        """Close this connection and stop a process owned by this session."""
 
         process = self._process
+        websocket = self._websocket
         self._process = None
+        self._websocket = None
+        if websocket is not None:
+            try:
+                websocket.close()
+            except Exception as exc:
+                logger.debug("failed to close App Server WebSocket", exc_info=exc)
+            return
         if process is None:
             return
         if process.stdin is not None:
@@ -142,7 +171,7 @@ class CodexAppServerSession:
     ) -> dict[str, Any]:
         """Send one request and return its result while preserving notifications."""
 
-        self._require_process()
+        self._require_connected()
         with self._rpc_lock:
             request_id = self._next_request_id
             self._next_request_id += 1
@@ -176,7 +205,7 @@ class CodexAppServerSession:
     def notify(self, method: str, params: Mapping[str, Any] | None = None) -> None:
         """Send a JSON-RPC notification without waiting for a response."""
 
-        self._require_process()
+        self._require_connected()
         self._write({"method": method, "params": dict(params or {})})
 
     def read_account(self, *, refresh_token: bool = False) -> dict[str, Any]:
@@ -252,6 +281,19 @@ class CodexAppServerSession:
         if model is not None:
             params["model"] = model
         return self.request("thread/resume", params)
+
+    def read_thread(
+        self,
+        thread_id: str,
+        *,
+        include_turns: bool = True,
+    ) -> dict[str, Any]:
+        """Read persisted Thread and Turn state without starting a Turn."""
+
+        return self.request(
+            "thread/read",
+            {"threadId": thread_id, "includeTurns": include_turns},
+        )
 
     def start_turn(
         self,
@@ -409,6 +451,40 @@ class CodexAppServerSession:
             self._responses.put(None)
             self._events.put(None)
 
+    def _read_websocket_messages(self) -> None:
+        websocket = self._websocket
+        if websocket is None:
+            return
+        try:
+            while True:
+                payload = websocket.recv()
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8")
+                self._dispatch_message(payload)
+        except Exception as exc:  # noqa: BLE001 - transport boundary
+            if self._websocket is websocket:
+                self._events.put({"_mutiai_error": f"App Server connection closed: {exc}"})
+        finally:
+            self._responses.put(None)
+            self._events.put(None)
+
+    def _dispatch_message(self, payload: str) -> None:
+        try:
+            message = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            error = {"_mutiai_error": f"invalid App Server JSON: {exc}"}
+            self._responses.put(error)
+            self._events.put(error)
+            return
+        if not isinstance(message, dict):
+            return
+        if "id" in message and "method" in message:
+            self._events.put(message)
+        elif "id" in message:
+            self._responses.put(message)
+        else:
+            self._events.put(message)
+
     def _get_response(self, timeout: float | None) -> dict[str, Any] | None:
         try:
             message = self._responses.get(timeout=timeout)
@@ -431,6 +507,15 @@ class CodexAppServerSession:
 
     def _write(self, message: Mapping[str, Any]) -> None:
         with self._write_lock:
+            websocket = self._websocket
+            if websocket is not None:
+                try:
+                    websocket.send(json.dumps(message, ensure_ascii=False))
+                except Exception as exc:
+                    raise CodexAppServerError(
+                        "Codex App Server WebSocket is closed"
+                    ) from exc
+                return
             process = self._require_process()
             if process.stdin is None:
                 raise CodexAppServerError("Codex App Server stdin is unavailable")
@@ -444,3 +529,39 @@ class CodexAppServerSession:
         if self._process is None:
             raise CodexAppServerError("Codex App Server session is not connected")
         return self._process
+
+    def _require_connected(self) -> None:
+        if self._process is None and self._websocket is None:
+            raise CodexAppServerError("Codex App Server session is not connected")
+
+    @staticmethod
+    def _connect_endpoint(endpoint: str) -> Any:
+        if endpoint.startswith(("ws://", "wss://")):
+            parsed = urlsplit(endpoint)
+            host = parsed.hostname
+            if host is None or parsed.username is not None or parsed.password is not None:
+                raise CodexAppServerError(
+                    "Codex App Server WebSocket endpoint is invalid"
+                )
+            if host.lower() != "localhost":
+                try:
+                    address = ipaddress.ip_address(host)
+                except ValueError as exc:
+                    raise CodexAppServerError(
+                        "Codex App Server WebSocket endpoint must use a loopback host"
+                    ) from exc
+                if not address.is_loopback:
+                    raise CodexAppServerError(
+                        "Codex App Server WebSocket endpoint must use a loopback host"
+                    )
+            return websocket_connect(endpoint, open_timeout=30, close_timeout=2)
+        if endpoint.startswith("unix://"):
+            path = endpoint.removeprefix("unix://")
+            if not path or not Path(path).is_absolute():
+                raise CodexAppServerError(
+                    "unix:// endpoint must include an absolute socket path"
+                )
+            return unix_connect(path, open_timeout=30, close_timeout=2)
+        raise CodexAppServerError(
+            "Codex App Server endpoint must use ws://, wss://, or unix://"
+        )

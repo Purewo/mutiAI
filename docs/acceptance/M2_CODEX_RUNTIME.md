@@ -1,6 +1,6 @@
 # M2 local Codex Runtime acceptance
 
-Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, and product-owned approval routing are implemented. Transparent cross-process Turn recovery remains.
+Status: In progress. The protocol, product Workspace, isolated provider configuration, background completion-worker seams, organization-lead review boundary, explicit terminal-failure retry, conservative owner-loss recovery, product-owned approval routing, and cross-process Turn reattachment are implemented.
 
 ## Verified locally
 
@@ -32,13 +32,18 @@ Status: In progress. The protocol, product Workspace, isolated provider configur
 - Approval decisions are idempotent when the same decision is repeated. A different second decision returns a conflict, and a decision without an active Runtime waiter is rejected.
 - Approval lifecycle changes persist as `runtime.approval_requested` and `runtime.approval_resolved` product events. Approval state is not copied into LangGraph State.
 - Backend shutdown cancels active approval requests before stopping Runtime supervisors. Startup recovery cancels pending approval records whose Runtime owner was lost; the failed execution must use the explicit retry path.
+- A long-lived external App Server can keep a Turn running after the API process disconnects. A new adapter reconnects to the same loopback WebSocket or Unix socket, calls `thread/resume`, validates Thread and Workspace identity, and watches the original Turn without calling `turn/start`.
+- If the Turn completed while the API process was disconnected, recovery reads the persisted Thread history and delivers its terminal result through the same idempotent supervisor boundary.
+- Recovery emits `runtime.execution_reconnected` before the supervisor consumes the terminal Turn. Repeated startup reconciliation does not create a second worker for an active execution.
+- The per-execution stdio App Server remains intentionally conservative: when its owner process exits there is no rejoinable owner, so the product records `runtime_owner_lost` and requires explicit retry.
+- Windows development uses a loopback WebSocket endpoint for a long-lived App Server. Linux production should prefer a Unix socket. Remote unauthenticated WebSocket endpoints are rejected by the adapter.
 - V1 intentionally excludes `acceptForSession`, exec-policy amendments, and network-policy amendments. It never broadens approval policy beyond the current request.
 - `bootstrap_codex_home.py` copies only `config.toml` and `auth.json`. It never copies `sessions`, history, state databases, or existing Threads.
 
 ## Not yet accepted
 
-- Transparently reconnect to and resume an in-flight real Turn after App Server or backend restart without starting a new Turn.
-- Handle task cancellation, reconnect, provider rate limits, and process supervision.
+- Reattach an approval-waiting Turn across owner loss. V1 requires explicit retry until the App Server guarantees redelivery of an unanswered server request to the new client connection.
+- Handle task cancellation, provider rate limits, external App Server process supervision, and recovery after the App Server itself exits.
 - Make the Codex adapter the application default after the approval and recovery controls are complete.
 
 The web frontend does not need changes for this milestone. Its existing task and SSE contracts remain product-level and do not expose App Server protocol details.

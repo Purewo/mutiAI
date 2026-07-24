@@ -75,6 +75,7 @@ def create_app(
         ):
             task_orchestrator.recover_orphaned_runtime_executions(
                 is_active=runtime_adapter.is_active,
+                try_recover=runtime_adapter.recover,
             )
             approval_coordinator.recover_orphaned_approvals()
         try:

@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.10,<3",
     "pwdlib[argon2]>=0.3,<1",
     "sqlalchemy>=2.0,<3",
+    "websockets>=15,<16",
 ]
 
 [dependency-groups]

@@ -2,6 +2,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -568,6 +569,95 @@ def test_backend_restart_marks_orphaned_turns_retryable_without_implicit_replay(
                 )
                 is None
                 for item in completed_by_role.values()
+            )
+    finally:
+        second_adapter.close()
+
+
+def test_backend_restart_reattaches_waiting_turn_when_adapter_recovers(
+    tmp_path,
+) -> None:
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite+pysqlite:///{tmp_path / 'db.sqlite'}",
+        langgraph_checkpoint_path=tmp_path / "cp.db",
+        runtime_workspace_root=tmp_path / "rt",
+        bootstrap_admin_enabled=True,
+        bootstrap_admin_username="admin",
+        bootstrap_admin_password="123456",
+    )
+
+    def build_adapter() -> CodexRuntimeAdapter:
+        manager = WorkspaceManager(settings.runtime_workspace_root, protected_roots=())
+        provisioner = WorkspaceProvisioner(manager)
+        codex_home = provisioner.ensure_codex_home()
+
+        def unexpected_resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+            raise AssertionError(f"resolver should not be used for {execution_id}")
+
+        return CodexRuntimeAdapter(
+            workspace_manager=manager,
+            resolve_workspace=unexpected_resolver,
+            codex_home=codex_home,
+            command=(sys.executable, str(FAKE_APP_SERVER)),
+        )
+
+    first_adapter = build_adapter()
+    first_app = create_app(settings, runtime_adapter=first_adapter)
+    with TestClient(first_app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "codex-backend-reconnect"},
+            json={"request": "hang-runtime-once until the backend reconnects."},
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+        waiting_by_role = None
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            candidate = {
+                item["agent_role_key"]: item
+                for item in client.get(f"/api/v1/tasks/{task_id}").json()[
+                    "assignments"
+                ]
+            }
+            if candidate.get("backend", {}).get("status") == "waiting":
+                waiting_by_role = candidate
+                break
+            time.sleep(0.01)
+        assert waiting_by_role is not None
+        waiting_execution_id = waiting_by_role["backend"]["execution_id"]
+
+    second_adapter = build_adapter()
+    second_app = create_app(settings, runtime_adapter=second_adapter)
+    reconnected: list[str] = []
+    second_app.state.task_orchestrator.set_runtime_watch(reconnected.append)
+    try:
+        with patch.object(second_adapter, "recover", return_value=True) as recover, TestClient(
+            second_app
+        ) as client:
+            login(client)
+            recovered_response = client.get(f"/api/v1/tasks/{task_id}")
+            assert recovered_response.status_code == 200
+            assert recovered_response.json()["status"] == "waiting"
+            recover.assert_called_once()
+            assert reconnected == [waiting_execution_id]
+            events_response = client.get(f"/api/v1/tasks/{task_id}/events")
+            events = [
+                json.loads(line.removeprefix("data: "))
+                for line in events_response.text.splitlines()
+                if line.startswith("data: ")
+            ]
+            assert any(
+                event["event_type"] == "runtime.execution_reconnected"
+                for event in events
+            )
+            assert not any(
+                event["event_type"] == "runtime.execution_failed"
+                and event["payload"].get("reason") == "runtime_owner_lost"
+                for event in events
             )
     finally:
         second_adapter.close()

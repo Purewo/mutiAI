@@ -1,13 +1,20 @@
+import json
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Thread
 
 import pytest
+from websockets.sync.server import ServerConnection, serve
 
 from mutiai.runtime import (
     CodexApprovalRequest,
+    CodexAppServerError,
     CodexAppServerSession,
     CodexRuntimeAdapter,
     CodexTurnFailedError,
+    RuntimeRecoveryRequest,
     RuntimeWorkspaceBinding,
     WorkspaceManager,
 )
@@ -15,6 +22,159 @@ from mutiai.runtime import (
 FAKE_APP_SERVER = (
     Path(__file__).resolve().parents[1] / "support" / "fake_codex_app_server.py"
 )
+
+
+@contextmanager
+def persistent_fake_endpoint(
+    cwd: Path,
+    *,
+    complete_on_turn_start: bool = False,
+) -> Iterator[str]:
+    thread_id = "thread-persistent-recovery"
+    turn_id = "turn-persistent-recovery"
+    state = {"turn_status": "inProgress"}
+
+    def thread_payload() -> dict:
+        status = (
+            {"type": "active", "activeFlags": []}
+            if state["turn_status"] == "inProgress"
+            else {"type": "idle"}
+        )
+        return {
+            "id": thread_id,
+            "cwd": str(cwd.resolve()),
+            "status": status,
+            "turns": [
+                {
+                    "id": turn_id,
+                    "status": state["turn_status"],
+                    "items": (
+                        [
+                            {
+                                "id": "message-persistent-recovery",
+                                "type": "agentMessage",
+                                "text": "Recovered Turn completed.",
+                            }
+                        ]
+                        if state["turn_status"] == "completed"
+                        else []
+                    ),
+                }
+            ],
+        }
+
+    def send_completion(websocket: ServerConnection) -> None:
+        state["turn_status"] = "completed"
+        websocket.send(
+            json.dumps(
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turnId": turn_id,
+                        "item": {
+                            "id": "message-persistent-recovery",
+                            "type": "agentMessage",
+                            "text": "Recovered Turn completed.",
+                        },
+                    },
+                }
+            )
+        )
+        websocket.send(
+            json.dumps(
+                {
+                    "method": "turn/completed",
+                    "params": {
+                        "threadId": thread_id,
+                        "turn": {
+                            "id": turn_id,
+                            "status": "completed",
+                            "items": [],
+                        },
+                    },
+                }
+            )
+        )
+
+    def handler(websocket: ServerConnection) -> None:
+        for raw_message in websocket:
+            message = json.loads(raw_message)
+            method = message.get("method")
+            request_id = message.get("id")
+            if method == "initialize":
+                websocket.send(
+                    json.dumps(
+                        {"id": request_id, "result": {"platformOs": "windows"}}
+                    )
+                )
+            elif method == "thread/start":
+                websocket.send(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "result": {
+                                "thread": {
+                                    **thread_payload(),
+                                    "status": {"type": "idle"},
+                                    "turns": [],
+                                },
+                                "cwd": str(cwd.resolve()),
+                            },
+                        }
+                    )
+                )
+            elif method == "turn/start":
+                state["turn_status"] = "inProgress"
+                websocket.send(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "result": {
+                                "turn": {
+                                    "id": turn_id,
+                                    "status": "inProgress",
+                                    "items": [],
+                                }
+                            },
+                        }
+                    )
+                )
+                if complete_on_turn_start:
+                    state["turn_status"] = "completed"
+            elif method == "thread/resume":
+                websocket.send(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "result": {
+                                "thread": thread_payload(),
+                                "cwd": str(cwd.resolve()),
+                            },
+                        }
+                    )
+                )
+                if state["turn_status"] == "inProgress":
+                    send_completion(websocket)
+            elif method == "thread/read":
+                websocket.send(
+                    json.dumps(
+                        {
+                            "id": request_id,
+                            "result": {"thread": thread_payload()},
+                        }
+                    )
+                )
+
+    server = serve(handler, "127.0.0.1", 0)
+    worker = Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        port = server.socket.getsockname()[1]
+        yield f"ws://127.0.0.1:{port}"
+    finally:
+        server.shutdown()
+        worker.join(timeout=2)
 
 
 def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> None:
@@ -60,6 +220,130 @@ def test_codex_app_server_session_handshake_thread_resume_and_turn(tmp_path) -> 
                 "text": "Delivered the bounded assignment.",
             }
         ]
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "ws://example.com:4510",
+        "ws://192.0.2.1:4510",
+        "unix://relative-codex.sock",
+    ],
+)
+def test_codex_app_server_session_rejects_nonlocal_endpoint(
+    tmp_path,
+    endpoint: str,
+) -> None:
+    session = CodexAppServerSession(cwd=tmp_path, endpoint=endpoint)
+
+    with pytest.raises(CodexAppServerError) as captured:
+        session.connect()
+
+    assert "failed to connect" in str(captured.value)
+    assert isinstance(captured.value.__cause__, CodexAppServerError)
+
+
+def test_codex_runtime_adapter_rejoins_external_app_server_turn(tmp_path) -> None:
+    managed_root = tmp_path / "managed"
+    codex_home = managed_root / "codex-home"
+    workspace = managed_root / "workspaces" / "workspace-1"
+    codex_home.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    manager = WorkspaceManager(managed_root, protected_roots=())
+
+    def resolve_workspace(execution_id: str) -> RuntimeWorkspaceBinding:
+        return RuntimeWorkspaceBinding(workspace_id="workspace-1", path=workspace)
+
+    with persistent_fake_endpoint(workspace) as endpoint:
+        first = CodexRuntimeAdapter(
+            workspace_manager=manager,
+            resolve_workspace=resolve_workspace,
+            codex_home=codex_home,
+            app_server_endpoint=endpoint,
+        )
+        waiting = first.execute(
+            execution_id="execution-recovery",
+            role_key="backend",
+            instructions="Keep this Turn in progress.",
+        )
+        first.close()
+
+        second = CodexRuntimeAdapter(
+            workspace_manager=manager,
+            resolve_workspace=resolve_workspace,
+            codex_home=codex_home,
+            app_server_endpoint=endpoint,
+        )
+        try:
+            assert second.recover(
+                RuntimeRecoveryRequest(
+                    execution_id="execution-recovery",
+                    runtime_job_id=waiting.runtime_job_id,
+                    thread_id=waiting.thread_id or "",
+                    turn_id=waiting.turn_id or "",
+                    workspace_id=waiting.workspace_id or "",
+                    workspace_path=str(workspace),
+                )
+            )
+            completion = second.wait_for_completion("execution-recovery")
+            assert completion.result.summary == "Recovered Turn completed."
+            assert completion.result.thread_id == waiting.thread_id
+            assert completion.result.turn_id == waiting.turn_id
+        finally:
+            second.close()
+
+
+def test_codex_runtime_adapter_recovers_completed_turn_from_history(tmp_path) -> None:
+    managed_root = tmp_path / "managed"
+    codex_home = managed_root / "codex-home"
+    workspace = managed_root / "workspaces" / "workspace-1"
+    codex_home.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    manager = WorkspaceManager(managed_root, protected_roots=())
+    def resolver(execution_id: str) -> RuntimeWorkspaceBinding:
+        return RuntimeWorkspaceBinding(workspace_id="workspace-1", path=workspace)
+
+    with persistent_fake_endpoint(
+        workspace,
+        complete_on_turn_start=True,
+    ) as endpoint:
+        first = CodexRuntimeAdapter(
+            workspace_manager=manager,
+            resolve_workspace=resolver,
+            codex_home=codex_home,
+            app_server_endpoint=endpoint,
+        )
+        waiting = first.execute(
+            execution_id="execution-history-recovery",
+            role_key="backend",
+            instructions="Complete before the new owner reconnects.",
+        )
+        first.close()
+
+        second = CodexRuntimeAdapter(
+            workspace_manager=manager,
+            resolve_workspace=resolver,
+            codex_home=codex_home,
+            app_server_endpoint=endpoint,
+        )
+        try:
+            assert second.recover(
+                RuntimeRecoveryRequest(
+                    execution_id="execution-history-recovery",
+                    runtime_job_id=waiting.runtime_job_id,
+                    thread_id=waiting.thread_id or "",
+                    turn_id=waiting.turn_id or "",
+                    workspace_id=waiting.workspace_id or "",
+                    workspace_path=str(workspace),
+                )
+            )
+            completion = second.wait_for_completion(
+                "execution-history-recovery"
+            )
+            assert completion.result.summary == "Recovered Turn completed."
+            assert completion.result.turn_id == waiting.turn_id
+        finally:
+            second.close()
 
 
 def test_codex_runtime_adapter_submits_without_blocking_graph_node(tmp_path) -> None:

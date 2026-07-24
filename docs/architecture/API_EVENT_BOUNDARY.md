@@ -99,6 +99,7 @@ The first implementation may need these event types:
 - `runtime.execution_waiting`
 - `runtime.execution_completed`
 - `runtime.execution_failed`
+- `runtime.execution_reconnected`
 - `runtime.execution_retry_requested`
 - `runtime.approval_requested`
 - `runtime.approval_resolved`
