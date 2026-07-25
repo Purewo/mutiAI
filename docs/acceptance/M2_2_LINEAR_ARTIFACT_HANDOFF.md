@@ -1,6 +1,6 @@
 # M2.2 linear Artifact handoff acceptance
 
-Status: Core implementation complete; real local Codex acceptance pending.
+Status: Accepted (2026-07-25) for the first-week local Codex boundary.
 
 M2.2 closes the gap found by the invoice role-boundary acceptance run: specialist roles respected missing-input boundaries, but the orchestration graph submitted all specialists before their upstream deliverables existed.
 
@@ -24,9 +24,11 @@ M2.2 closes the gap found by the invoice role-boundary acceptance run: specialis
 
 ## Invoice exit condition
 
-The real Runtime flow produces exactly one accepted final `InvoiceWorkbookUSDV1` Artifact. It preserves CNY values, records `1 USD = 7.20 CNY`, contains correct two-decimal USD values, and passes workbook validation.
+The real Runtime flow produced exactly one accepted final `final_usd_workbook` Artifact. It preserves CNY values, records `1 USD = 7.20 CNY`, contains correct two-decimal USD values (`12.38`, `0.37`, and `12.76` for the source invoice), and passes workbook validation. The run used `gpt-5.5`, `medium`, and `demo_full_access` for every RuntimeExecution; the requested and App Server-reported models matched.
 
 The content extractor does not create Excel files. The Excel role does not inspect the source image or calculate USD. The translator does not inspect the source image or reconstruct extraction data. The organization lead does not repair specialist files.
+
+The acceptance script is `scripts/run_m2_2_invoice_acceptance.py`. It creates a new isolated product/checkpoint directory under the managed Runtime root for every invocation. The successful run ended with Task status `completed`, four completed plan steps, five completed Assignments (including `lead.plan` and `lead.review`), four released Artifact contracts, and a terminal `task.completed` event. Independent workbook inspection confirmed the XLSX package and cell values, not only the Runtime delivery text.
 
 ## Regression gates
 

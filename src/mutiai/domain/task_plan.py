@@ -40,7 +40,13 @@ class PlanStepSpec(BaseModel):
     depends_on: tuple[str, ...] = Field(default=(), max_length=100)
     input_contracts: tuple[str, ...] = Field(default=(), max_length=100)
     output_contracts: tuple[ArtifactContractSpec, ...] = Field(
-        default=(), max_length=20
+        default=(),
+        max_length=20,
+        description=(
+            "Artifacts produced by a specialist step. This array must be empty for "
+            "a lead_review step because the review returns a decision, not a new "
+            "Artifact."
+        ),
     )
 
 

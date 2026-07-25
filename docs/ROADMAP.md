@@ -106,7 +106,7 @@ Reference: [M2.1 Runtime policy acceptance](acceptance/M2_1_RUNTIME_POLICY.md).
 
 ## M2.2. Add dependency plans and Artifact handoff
 
-Status: Core implementation complete. The product now persists immutable plans and Artifacts, runs a recoverable organization-lead planning boundary, accepts controlled initial input Artifacts, runs the strict-linear dependency scheduler, materializes exact input bindings, and exposes the resulting state. The remaining gate is a real local Codex invoice run with the user-provided source image and structured delivery envelopes.
+Status: Completed for the first-week local Codex boundary (2026-07-25). The product persists immutable plans and Artifacts, runs a recoverable organization-lead planning boundary, accepts controlled initial input Artifacts, runs the strict-linear dependency scheduler, materializes exact input bindings, and exposes the resulting state. The real invoice acceptance run completed with the user-provided image, structured delivery envelopes, isolated role Workspaces, and a validated final XLSX Artifact.
 
 - Persist an immutable `TaskExecutionPlan` with validated role references and step dependencies.
 - Implement a generic strict-linear scheduler before extending the same representation to parallel DAG branches.
@@ -118,7 +118,7 @@ Status: Core implementation complete. The product now persists immutable plans a
 - Expose plan and Artifact state through stable product API and event contracts.
 - Keep `legacy` fan-out compatibility while `planned` Tasks use `lead.plan`, explicit input upload, and `/start`.
 - Support separate `{task_id}:planning` and `{task_id}:linear` LangGraph checkpoint threads with external Runtime resume.
-- Re-run the invoice workflow with `gpt-5.5`, `medium`, and the localhost Full Access demonstration policy.
+- Run the invoice workflow with `gpt-5.5`, `medium`, and the localhost Full Access demonstration policy. The run completed as `lead.plan -> content_extractor -> excel_builder -> currency_translator -> lead.review`; all five Assignments and four plan steps reached `completed`, and the final workbook contained the fixed rate and validated USD values.
 
 References:
 
@@ -127,7 +127,7 @@ References:
 
 ## M3. Integrate the web frontend
 
-Status: Waiting for the M2.2 linear Artifact handoff contract. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available, but frontend task visualization must consume plan and Artifact resources instead of the temporary all-specialist fan-out shape.
+Status: Ready for frontend integration after the M2.2 linear Artifact handoff contract. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available. Frontend task visualization must consume plan and Artifact resources instead of the temporary all-specialist fan-out shape.
 
 Gemini implements bounded frontend tasks against versioned contracts. The integration gate is:
 

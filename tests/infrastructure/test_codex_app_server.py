@@ -26,10 +26,45 @@ from mutiai.runtime import (
     WorkspaceManager,
     require_codex_app_server_ready,
 )
+from mutiai.runtime.codex_app_server import strict_output_schema
 
 FAKE_APP_SERVER = (
     Path(__file__).resolve().parents[1] / "support" / "fake_codex_app_server.py"
 )
+
+
+def test_codex_output_schema_is_normalized_for_strict_mode() -> None:
+    original = {
+        "type": "object",
+        "properties": {
+            "schema_version": {"type": "string", "default": "1.0"},
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "inputs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": [],
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    normalized = strict_output_schema(original)
+
+    assert normalized["required"] == ["schema_version", "steps"]
+    assert normalized["additionalProperties"] is False
+    nested = normalized["properties"]["steps"]["items"]
+    assert nested["required"] == ["name", "inputs"]
+    assert nested["additionalProperties"] is False
+    assert "default" not in normalized["properties"]["schema_version"]
+    assert "default" not in nested["properties"]["inputs"]
+    assert "default" in original["properties"]["schema_version"]
 
 
 @contextmanager

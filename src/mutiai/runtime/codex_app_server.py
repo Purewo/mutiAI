@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Self
@@ -28,6 +29,30 @@ logger = logging.getLogger(__name__)
 
 class CodexAppServerError(RuntimeError):
     """Raised when the App Server process or JSON-RPC request fails."""
+
+
+def strict_output_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize a JSON Schema for Codex strict structured output."""
+
+    normalized = deepcopy(dict(schema))
+
+    def visit(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+            return
+        if not isinstance(value, dict):
+            return
+        value.pop("default", None)
+        properties = value.get("properties")
+        if isinstance(properties, dict):
+            value["additionalProperties"] = False
+            value["required"] = list(properties)
+        for item in value.values():
+            visit(item)
+
+    visit(normalized)
+    return normalized
 
 
 class _RuntimeUsageAccumulator:
@@ -515,7 +540,7 @@ class CodexAppServerSession:
         if reasoning_effort is not None:
             params["effort"] = reasoning_effort
         if output_schema is not None:
-            params["outputSchema"] = dict(output_schema)
+            params["outputSchema"] = strict_output_schema(output_schema)
         return self.request("turn/start", params)
 
     def interrupt_turn(

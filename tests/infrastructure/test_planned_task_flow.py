@@ -231,6 +231,8 @@ def test_planned_task_plans_uploads_input_and_runs_linear_flow(tmp_path) -> None
             ).all()
             assert len(assignments) == 1
             assert assignments[0].assignment_kind == AssignmentKind.LEAD_PLAN
+            assert "output_contracts to an empty array" in assignments[0].instructions
+            assert "output_contracts is empty" in assignments[0].acceptance_criteria
         with pytest.raises(ValueError, match="invoice.input.v1"):
             app.state.task_orchestrator.start(task_id)
 
