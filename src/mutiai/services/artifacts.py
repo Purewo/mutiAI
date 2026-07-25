@@ -33,7 +33,7 @@ from mutiai.models import (
 from mutiai.models.base import utc_now
 from mutiai.models.task_plan import ArtifactInputBindingStatus, ArtifactStatus
 from mutiai.models.workspace import WorkspaceStatus
-from mutiai.runtime import WorkspaceManager
+from mutiai.runtime import WorkspaceBoundaryError, WorkspaceManager
 from mutiai.services.events import append_task_event
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -53,6 +53,11 @@ class ArtifactManager:
 
     def __init__(self, workspace_manager: WorkspaceManager) -> None:
         self.workspace_manager = workspace_manager
+
+    def resolve_stored_file(self, artifact: Artifact) -> Path:
+        """Return a verified immutable Artifact path inside the managed root."""
+
+        return self._validate_stored_artifact(artifact)
 
     def publish_task_input(
         self,
@@ -619,7 +624,7 @@ class ArtifactManager:
                 "The materialized Artifact does not match the released hash.",
             )
 
-    def _validate_stored_artifact(self, artifact: Artifact) -> None:
+    def _validate_stored_artifact(self, artifact: Artifact) -> Path:
         if artifact.status not in {
             ArtifactStatus.RELEASED,
             ArtifactStatus.SUPERSEDED,
@@ -628,16 +633,23 @@ class ArtifactManager:
                 "ARTIFACT_NOT_RELEASED",
                 "The Artifact is not an immutable released version.",
             )
-        stored = self.workspace_manager.canonicalize(
-            artifact.storage_relative_path,
-            must_exist=True,
-        )
-        sha256, byte_size = self._file_facts(stored)
+        try:
+            stored = self.workspace_manager.canonicalize(
+                artifact.storage_relative_path,
+                must_exist=True,
+            )
+            sha256, byte_size = self._file_facts(stored)
+        except (OSError, WorkspaceBoundaryError) as exc:
+            raise ArtifactError(
+                "ARTIFACT_STORED_FILE_UNAVAILABLE",
+                "The stored Artifact file is unavailable inside the managed root.",
+            ) from exc
         if sha256 != artifact.sha256 or byte_size != artifact.byte_size:
             raise ArtifactError(
                 "ARTIFACT_STORED_FILE_CORRUPT",
                 "The stored Artifact bytes do not match persisted metadata.",
             )
+        return stored
 
     @staticmethod
     def _validate_media(path: Path, media_type: str) -> str:

@@ -1,5 +1,7 @@
+import hashlib
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,10 +10,19 @@ from sqlalchemy import func, select
 
 from mutiai.config import Settings
 from mutiai.main import create_app
-from mutiai.models import Assignment, ProductEvent, RuntimeExecution, Task
+from mutiai.models import (
+    Artifact,
+    Assignment,
+    ProductEvent,
+    RuntimeExecution,
+    Task,
+    User,
+)
 from mutiai.models.task import TaskStatus
+from mutiai.models.task_plan import ArtifactStatus
 from mutiai.orchestration.task_graph import build_task_graph
 from mutiai.runtime import FakeRuntimeAdapter, RuntimeCapacity, RuntimeTokenUsage
+from mutiai.security import hash_password
 
 
 def task_spec() -> dict:
@@ -90,6 +101,232 @@ def sse_payloads(response) -> list[dict]:
         for line in response.text.splitlines()
         if line.startswith("data: ")
     ]
+
+
+def persist_test_artifact(app, task_id: str) -> tuple[Artifact, Path, bytes]:
+    content = b'{"accepted":true,"amount":100}'
+    with app.state.database.session() as session:
+        task = session.get(Task, task_id)
+        assert task is not None
+        artifact_id = "artifact-content-test"
+        relative_path = (
+            Path("users")
+            / task.owner_user_id
+            / "organizations"
+            / task.organization_id
+            / "tasks"
+            / task.task_id
+            / "artifacts"
+            / artifact_id
+            / "result.json"
+        )
+        parent = app.state.workspace_manager.provision(relative_path.parent)
+        stored_path = parent / "result.json"
+        stored_path.write_bytes(content)
+        artifact = Artifact(
+            artifact_id=artifact_id,
+            task_id=task.task_id,
+            origin="task_input",
+            source_delivery_id="artifact-content-delivery",
+            producer_assignment_id=None,
+            producer_plan_step_id=None,
+            source_workspace_id=None,
+            contract_key="test.result.v1",
+            schema_version="1.0",
+            artifact_version=1,
+            media_type="application/json",
+            file_name="result.json",
+            source_relative_path="result.json",
+            storage_relative_path=relative_path.as_posix(),
+            sha256=hashlib.sha256(content).hexdigest(),
+            byte_size=len(content),
+            status=ArtifactStatus.RELEASED,
+            validation_summary="Validated test JSON.",
+        )
+        session.add(artifact)
+        session.commit()
+        session.refresh(artifact)
+        session.expunge(artifact)
+    return artifact, stored_path, content
+
+
+def test_artifact_content_is_owned_verified_and_downloadable(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "artifact-content-task"},
+            json={"request": "Produce a downloadable test result."},
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+        artifact, stored_path, content = persist_test_artifact(app, task_id)
+
+        task_response = client.get(f"/api/v1/tasks/{task_id}")
+        artifact_payload = task_response.json()["artifacts"][0]
+        content_url = (
+            f"/api/v1/tasks/{task_id}/artifacts/{artifact.artifact_id}/content"
+        )
+        assert artifact_payload["content_url"] == content_url
+        assert artifact_payload["download_url"] == f"{content_url}?download=true"
+
+        inline = client.get(content_url)
+        assert inline.status_code == 200
+        assert inline.content == content
+        assert inline.headers["content-type"] == "application/json"
+        assert inline.headers["content-disposition"] == 'inline; filename="result.json"'
+        assert inline.headers["etag"] == f'"{artifact.sha256}"'
+        assert inline.headers["x-content-sha256"] == artifact.sha256
+
+        download = client.get(f"{content_url}?download=true")
+        assert download.status_code == 200
+        assert download.headers["content-disposition"] == (
+            'attachment; filename="result.json"'
+        )
+
+        with app.state.database.session() as session:
+            stored_artifact = session.get(Artifact, artifact.artifact_id)
+            assert stored_artifact is not None
+            stored_artifact.status = ArtifactStatus.DRAFT
+            session.commit()
+        unreleased = client.get(content_url)
+        assert unreleased.status_code == 409
+        assert unreleased.json()["code"] == "ARTIFACT_NOT_RELEASED"
+        with app.state.database.session() as session:
+            stored_artifact = session.get(Artifact, artifact.artifact_id)
+            assert stored_artifact is not None
+            stored_artifact.status = ArtifactStatus.RELEASED
+            session.commit()
+
+        other_task = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "artifact-other-task"},
+            json={"request": "Create another task boundary."},
+        ).json()
+        cross_task = client.get(
+            f"/api/v1/tasks/{other_task['task_id']}/artifacts/"
+            f"{artifact.artifact_id}/content"
+        )
+        assert cross_task.status_code == 404
+        assert cross_task.json()["code"] == "ARTIFACT_NOT_FOUND"
+
+        stored_path.write_bytes(b"tampered")
+        corrupt = client.get(content_url)
+        assert corrupt.status_code == 409
+        assert corrupt.json()["code"] == "ARTIFACT_STORED_FILE_CORRUPT"
+
+        with app.state.database.session() as session:
+            intruder = User(
+                username="artifact-intruder",
+                password_hash=hash_password("123456"),
+                display_name="Artifact Intruder",
+            )
+            session.add(intruder)
+            session.commit()
+        assert client.post("/api/v1/auth/logout").status_code == 204
+        intruder_login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "artifact-intruder", "password": "123456"},
+        )
+        assert intruder_login.status_code == 200
+        hidden_artifact = client.get(content_url)
+        assert hidden_artifact.status_code == 404
+        assert hidden_artifact.json()["code"] == "TASK_NOT_FOUND"
+
+
+def test_task_usage_aggregates_reported_and_budget_token_semantics(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "task-token-usage"},
+            json={"request": "Measure token usage by assignment."},
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+
+        with app.state.database.session() as session:
+            records = session.scalars(
+                select(RuntimeExecution)
+                .join(Assignment)
+                .where(Assignment.task_id == task_id)
+                .order_by(Assignment.created_at, Assignment.assignment_id)
+            ).all()
+            assert len(records) == 3
+            reported, unavailable, pending = records
+            reported.usage_status = "reported"
+            reported.reserved_tokens = 0
+            reported.charged_tokens = 42
+            reported.input_tokens = 30
+            reported.cached_input_tokens = 10
+            reported.output_tokens = 12
+            reported.reasoning_output_tokens = 2
+            reported.total_tokens = 42
+            reported.requested_model = "requested-model"
+            reported.actual_model = "actual-model"
+            unavailable.usage_status = "unavailable"
+            unavailable.reserved_tokens = 0
+            unavailable.charged_tokens = 100
+            unavailable.input_tokens = None
+            unavailable.cached_input_tokens = None
+            unavailable.output_tokens = None
+            unavailable.reasoning_output_tokens = None
+            unavailable.total_tokens = None
+            pending.usage_status = "pending"
+            pending.reserved_tokens = 7
+            pending.charged_tokens = None
+            session.commit()
+
+        response = client.get(f"/api/v1/tasks/{task_id}/usage")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["task_id"] == task_id
+        assert payload["execution_count"] == 3
+        assert payload["reported_execution_count"] == 1
+        assert payload["unavailable_execution_count"] == 1
+        assert payload["pending_execution_count"] == 1
+        assert payload["reserved_tokens"] == 7
+        assert payload["charged_tokens"] == 142
+        assert payload["input_tokens"] == 30
+        assert payload["cached_input_tokens"] == 10
+        assert payload["output_tokens"] == 12
+        assert payload["reasoning_output_tokens"] == 2
+        assert payload["observed_total_tokens"] == 42
+        assert len(payload["assignments"]) == 3
+        reported_payload = next(
+            item
+            for item in payload["assignments"]
+            if item["usage_status"] == "reported"
+        )
+        assert reported_payload["requested_model"] == "requested-model"
+        assert reported_payload["actual_model"] == "actual-model"
+        assert reported_payload["total_tokens"] == 42
+
+        with app.state.database.session() as session:
+            intruder = User(
+                username="intruder",
+                password_hash=hash_password("123456"),
+                display_name="Intruder",
+            )
+            session.add(intruder)
+            session.commit()
+        assert client.post("/api/v1/auth/logout").status_code == 204
+        intruder_login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "intruder", "password": "123456"},
+        )
+        assert intruder_login.status_code == 200
+        hidden_usage = client.get(f"/api/v1/tasks/{task_id}/usage")
+        assert hidden_usage.status_code == 404
+        assert hidden_usage.json()["code"] == "TASK_NOT_FOUND"
 
 
 def test_task_idempotency_graph_fanout_events_and_restart(tmp_path) -> None:

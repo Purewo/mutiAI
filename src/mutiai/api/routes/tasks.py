@@ -9,13 +9,14 @@ from collections.abc import Callable, Iterator
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 
 from mutiai.api.dependencies import (
     ApprovalManager,
     CurrentUser,
     DbSession,
+    ManagedWorkspaces,
     TaskRunner,
 )
 from mutiai.api.errors import ApiError, ErrorEnvelope
@@ -29,11 +30,19 @@ from mutiai.api.schemas.tasks import (
     TaskEventResponse,
     TaskInputArtifactRequest,
     TaskResponse,
+    TaskTokenUsageResponse,
 )
-from mutiai.models import ApprovalRequest, ProductEvent, Task
+from mutiai.models import (
+    ApprovalRequest,
+    Artifact,
+    Assignment,
+    ProductEvent,
+    RuntimeExecution,
+    Task,
+)
 from mutiai.models.task import TaskStatus
 from mutiai.orchestration import TaskCancellationIncompleteError
-from mutiai.services.artifacts import ArtifactError
+from mutiai.services.artifacts import ArtifactError, ArtifactManager
 from mutiai.services.runtime_bindings import RuntimeBindingResolutionError
 from mutiai.services.runtime_controls import (
     RuntimeBudgetExceededError,
@@ -48,6 +57,17 @@ ERROR_RESPONSES = {
     409: {"model": ErrorEnvelope},
     429: {"model": ErrorEnvelope},
     422: {"model": ErrorEnvelope},
+}
+ARTIFACT_CONTENT_RESPONSES = {
+    **ERROR_RESPONSES,
+    200: {
+        "description": "Verified immutable Artifact content.",
+        "content": {
+            "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+            }
+        },
+    },
 }
 
 
@@ -222,6 +242,74 @@ def get_task(
         owner_user_id=user.user_id,
     )
     return TaskResponse.from_record(task)
+
+
+@router.get(
+    "/tasks/{task_id}/artifacts/{artifact_id}/content",
+    response_class=FileResponse,
+    responses=ARTIFACT_CONTENT_RESPONSES,
+)
+def get_task_artifact_content(
+    task_id: str,
+    artifact_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    workspace_manager: ManagedWorkspaces,
+    download: bool = False,
+) -> FileResponse:
+    get_owned_task(session, task_id=task_id, owner_user_id=user.user_id)
+    artifact = session.scalar(
+        select(Artifact).where(
+            Artifact.artifact_id == artifact_id,
+            Artifact.task_id == task_id,
+        )
+    )
+    if artifact is None:
+        raise ApiError(404, "ARTIFACT_NOT_FOUND", "Artifact not found.")
+
+    try:
+        path = ArtifactManager(workspace_manager).resolve_stored_file(artifact)
+    except ArtifactError as exc:
+        raise ApiError(409, exc.code, str(exc)) from exc
+
+    file_name = artifact.file_name.replace("\r", "").replace("\n", "")
+    if not file_name or "/" in file_name or "\\" in file_name:
+        file_name = f"{artifact.artifact_id}.bin"
+    return FileResponse(
+        path,
+        media_type=artifact.media_type,
+        filename=file_name,
+        content_disposition_type="attachment" if download else "inline",
+        headers={
+            "Cache-Control": "private, no-cache",
+            "ETag": f'"{artifact.sha256}"',
+            "X-Content-SHA256": artifact.sha256,
+        },
+    )
+
+
+@router.get(
+    "/tasks/{task_id}/usage",
+    response_model=TaskTokenUsageResponse,
+    responses=ERROR_RESPONSES,
+)
+def get_task_token_usage(
+    task_id: str,
+    user: CurrentUser,
+    session: DbSession,
+) -> TaskTokenUsageResponse:
+    get_owned_task(session, task_id=task_id, owner_user_id=user.user_id)
+    rows = session.execute(
+        select(Assignment, RuntimeExecution)
+        .join(
+            RuntimeExecution,
+            RuntimeExecution.assignment_id == Assignment.assignment_id,
+        )
+        .where(Assignment.task_id == task_id)
+        .order_by(Assignment.created_at, Assignment.assignment_id)
+    ).all()
+    records = [(row[0], row[1]) for row in rows]
+    return TaskTokenUsageResponse.from_records(task_id, records)
 
 
 @router.post(

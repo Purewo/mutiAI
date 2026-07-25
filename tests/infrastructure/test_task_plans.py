@@ -172,6 +172,70 @@ def invoice_plan() -> TaskExecutionPlanSpec:
     )
 
 
+def parallel_plan() -> TaskExecutionPlanSpec:
+    return TaskExecutionPlanSpec(
+        summary="Extract three independent invoice views and review all Artifacts.",
+        initial_input_contracts=("invoice.image.v1",),
+        steps=(
+            PlanStepSpec(
+                step_key="extract",
+                role_key="extractor",
+                objective="Extract invoice fields.",
+                acceptance_criteria="Return structured invoice data.",
+                input_contracts=("invoice.image.v1",),
+                output_contracts=(
+                    contract(
+                        "invoice.extracted.v1",
+                        "invoice.json",
+                        "application/json",
+                    ),
+                ),
+            ),
+            PlanStepSpec(
+                step_key="excel",
+                role_key="excel",
+                objective="Produce an independent workbook manifest.",
+                acceptance_criteria="Return the workbook manifest.",
+                input_contracts=("invoice.image.v1",),
+                output_contracts=(
+                    contract(
+                        "invoice.excel-manifest.v1",
+                        "excel-manifest.json",
+                        "application/json",
+                    ),
+                ),
+            ),
+            PlanStepSpec(
+                step_key="translate",
+                role_key="translator",
+                objective="Produce an independent currency manifest.",
+                acceptance_criteria="Return the currency manifest.",
+                input_contracts=("invoice.image.v1",),
+                output_contracts=(
+                    contract(
+                        "invoice.currency-manifest.v1",
+                        "currency-manifest.json",
+                        "application/json",
+                    ),
+                ),
+            ),
+            PlanStepSpec(
+                step_key="review",
+                role_key="lead",
+                step_kind="lead_review",
+                objective="Review all released specialist Artifacts.",
+                acceptance_criteria="Accept only a complete parallel delivery.",
+                depends_on=("extract", "excel", "translate"),
+                input_contracts=(
+                    "invoice.extracted.v1",
+                    "invoice.excel-manifest.v1",
+                    "invoice.currency-manifest.v1",
+                ),
+            ),
+        ),
+    )
+
+
 def test_create_task_execution_plan_is_durable_and_idempotent(tmp_path) -> None:
     database, task_id = seeded_task_database(tmp_path)
     try:
@@ -254,7 +318,41 @@ def test_task_plan_version_replay_rejects_a_different_definition(tmp_path) -> No
         database.dispose()
 
 
-def test_task_plan_rejects_branching_in_the_m2_2_linear_subset(tmp_path) -> None:
+def test_task_plan_persists_every_parallel_root_as_ready(tmp_path) -> None:
+    database, task_id = seeded_task_database(tmp_path)
+    try:
+        with database.session() as session:
+            task = session.get(Task, task_id)
+            assert task is not None
+            plan, created = create_task_execution_plan(
+                session,
+                task=task,
+                plan_spec=parallel_plan(),
+                source="lead_runtime",
+            )
+            assert created is True
+            assert plan.validation_summary == "Validated as a pure parallel M2.3 plan."
+            steps = session.scalars(
+                select(PlanStep)
+                .where(PlanStep.plan_id == plan.plan_id)
+                .order_by(PlanStep.sequence)
+            ).all()
+            assert [step.status for step in steps] == [
+                PlanStepStatus.READY,
+                PlanStepStatus.READY,
+                PlanStepStatus.READY,
+                PlanStepStatus.PENDING_DEPENDENCY,
+            ]
+            assert session.scalar(
+                select(func.count())
+                .select_from(ProductEvent)
+                .where(ProductEvent.event_type == "plan.step_ready")
+            ) == 3
+    finally:
+        database.dispose()
+
+
+def test_task_plan_rejects_a_mixed_serial_parallel_shape(tmp_path) -> None:
     database, task_id = seeded_task_database(tmp_path)
     base = invoice_plan()
     branched_steps = list(base.steps)
@@ -272,7 +370,30 @@ def test_task_plan_rejects_branching_in_the_m2_2_linear_subset(tmp_path) -> None
                 plan_spec=branched,
                 source="lead_runtime",
             )
-        assert exc_info.value.code == "TASK_PLAN_LINEAR_SHAPE_REQUIRED"
+        assert exc_info.value.code == "TASK_PLAN_SUPPORTED_SHAPE_REQUIRED"
+    finally:
+        database.dispose()
+
+
+def test_parallel_task_plan_requires_every_output_at_lead_review(tmp_path) -> None:
+    database, task_id = seeded_task_database(tmp_path)
+    base = parallel_plan()
+    changed_steps = list(base.steps)
+    changed_steps[-1] = changed_steps[-1].model_copy(
+        update={"input_contracts": ("invoice.extracted.v1",)}
+    )
+    changed = base.model_copy(update={"steps": tuple(changed_steps)})
+    try:
+        with database.session() as session, pytest.raises(ApiError) as exc_info:
+            task = session.get(Task, task_id)
+            assert task is not None
+            create_task_execution_plan(
+                session,
+                task=task,
+                plan_spec=changed,
+                source="lead_runtime",
+            )
+        assert exc_info.value.code == "TASK_PLAN_PARALLEL_REVIEW_INPUTS_INCOMPLETE"
     finally:
         database.dispose()
 

@@ -330,14 +330,19 @@ def prepare_lead_plan(
     instructions = (
         f"Act as the organization lead within this responsibility boundary: "
         f"{lead.responsibility}\n\n"
-        "Design a strict linear execution plan for the original request. "
-        "Use only the already published organization roles below. Do not add "
+        "Design one supported execution plan for the original request. Choose "
+        "either a strict linear chain or a pure parallel specialist fan-out "
+        "followed by lead_review. Do not combine serial and parallel specialist "
+        "stages. Use only the already published organization roles below. Do not add "
         "or persist new formal roles, do not execute specialist work, and do "
         "not modify project files. Return only JSON matching the supplied "
         "TaskExecutionPlanSpec schema. The final step must be your lead_review. "
         "That lead_review must consume the final specialist Artifact and set "
         "output_contracts to an empty array. It returns a review decision through "
-        "the review response contract and must not declare a new Artifact.\n\n"
+        "the review response contract and must not declare a new Artifact. For a "
+        "parallel plan, every specialist must be dependency-free, must declare at "
+        "least one output Artifact, and lead_review must depend on every specialist "
+        "and declare every specialist output contract as an input.\n\n"
         f"Original request:\n{task.request_text}\n\n"
         f"Published OrganizationSpec:\n"
         f"{json.dumps(version.spec_payload, ensure_ascii=False, indent=2)}"
@@ -391,8 +396,8 @@ def prepare_lead_plan(
         instructions=instructions,
         acceptance_criteria=(
             "Return only a valid TaskExecutionPlanSpec using existing roles, "
-            "with a strict linear sequence ending in lead_review whose "
-            "output_contracts is empty."
+            "using either the supported strict-linear or pure-parallel shape and "
+            "ending in lead_review whose output_contracts is empty."
         ),
         execution_id=deterministic_execution_id(
             task.task_id,

@@ -14,6 +14,7 @@ from mutiai.config import Settings
 from mutiai.models import BrowserSession, User
 from mutiai.models.base import utc_now
 from mutiai.orchestration import TaskOrchestrator
+from mutiai.runtime import WorkspaceManager
 from mutiai.security import hash_session_token
 from mutiai.services.approvals import RuntimeApprovalCoordinator
 
@@ -36,6 +37,13 @@ def get_task_orchestrator(request: Request) -> TaskOrchestrator:
 
 
 TaskRunner = Annotated[TaskOrchestrator, Depends(get_task_orchestrator)]
+
+
+def get_workspace_manager(request: Request) -> WorkspaceManager:
+    return request.app.state.workspace_manager
+
+
+ManagedWorkspaces = Annotated[WorkspaceManager, Depends(get_workspace_manager)]
 
 
 def get_approval_coordinator(request: Request) -> RuntimeApprovalCoordinator:

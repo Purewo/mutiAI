@@ -55,9 +55,11 @@ from mutiai.orchestration.task_graph import (
     AssignmentWork,
     LeadReviewState,
     LinearTaskGraphState,
+    ParallelTaskGraphState,
     PlanningGraphState,
     TaskGraphState,
     build_linear_task_graph,
+    build_parallel_task_graph,
     build_planning_graph,
     build_task_graph,
 )
@@ -452,9 +454,9 @@ class TaskOrchestrator:
                 raise RuntimeError("planned execution requires Workspace provisioning")
             if not self.linear_scheduler.has_plan(task_id):
                 return self.plan(task_id)
-            return self._run_linear(task_id)
+            return self._run_planned(task_id)
         if self.linear_scheduler is not None and self.linear_scheduler.has_plan(task_id):
-            return self._run_linear(task_id)
+            return self._run_planned(task_id)
 
         waiting_task: Task | None = None
         with self.database.session() as session:
@@ -526,6 +528,13 @@ class TaskOrchestrator:
             raise RuntimeError(f"task '{task_id}' graph completed without a review")
         return self._finish_task(task_id, review)
 
+    def _run_planned(self, task_id: str) -> Task:
+        if self.linear_scheduler is None:
+            raise RuntimeError("planned execution requires Workspace provisioning")
+        if self.linear_scheduler.is_parallel_plan(task_id):
+            return self._run_parallel(task_id)
+        return self._run_linear(task_id)
+
     def _run_linear(self, task_id: str) -> Task:
         if self.linear_scheduler is None:
             raise RuntimeError("linear plan execution requires Workspace provisioning")
@@ -587,9 +596,74 @@ class TaskOrchestrator:
             return self._finish_task(task_id, review)
         raise RuntimeError(f"task '{task_id}' linear graph completed without review")
 
+    def _run_parallel(self, task_id: str) -> Task:
+        if self.linear_scheduler is None:
+            raise RuntimeError("parallel plan execution requires Workspace provisioning")
+
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status in {
+                TaskStatus.COMPLETED,
+                TaskStatus.NEEDS_REVISION,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }:
+                return task
+            if task.status == TaskStatus.WAITING:
+                self._watch_waiting_executions(task_id)
+                return task
+
+        initial_state: ParallelTaskGraphState = {
+            "task_id": task_id,
+            "assignments": [],
+            "results": [],
+            "review_work": None,
+            "review_result": None,
+            "review": None,
+        }
+        checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        config = {"configurable": {"thread_id": self._parallel_thread_id(task_id)}}
+        with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
+            graph = build_parallel_task_graph(
+                self.linear_scheduler.prepare_parallel_specialists,
+                self._execute_assignment,
+                self.linear_scheduler.finalize_parallel_specialists,
+                self.linear_scheduler.prepare_step,
+                self.linear_scheduler.finalize_step,
+            ).compile(checkpointer=saver)
+            snapshot = graph.get_state(config)
+            if snapshot.next:
+                result = graph.invoke(None, config=config)
+            elif snapshot.values and snapshot.values.get("review"):
+                result = snapshot.values
+            else:
+                result = graph.invoke(initial_state, config=config)
+
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status == TaskStatus.WAITING:
+                self._watch_waiting_executions(task_id)
+                return task
+            if task.status in {TaskStatus.FAILED, TaskStatus.CANCELLED}:
+                return task
+
+        review = result.get("review")
+        if review:
+            return self._finish_task(task_id, review)
+        raise RuntimeError(f"task '{task_id}' parallel graph completed without review")
+
     @staticmethod
     def _linear_thread_id(task_id: str) -> str:
         return f"{task_id}:linear"
+
+    @staticmethod
+    def _parallel_thread_id(task_id: str) -> str:
+        return f"{task_id}:parallel"
 
     @staticmethod
     def _planning_thread_id(task_id: str) -> str:
@@ -2713,19 +2787,27 @@ class TaskOrchestrator:
                 }:
                     return task
 
-            is_linear = (
+            has_execution_plan = (
                 self.linear_scheduler is not None
                 and self.linear_scheduler.has_plan(task_id)
             )
+            is_parallel = (
+                has_execution_plan
+                and self.linear_scheduler is not None
+                and self.linear_scheduler.is_parallel_plan(task_id)
+            )
+            is_linear = has_execution_plan and not is_parallel
             is_planning = (
-                not is_linear
+                not has_execution_plan
                 and task.orchestration_mode == TaskOrchestrationMode.PLANNED
             )
             checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
             config = {
                 "configurable": {
                     "thread_id": (
-                        self._linear_thread_id(task_id)
+                        self._parallel_thread_id(task_id)
+                        if is_parallel
+                        else self._linear_thread_id(task_id)
                         if is_linear
                         else self._planning_thread_id(task_id)
                         if is_planning
@@ -2734,7 +2816,17 @@ class TaskOrchestrator:
                 }
             }
             with SqliteSaver.from_conn_string(str(checkpoint_path)) as saver:
-                if is_linear:
+                if is_parallel:
+                    if self.linear_scheduler is None:
+                        raise RuntimeError("parallel scheduler is unavailable")
+                    graph = build_parallel_task_graph(
+                        self.linear_scheduler.prepare_parallel_specialists,
+                        self._execute_assignment,
+                        self.linear_scheduler.finalize_parallel_specialists,
+                        self.linear_scheduler.prepare_step,
+                        self.linear_scheduler.finalize_step,
+                    ).compile(checkpointer=saver)
+                elif is_linear:
                     if self.linear_scheduler is None:
                         raise RuntimeError("linear scheduler is unavailable")
                     graph = build_linear_task_graph(
@@ -2800,7 +2892,7 @@ class TaskOrchestrator:
                 return self._finish_task(task_id, review)
             if is_planning and result.get("result"):
                 return self._complete_planning(task_id, result)
-            if is_linear:
+            if has_execution_plan:
                 with self.database.session() as session:
                     task = session.get(Task, task_id)
                     if task is None:

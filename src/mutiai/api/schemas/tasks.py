@@ -271,9 +271,15 @@ class ArtifactResponse(BaseModel):
     supersedes_artifact_id: str | None
     created_at: datetime
     released_at: datetime | None
+    content_url: str
+    download_url: str
 
     @classmethod
     def from_record(cls, artifact: Artifact) -> ArtifactResponse:
+        content_url = (
+            f"/api/v1/tasks/{artifact.task_id}/artifacts/"
+            f"{artifact.artifact_id}/content"
+        )
         return cls(
             artifact_id=artifact.artifact_id,
             origin=artifact.origin,
@@ -294,6 +300,118 @@ class ArtifactResponse(BaseModel):
             supersedes_artifact_id=artifact.supersedes_artifact_id,
             created_at=as_utc(artifact.created_at),
             released_at=as_utc(artifact.released_at),
+            content_url=content_url,
+            download_url=f"{content_url}?download=true",
+        )
+
+
+class AssignmentTokenUsageResponse(BaseModel):
+    assignment_id: str
+    assignment_key: str
+    assignment_kind: str
+    agent_role_key: str
+    runtime_execution_id: str
+    execution_id: str
+    provider: str
+    requested_model: str | None
+    actual_model: str | None
+    execution_status: RuntimeExecutionStatus
+    usage_status: str
+    reserved_tokens: int
+    charged_tokens: int | None
+    input_tokens: int | None
+    cached_input_tokens: int | None
+    output_tokens: int | None
+    reasoning_output_tokens: int | None
+    total_tokens: int | None
+
+    @classmethod
+    def from_record(
+        cls,
+        assignment: Assignment,
+        execution: RuntimeExecution,
+    ) -> AssignmentTokenUsageResponse:
+        return cls(
+            assignment_id=assignment.assignment_id,
+            assignment_key=assignment.assignment_key,
+            assignment_kind=assignment.assignment_kind,
+            agent_role_key=assignment.agent_role_key,
+            runtime_execution_id=execution.runtime_execution_id,
+            execution_id=execution.execution_id,
+            provider=execution.provider,
+            requested_model=execution.requested_model,
+            actual_model=execution.actual_model,
+            execution_status=RuntimeExecutionStatus(execution.status),
+            usage_status=execution.usage_status,
+            reserved_tokens=execution.reserved_tokens,
+            charged_tokens=execution.charged_tokens,
+            input_tokens=execution.input_tokens,
+            cached_input_tokens=execution.cached_input_tokens,
+            output_tokens=execution.output_tokens,
+            reasoning_output_tokens=execution.reasoning_output_tokens,
+            total_tokens=execution.total_tokens,
+        )
+
+
+class TaskTokenUsageResponse(BaseModel):
+    task_id: str
+    execution_count: int
+    reported_execution_count: int
+    unavailable_execution_count: int
+    pending_execution_count: int
+    reserved_tokens: int
+    charged_tokens: int
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
+    reasoning_output_tokens: int
+    observed_total_tokens: int
+    assignments: list[AssignmentTokenUsageResponse]
+
+    @classmethod
+    def from_records(
+        cls,
+        task_id: str,
+        records: list[tuple[Assignment, RuntimeExecution]],
+    ) -> TaskTokenUsageResponse:
+        reported = [
+            (assignment, execution)
+            for assignment, execution in records
+            if execution.usage_status == "reported"
+        ]
+        return cls(
+            task_id=task_id,
+            execution_count=len(records),
+            reported_execution_count=len(reported),
+            unavailable_execution_count=sum(
+                execution.usage_status == "unavailable"
+                for _, execution in records
+            ),
+            pending_execution_count=sum(
+                execution.usage_status == "pending" for _, execution in records
+            ),
+            reserved_tokens=sum(execution.reserved_tokens for _, execution in records),
+            charged_tokens=sum(
+                execution.charged_tokens or 0 for _, execution in records
+            ),
+            input_tokens=sum(execution.input_tokens or 0 for _, execution in reported),
+            cached_input_tokens=sum(
+                execution.cached_input_tokens or 0 for _, execution in reported
+            ),
+            output_tokens=sum(
+                execution.output_tokens or 0 for _, execution in reported
+            ),
+            reasoning_output_tokens=sum(
+                execution.reasoning_output_tokens or 0
+                for _, execution in reported
+            ),
+            observed_total_tokens=sum(
+                execution.total_tokens or 0 for _, execution in reported
+            ),
+            assignments=[
+                AssignmentTokenUsageResponse.from_record(assignment, execution)
+                for assignment, execution in records
+            ],
         )
 
 

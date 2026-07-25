@@ -52,6 +52,15 @@ class LinearTaskGraphState(TypedDict):
     done: bool
 
 
+class ParallelTaskGraphState(TypedDict):
+    task_id: str
+    assignments: list[AssignmentWork]
+    results: Annotated[list[AssignmentResult], operator.add]
+    review_work: AssignmentWork | None
+    review_result: AssignmentResult | None
+    review: LeadReviewState | None
+
+
 class PlanningGraphState(TypedDict):
     task_id: str
     work: AssignmentWork
@@ -130,6 +139,98 @@ def build_linear_task_graph(
     builder.add_conditional_edges("prepare", route_prepare, ["execute", END])
     builder.add_edge("execute", "finalize")
     builder.add_conditional_edges("finalize", route_finalize, ["prepare", END])
+    return builder
+
+
+def build_parallel_task_graph(
+    prepare_specialists: Callable[[str], list[AssignmentWork]],
+    execute_assignment: Callable[[AssignmentWork], AssignmentResult],
+    finalize_specialists: Callable[
+        [str, list[AssignmentWork], list[AssignmentResult]], dict[str, Any]
+    ],
+    prepare_review: Callable[[str], AssignmentWork | None],
+    finalize_review: Callable[
+        [str, AssignmentWork, AssignmentResult], dict[str, Any]
+    ],
+) -> StateGraph:
+    """Build one Artifact-producing specialist fan-out and lead-review join."""
+
+    def prepare_specialists_node(state: ParallelTaskGraphState) -> dict[str, Any]:
+        return {"assignments": prepare_specialists(state["task_id"])}
+
+    def dispatch_specialists(
+        state: ParallelTaskGraphState,
+    ) -> list[Send] | str:
+        assignments = state.get("assignments", [])
+        if not assignments:
+            return "prepare_review"
+        return [
+            Send(
+                "execute_specialist",
+                {"task_id": state["task_id"], "assignment": assignment},
+            )
+            for assignment in assignments
+        ]
+
+    def execute_specialist_node(state: AssignmentNodeState) -> dict[str, Any]:
+        return {"results": [execute_assignment(state["assignment"])]}
+
+    def finalize_specialists_node(
+        state: ParallelTaskGraphState,
+    ) -> dict[str, Any]:
+        return finalize_specialists(
+            state["task_id"],
+            state["assignments"],
+            state["results"],
+        )
+
+    def route_after_specialists(state: ParallelTaskGraphState) -> str:
+        return "__end__" if state.get("review") else "prepare_review"
+
+    def prepare_review_node(state: ParallelTaskGraphState) -> dict[str, Any]:
+        work = prepare_review(state["task_id"])
+        if work is None:
+            raise RuntimeError("parallel graph reached review without ready work")
+        return {"review_work": work, "review_result": None}
+
+    def execute_review_node(state: ParallelTaskGraphState) -> dict[str, Any]:
+        work = state["review_work"]
+        if work is None:
+            raise RuntimeError("parallel graph reached review execution without work")
+        return {"review_result": execute_assignment(work)}
+
+    def finalize_review_node(state: ParallelTaskGraphState) -> dict[str, Any]:
+        work = state["review_work"]
+        result = state["review_result"]
+        if work is None or result is None:
+            raise RuntimeError("parallel graph reached review finalization without result")
+        outcome = finalize_review(state["task_id"], work, result)
+        if not outcome.get("review"):
+            raise RuntimeError("parallel graph completed without lead review")
+        return outcome
+
+    builder = StateGraph(ParallelTaskGraphState)
+    builder.add_node("prepare_specialists", prepare_specialists_node)
+    builder.add_node("execute_specialist", execute_specialist_node)
+    builder.add_node("finalize_specialists", finalize_specialists_node)
+    builder.add_node("prepare_review", prepare_review_node)
+    builder.add_node("execute_review", execute_review_node)
+    builder.add_node("finalize_review", finalize_review_node)
+    builder.add_edge(START, "prepare_specialists")
+    builder.add_conditional_edges(
+        "prepare_specialists",
+        dispatch_specialists,
+        ["execute_specialist", "prepare_review"],
+    )
+    builder.add_edge("execute_specialist", "finalize_specialists")
+    builder.add_conditional_edges(
+        "finalize_specialists",
+        route_after_specialists,
+        ["prepare_review", END],
+    )
+    builder.add_edge("prepare_review", "execute_review")
+    builder.add_edge("execute_review", "finalize_review")
+    builder.add_edge("finalize_review", END)
     return builder
 
 

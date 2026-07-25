@@ -1,4 +1,4 @@
-"""Dependency-driven scheduler for the strict-linear M2.2 plan subset."""
+"""Dependency scheduler for supported linear and parallel planned Tasks."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ from mutiai.services.workspaces import WorkspaceProvisioner
 
 
 class LinearTaskScheduler:
-    """Prepare one ready Assignment and finalize one validated delivery at a time."""
+    """Prepare and finalize supported product-owned plan steps."""
 
     def __init__(
         self,
@@ -66,6 +66,34 @@ class LinearTaskScheduler:
                 is not None
             )
 
+    def is_parallel_plan(self, task_id: str) -> bool:
+        with self.database.session() as session:
+            plan = self._current_plan(session, task_id)
+            if plan is None:
+                return False
+            steps = session.scalars(
+                select(PlanStep)
+                .where(PlanStep.plan_id == plan.plan_id)
+                .order_by(PlanStep.sequence)
+            ).all()
+            specialists = [
+                step for step in steps if step.step_kind == "specialist"
+            ]
+            review = next(
+                (step for step in steps if step.step_kind == "lead_review"),
+                None,
+            )
+            if len(specialists) < 2 or review is None:
+                return False
+            if any(step.dependencies for step in specialists):
+                return False
+            review_dependencies = {
+                dependency.depends_on_step_id for dependency in review.dependencies
+            }
+            return review_dependencies == {
+                step.plan_step_id for step in specialists
+            }
+
     def prepare_step(self, task_id: str) -> dict[str, Any] | None:
         with self.database.session() as session:
             task = session.get(Task, task_id)
@@ -82,22 +110,7 @@ class LinearTaskScheduler:
             if plan is None:
                 raise RuntimeError(f"task '{task_id}' has no execution plan")
 
-            if plan.status == TaskExecutionPlanStatus.VALIDATED:
-                plan.status = TaskExecutionPlanStatus.ACTIVE
-                plan.activated_at = plan.activated_at or utc_now()
-                append_task_event(
-                    session,
-                    task=task,
-                    event_type="task.execution_plan_activated",
-                    aggregate_type="task_execution_plan",
-                    aggregate_id=plan.plan_id,
-                    source="langgraph",
-                    payload={
-                        "plan_id": plan.plan_id,
-                        "plan_version": plan.plan_version,
-                        "status": plan.status,
-                    },
-                )
+            self._activate_plan(session, task=task, plan=plan)
 
             steps = session.scalars(
                 select(PlanStep)
@@ -139,118 +152,234 @@ class LinearTaskScheduler:
                 ):
                     return None
 
-                if step.status != PlanStepStatus.READY:
-                    step.status = PlanStepStatus.READY
-                    step.ready_at = utc_now()
-                    append_task_event(
-                        session,
-                        task=task,
-                        event_type="plan.step_ready",
-                        aggregate_type="plan_step",
-                        aggregate_id=step.plan_step_id,
-                        source="langgraph",
-                        payload={
-                            "plan_id": plan.plan_id,
-                            "plan_step_id": step.plan_step_id,
-                            "step_key": step.step_key,
-                            "role_key": step.role_key,
-                            "status": step.status,
-                        },
-                    )
-
-                workspace = self.workspace_provisioner.ensure_role_workspace(
-                    session,
-                    owner_user_id=task.owner_user_id,
-                    organization_id=task.organization_id,
-                    agent_role_key=step.role_key,
-                    runtime_provider=self.runtime_provider,
-                )
-                bindings = self.artifact_manager.materialize_step_inputs(
+                assignment = self._create_assignment(
                     session,
                     task=task,
-                    plan_step=step,
-                    consumer_workspace=workspace,
-                )
-                instructions = self._build_instructions(
-                    session,
-                    task=task,
+                    plan=plan,
                     step=step,
-                    bindings=bindings,
-                )
-                assignment = Assignment(
-                    assignment_id=self._assignment_id(task.task_id, step.step_key),
-                    task_id=task.task_id,
-                    assignment_key=f"plan_step:{step.step_key}",
-                    assignment_kind=AssignmentKind.PLAN_STEP,
-                    agent_role_key=step.role_key,
-                    instructions=instructions,
-                    acceptance_criteria=step.acceptance_criteria,
-                    execution_id=self._execution_id(task.task_id, step.step_key),
-                    plan_step_id=step.plan_step_id,
-                    status=AssignmentStatus.SUBMITTED,
-                )
-                execution = RuntimeExecution(
-                    execution_id=assignment.execution_id,
-                    assignment_id=assignment.assignment_id,
-                    provider=self.runtime_provider,
-                    workspace_id=workspace.workspace_id,
-                    status=RuntimeExecutionStatus.SUBMITTED,
-                )
-                session.add_all([assignment, execution])
-                session.flush()
-                step.status = PlanStepStatus.SUBMITTED
-                task.status = TaskStatus.RUNNING
-                task.updated_at = utc_now()
-                append_task_event(
-                    session,
-                    task=task,
-                    event_type="assignment.created",
-                    aggregate_type="assignment",
-                    aggregate_id=assignment.assignment_id,
-                    assignment_id=assignment.assignment_id,
-                    source="langgraph",
-                    payload={
-                        "agent_role_key": step.role_key,
-                        "plan_step_id": step.plan_step_id,
-                        "step_key": step.step_key,
-                        "step_kind": step.step_kind,
-                        "status": assignment.status,
-                    },
-                )
-                append_task_event(
-                    session,
-                    task=task,
-                    event_type="runtime.execution_submitted",
-                    aggregate_type="runtime_execution",
-                    aggregate_id=execution.runtime_execution_id,
-                    assignment_id=assignment.assignment_id,
-                    runtime_execution_id=execution.runtime_execution_id,
-                    source=f"runtime.{self.runtime_provider}",
-                    payload={
-                        "execution_id": execution.execution_id,
-                        "provider": execution.provider,
-                        "plan_step_id": step.plan_step_id,
-                        "workspace_id": workspace.workspace_id,
-                        "status": execution.status,
-                    },
-                )
-                append_task_event(
-                    session,
-                    task=task,
-                    event_type="plan.step_status_changed",
-                    aggregate_type="plan_step",
-                    aggregate_id=step.plan_step_id,
-                    assignment_id=assignment.assignment_id,
-                    source="langgraph",
-                    payload={
-                        "plan_step_id": step.plan_step_id,
-                        "step_key": step.step_key,
-                        "status": step.status,
-                    },
                 )
                 session.commit()
                 return self._work_for_step(assignment, step)
             return None
+
+    def prepare_parallel_specialists(
+        self,
+        task_id: str,
+    ) -> list[dict[str, Any]]:
+        """Create or restore every unfinished root specialist Assignment."""
+
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise LookupError(f"task '{task_id}' does not exist")
+            if task.status in {
+                TaskStatus.COMPLETED,
+                TaskStatus.NEEDS_REVISION,
+                TaskStatus.CANCELLED,
+            }:
+                return []
+            plan = self._current_plan(session, task_id)
+            if plan is None:
+                raise RuntimeError(f"task '{task_id}' has no execution plan")
+            self._activate_plan(session, task=task, plan=plan)
+            steps = session.scalars(
+                select(PlanStep)
+                .where(
+                    PlanStep.plan_id == plan.plan_id,
+                    PlanStep.step_kind == "specialist",
+                )
+                .order_by(PlanStep.sequence)
+            ).all()
+            work: list[dict[str, Any]] = []
+            for step in steps:
+                if step.status == PlanStepStatus.COMPLETED:
+                    continue
+                if step.dependencies:
+                    raise RuntimeError(
+                        "parallel specialist steps cannot declare dependencies"
+                    )
+                if step.status in {
+                    PlanStepStatus.BLOCKED,
+                    PlanStepStatus.FAILED,
+                    PlanStepStatus.CANCELLED,
+                }:
+                    return []
+                assignment = session.scalar(
+                    select(Assignment).where(
+                        Assignment.plan_step_id == step.plan_step_id
+                    )
+                )
+                if assignment is None:
+                    assignment = self._create_assignment(
+                        session,
+                        task=task,
+                        plan=plan,
+                        step=step,
+                    )
+                work.append(self._work_for_step(assignment, step))
+            session.commit()
+            return work
+
+    def finalize_parallel_specialists(
+        self,
+        task_id: str,
+        work: list[dict[str, Any]],
+        results: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        """Publish one parallel wave after every Runtime branch completes."""
+
+        result_by_assignment = {
+            result["assignment_id"]: result for result in results
+        }
+        review: dict[str, Any] | None = None
+        for assignment_work in work:
+            result = result_by_assignment.get(assignment_work["assignment_id"])
+            if result is None:
+                raise RuntimeError(
+                    "parallel specialist wave completed without every result"
+                )
+            outcome = self.finalize_step(task_id, assignment_work, result)
+            if outcome.get("review"):
+                review = outcome["review"]
+        return {"review": review}
+
+    @staticmethod
+    def _activate_plan(session, *, task: Task, plan: TaskExecutionPlan) -> None:
+        if plan.status != TaskExecutionPlanStatus.VALIDATED:
+            return
+        plan.status = TaskExecutionPlanStatus.ACTIVE
+        plan.activated_at = plan.activated_at or utc_now()
+        append_task_event(
+            session,
+            task=task,
+            event_type="task.execution_plan_activated",
+            aggregate_type="task_execution_plan",
+            aggregate_id=plan.plan_id,
+            source="langgraph",
+            payload={
+                "plan_id": plan.plan_id,
+                "plan_version": plan.plan_version,
+                "status": plan.status,
+            },
+        )
+
+    def _create_assignment(
+        self,
+        session,
+        *,
+        task: Task,
+        plan: TaskExecutionPlan,
+        step: PlanStep,
+    ) -> Assignment:
+        if step.status != PlanStepStatus.READY:
+            step.status = PlanStepStatus.READY
+            step.ready_at = utc_now()
+            append_task_event(
+                session,
+                task=task,
+                event_type="plan.step_ready",
+                aggregate_type="plan_step",
+                aggregate_id=step.plan_step_id,
+                source="langgraph",
+                payload={
+                    "plan_id": plan.plan_id,
+                    "plan_step_id": step.plan_step_id,
+                    "step_key": step.step_key,
+                    "role_key": step.role_key,
+                    "status": step.status,
+                },
+            )
+        workspace = self.workspace_provisioner.ensure_role_workspace(
+            session,
+            owner_user_id=task.owner_user_id,
+            organization_id=task.organization_id,
+            agent_role_key=step.role_key,
+            runtime_provider=self.runtime_provider,
+        )
+        bindings = self.artifact_manager.materialize_step_inputs(
+            session,
+            task=task,
+            plan_step=step,
+            consumer_workspace=workspace,
+        )
+        instructions = self._build_instructions(
+            session,
+            task=task,
+            step=step,
+            bindings=bindings,
+        )
+        assignment = Assignment(
+            assignment_id=self._assignment_id(task.task_id, step.step_key),
+            task_id=task.task_id,
+            assignment_key=f"plan_step:{step.step_key}",
+            assignment_kind=AssignmentKind.PLAN_STEP,
+            agent_role_key=step.role_key,
+            instructions=instructions,
+            acceptance_criteria=step.acceptance_criteria,
+            execution_id=self._execution_id(task.task_id, step.step_key),
+            plan_step_id=step.plan_step_id,
+            status=AssignmentStatus.SUBMITTED,
+        )
+        execution = RuntimeExecution(
+            execution_id=assignment.execution_id,
+            assignment_id=assignment.assignment_id,
+            provider=self.runtime_provider,
+            workspace_id=workspace.workspace_id,
+            status=RuntimeExecutionStatus.SUBMITTED,
+        )
+        session.add_all([assignment, execution])
+        session.flush()
+        step.status = PlanStepStatus.SUBMITTED
+        task.status = TaskStatus.RUNNING
+        task.updated_at = utc_now()
+        append_task_event(
+            session,
+            task=task,
+            event_type="assignment.created",
+            aggregate_type="assignment",
+            aggregate_id=assignment.assignment_id,
+            assignment_id=assignment.assignment_id,
+            source="langgraph",
+            payload={
+                "agent_role_key": step.role_key,
+                "plan_step_id": step.plan_step_id,
+                "step_key": step.step_key,
+                "step_kind": step.step_kind,
+                "status": assignment.status,
+            },
+        )
+        append_task_event(
+            session,
+            task=task,
+            event_type="runtime.execution_submitted",
+            aggregate_type="runtime_execution",
+            aggregate_id=execution.runtime_execution_id,
+            assignment_id=assignment.assignment_id,
+            runtime_execution_id=execution.runtime_execution_id,
+            source=f"runtime.{self.runtime_provider}",
+            payload={
+                "execution_id": execution.execution_id,
+                "provider": execution.provider,
+                "plan_step_id": step.plan_step_id,
+                "workspace_id": workspace.workspace_id,
+                "status": execution.status,
+            },
+        )
+        append_task_event(
+            session,
+            task=task,
+            event_type="plan.step_status_changed",
+            aggregate_type="plan_step",
+            aggregate_id=step.plan_step_id,
+            assignment_id=assignment.assignment_id,
+            source="langgraph",
+            payload={
+                "plan_step_id": step.plan_step_id,
+                "step_key": step.step_key,
+                "status": step.status,
+            },
+        )
+        return assignment
 
     def finalize_step(
         self,

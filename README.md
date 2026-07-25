@@ -2,7 +2,7 @@
 
 `mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
 
-The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting. M2.2 now adds immutable TaskExecutionPlans, strict-linear dependency scheduling, structured Artifact delivery, isolated input materialization, and plan/Artifact task responses.
+The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting. M2.2 now adds immutable TaskExecutionPlans, strict-linear dependency scheduling, structured Artifact delivery, isolated input materialization, and plan/Artifact task responses. M2.3 adds pure-parallel fan-out with complete Artifact joins, controlled Artifact content access, and Task-level usage aggregation; mixed serial-parallel plans remain intentionally deferred.
 
 ## Repository responsibilities
 
@@ -37,6 +37,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [System boundaries](docs/architecture/SYSTEM_BOUNDARIES.md)
 - [M0 API and event boundary](docs/architecture/API_EVENT_BOUNDARY.md)
 - [Task execution plans and Artifact handoff](docs/architecture/TASK_PLAN_ARTIFACT_HANDOFF.md)
+- [M2.3 parallel Artifact, result access, and Task usage plan](docs/architecture/M2_3_PARALLEL_ARTIFACT_ACCESS_USAGE.md)
 - [Frontend contract workflow](docs/collaboration/FRONTEND_CONTRACT_WORKFLOW.md)
 - [M3 frontend task packet](docs/collaboration/M3_FRONTEND_TASK_PACKET.md)
 - [Two-repository decision](docs/decisions/ADR-0001-two-repository-boundary.md)

@@ -1130,6 +1130,190 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/artifacts/{artifact_id}/content": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task Artifact Content",
+        "operationId": "get_task_artifact_content_api_v1_tasks__task_id__artifacts__artifact_id__content_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Download"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified immutable Artifact content.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/usage": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task Token Usage",
+        "operationId": "get_task_token_usage_api_v1_tasks__task_id__usage_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTokenUsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/retry": {
       "post": {
         "tags": [
@@ -1997,6 +2181,14 @@
               }
             ],
             "title": "Released At"
+          },
+          "content_url": {
+            "type": "string",
+            "title": "Content Url"
+          },
+          "download_url": {
+            "type": "string",
+            "title": "Download Url"
           }
         },
         "type": "object",
@@ -2019,7 +2211,9 @@
           "validation_summary",
           "supersedes_artifact_id",
           "created_at",
-          "released_at"
+          "released_at",
+          "content_url",
+          "download_url"
         ],
         "title": "ArtifactResponse"
       },
@@ -2128,6 +2322,159 @@
           "cancelled"
         ],
         "title": "AssignmentStatus"
+      },
+      "AssignmentTokenUsageResponse": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "title": "Assignment Id"
+          },
+          "assignment_key": {
+            "type": "string",
+            "title": "Assignment Key"
+          },
+          "assignment_kind": {
+            "type": "string",
+            "title": "Assignment Kind"
+          },
+          "agent_role_key": {
+            "type": "string",
+            "title": "Agent Role Key"
+          },
+          "runtime_execution_id": {
+            "type": "string",
+            "title": "Runtime Execution Id"
+          },
+          "execution_id": {
+            "type": "string",
+            "title": "Execution Id"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "actual_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Model"
+          },
+          "execution_status": {
+            "$ref": "#/components/schemas/RuntimeExecutionStatus"
+          },
+          "usage_status": {
+            "type": "string",
+            "title": "Usage Status"
+          },
+          "reserved_tokens": {
+            "type": "integer",
+            "title": "Reserved Tokens"
+          },
+          "charged_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charged Tokens"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "cached_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "reasoning_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Output Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "assignment_key",
+          "assignment_kind",
+          "agent_role_key",
+          "runtime_execution_id",
+          "execution_id",
+          "provider",
+          "requested_model",
+          "actual_model",
+          "execution_status",
+          "usage_status",
+          "reserved_tokens",
+          "charged_tokens",
+          "input_tokens",
+          "cached_input_tokens",
+          "output_tokens",
+          "reasoning_output_tokens",
+          "total_tokens"
+        ],
+        "title": "AssignmentTokenUsageResponse"
       },
       "ErrorEnvelope": {
         "properties": {
@@ -3472,6 +3819,82 @@
           "cancelled"
         ],
         "title": "TaskStatus"
+      },
+      "TaskTokenUsageResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "execution_count": {
+            "type": "integer",
+            "title": "Execution Count"
+          },
+          "reported_execution_count": {
+            "type": "integer",
+            "title": "Reported Execution Count"
+          },
+          "unavailable_execution_count": {
+            "type": "integer",
+            "title": "Unavailable Execution Count"
+          },
+          "pending_execution_count": {
+            "type": "integer",
+            "title": "Pending Execution Count"
+          },
+          "reserved_tokens": {
+            "type": "integer",
+            "title": "Reserved Tokens"
+          },
+          "charged_tokens": {
+            "type": "integer",
+            "title": "Charged Tokens"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "cached_input_tokens": {
+            "type": "integer",
+            "title": "Cached Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "reasoning_output_tokens": {
+            "type": "integer",
+            "title": "Reasoning Output Tokens"
+          },
+          "observed_total_tokens": {
+            "type": "integer",
+            "title": "Observed Total Tokens"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentTokenUsageResponse"
+            },
+            "type": "array",
+            "title": "Assignments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "execution_count",
+          "reported_execution_count",
+          "unavailable_execution_count",
+          "pending_execution_count",
+          "reserved_tokens",
+          "charged_tokens",
+          "input_tokens",
+          "cached_input_tokens",
+          "output_tokens",
+          "reasoning_output_tokens",
+          "observed_total_tokens",
+          "assignments"
+        ],
+        "title": "TaskTokenUsageResponse"
       },
       "UserResponse": {
         "properties": {

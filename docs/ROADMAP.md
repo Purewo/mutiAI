@@ -125,9 +125,23 @@ References:
 - [Task execution plans and Artifact handoff](architecture/TASK_PLAN_ARTIFACT_HANDOFF.md)
 - [M2.2 linear Artifact handoff acceptance](acceptance/M2_2_LINEAR_ARTIFACT_HANDOFF.md)
 
+## M2.3. Add parallel Artifact delivery and product result access
+
+Status: Completed on 2026-07-25. Ready for frontend integration.
+
+- Preserve strict-linear planned execution and add a pure parallel specialist fan-out followed by organization-lead review.
+- Validate that every parallel specialist publishes declared Artifacts and that lead review depends on every specialist and receives every released output.
+- Reject mixed serial-parallel plan shapes until a later milestone.
+- Preserve exact Artifact publication, materialization, recovery, retry, and event semantics across parallel branches.
+- Add an authenticated Artifact content endpoint for inline reads and downloads without exposing host filesystem paths.
+- Add Task-level token usage totals and per-Assignment breakdowns from the existing product-owned Runtime ledger.
+- Export the updated OpenAPI contract and pass mixed-DAG, access-control, integrity, usage, and regression gates.
+
+Reference: [M2.3 parallel Artifact, result access, and Task usage plan](architecture/M2_3_PARALLEL_ARTIFACT_ACCESS_USAGE.md).
+
 ## M3. Integrate the web frontend
 
-Status: Ready for frontend integration after the M2.2 linear Artifact handoff contract. M0 contracts, M1 APIs, and the M2 local Codex Runtime boundary are available. Frontend task visualization must consume plan and Artifact resources instead of the temporary all-specialist fan-out shape.
+Status: Ready for frontend integration. Frontend task visualization must consume plan, Artifact, and usage resources instead of the temporary unstructured fan-out shape.
 
 Gemini implements bounded frontend tasks against versioned contracts. The integration gate is:
 

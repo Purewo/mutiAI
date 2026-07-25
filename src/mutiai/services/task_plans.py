@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
@@ -50,12 +51,12 @@ def deterministic_dependency_id(
     return str(uuid5(NAMESPACE_URL, identity))
 
 
-def validate_strict_linear_plan(
+def validate_supported_plan_shape(
     *,
     plan_spec: TaskExecutionPlanSpec,
     organization_spec: OrganizationSpec,
-) -> None:
-    """Validate the M2.2 linear subset against a frozen organization version."""
+) -> Literal["linear", "parallel"]:
+    """Validate the supported linear or pure-parallel planned Task shape."""
 
     role_by_key = {role.role_key: role for role in organization_spec.roles}
     lead = next(role for role in organization_spec.roles if role.is_lead)
@@ -64,8 +65,8 @@ def validate_strict_linear_plan(
     if len(plan_spec.steps) < 2:
         raise ApiError(
             422,
-            "TASK_PLAN_LINEAR_SHAPE_REQUIRED",
-            "A linear plan requires at least one specialist step and lead review.",
+            "TASK_PLAN_SUPPORTED_SHAPE_REQUIRED",
+            "A plan requires at least one specialist step and lead review.",
         )
 
     for index, step in enumerate(plan_spec.steps):
@@ -80,17 +81,9 @@ def validate_strict_linear_plan(
             raise ApiError(
                 422,
                 "TASK_PLAN_ROLE_REUSED",
-                "M2.2 permits at most one plan step per role and Task.",
+                "M2.3 permits at most one plan step per role and Task.",
             )
         used_roles.add(step.role_key)
-
-        expected_dependencies = () if index == 0 else (plan_spec.steps[index - 1].step_key,)
-        if step.depends_on != expected_dependencies:
-            raise ApiError(
-                422,
-                "TASK_PLAN_LINEAR_SHAPE_REQUIRED",
-                f"Plan step '{step.step_key}' must depend only on the previous step.",
-            )
 
         is_final = index == len(plan_spec.steps) - 1
         if is_final:
@@ -113,6 +106,50 @@ def validate_strict_linear_plan(
                 "Every step before lead review must be owned by a non-lead specialist.",
             )
 
+    specialist_steps = plan_spec.steps[:-1]
+    review_step = plan_spec.steps[-1]
+    is_linear = all(
+        step.depends_on
+        == (() if index == 0 else (plan_spec.steps[index - 1].step_key,))
+        for index, step in enumerate(plan_spec.steps)
+    )
+    specialist_keys = {step.step_key for step in specialist_steps}
+    is_parallel = all(not step.depends_on for step in specialist_steps) and (
+        set(review_step.depends_on) == specialist_keys
+        and len(review_step.depends_on) == len(specialist_keys)
+    )
+    if not is_linear and not is_parallel:
+        raise ApiError(
+            422,
+            "TASK_PLAN_SUPPORTED_SHAPE_REQUIRED",
+            "The plan must be strictly linear or a pure specialist fan-out "
+            "followed by lead review; mixed serial-parallel plans are not supported.",
+        )
+
+    if is_parallel and not is_linear:
+        for step in specialist_steps:
+            if not step.output_contracts:
+                raise ApiError(
+                    422,
+                    "TASK_PLAN_PARALLEL_OUTPUT_REQUIRED",
+                    f"Parallel specialist step '{step.step_key}' must declare "
+                    "at least one output Artifact.",
+                )
+        specialist_outputs = {
+            contract.contract_key
+            for step in specialist_steps
+            for contract in step.output_contracts
+        }
+        if set(review_step.input_contracts) != specialist_outputs:
+            raise ApiError(
+                422,
+                "TASK_PLAN_PARALLEL_REVIEW_INPUTS_INCOMPLETE",
+                "Parallel lead review must declare every specialist output "
+                "Artifact contract as an input and no unrelated contracts.",
+            )
+        return "parallel"
+    return "linear"
+
 
 def create_task_execution_plan(
     session: Session,
@@ -122,7 +159,7 @@ def create_task_execution_plan(
     source: str,
     plan_version: int = 1,
 ) -> tuple[TaskExecutionPlan, bool]:
-    """Persist an immutable strict-linear plan, or return its exact replay."""
+    """Persist an immutable supported plan, or return its exact replay."""
 
     if not source or len(source) > 50:
         raise ValueError("Task plan source must contain 1 to 50 characters")
@@ -137,7 +174,7 @@ def create_task_execution_plan(
             "The Task organization version is unavailable.",
         )
     organization_spec = OrganizationSpec.model_validate(version.spec_payload)
-    validate_strict_linear_plan(
+    execution_shape = validate_supported_plan_shape(
         plan_spec=plan_spec,
         organization_spec=organization_spec,
     )
@@ -174,7 +211,11 @@ def create_task_execution_plan(
         source=source,
         status=TaskExecutionPlanStatus.VALIDATED,
         summary=plan_spec.summary,
-        validation_summary="Validated as a strict linear M2.2 plan.",
+        validation_summary=(
+            "Validated as a strict linear M2.3 plan."
+            if execution_shape == "linear"
+            else "Validated as a pure parallel M2.3 plan."
+        ),
         initial_input_contracts=list(plan_spec.initial_input_contracts),
     )
     session.add(plan)
@@ -198,10 +239,10 @@ def create_task_execution_plan(
             ],
             status=(
                 PlanStepStatus.READY
-                if sequence == 0
+                if not step_spec.depends_on
                 else PlanStepStatus.PENDING_DEPENDENCY
             ),
-            ready_at=utc_now() if sequence == 0 else None,
+            ready_at=utc_now() if not step_spec.depends_on else None,
         )
         session.add(step)
         step_by_key[step_spec.step_key] = step
@@ -234,24 +275,28 @@ def create_task_execution_plan(
             "definition_hash": plan.definition_hash,
             "status": plan.status,
             "step_count": len(plan_spec.steps),
+            "execution_shape": execution_shape,
         },
     )
-    first_step = step_by_key[plan_spec.steps[0].step_key]
-    append_task_event(
-        session,
-        task=task,
-        event_type="plan.step_ready",
-        aggregate_type="plan_step",
-        aggregate_id=first_step.plan_step_id,
-        source="product",
-        payload={
-            "plan_id": plan.plan_id,
-            "plan_step_id": first_step.plan_step_id,
-            "step_key": first_step.step_key,
-            "role_key": first_step.role_key,
-            "status": first_step.status,
-        },
-    )
+    for step_spec in plan_spec.steps:
+        if step_spec.depends_on:
+            continue
+        ready_step = step_by_key[step_spec.step_key]
+        append_task_event(
+            session,
+            task=task,
+            event_type="plan.step_ready",
+            aggregate_type="plan_step",
+            aggregate_id=ready_step.plan_step_id,
+            source="product",
+            payload={
+                "plan_id": plan.plan_id,
+                "plan_step_id": ready_step.plan_step_id,
+                "step_key": ready_step.step_key,
+                "role_key": ready_step.role_key,
+                "status": ready_step.status,
+            },
+        )
     session.commit()
     session.refresh(plan)
     return plan, True
