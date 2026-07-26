@@ -69,7 +69,7 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Verified starting point
 
-- Backend repository baseline: `205a845` (`fix: localize persisted assistant action failures`).
+- Backend repository baseline: `f4c521b` (`fix: deduplicate assistant actions per turn`).
 - Frontend repository baseline: `b898175` (`fix: make graphs and long identifiers usable on narrow screens`).
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
@@ -83,6 +83,7 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 - Runtime responses now expose persisted timing facts and derived queue, run, wall, dependency-wait, and active durations for bottleneck analysis.
 - `lead.review` now receives product-owned execution evidence for plan order, Assignment ownership, Artifact bindings, validation, and Runtime timing without undeclared upstream file contents.
 - The platform assistant now has a persisted Task-feasibility preview tool, owner-scoped Action list/read tools, and a controlled released JSON/text Artifact content reader capped at 64 KiB. It never receives arbitrary URLs, storage paths, Workspace IDs, or binary content through that reader.
+- Each assistant Turn can persist at most one Action. `task.submit` proposals are rejected before `proposed` unless they contain a matching organization target, request, capability requirements, and an owner-scoped feasible Task preview. If a Runtime repeats a shorter final Action after a successful proposal tool call, the first complete Action remains canonical.
 - Failed or terminal Assistant Actions can be proposed again with a new Action and idempotency identity; active duplicate proposals remain deduplicated.
 - Assistant Action failures persist stable codes, original status codes, and structured details. Action list, detail, and decision responses localize `error_message` for each reader's `Accept-Language`; existing English fallback records no longer force an English UI.
 - The first real browser invoice run (`d608a67b-0542-4004-bd4f-588b4d4b7f50`) validated the complete four-Artifact linear chain and workbook values but correctly returned `needs_revision` because the previous review packet lacked execution evidence. That historical Task remains unchanged as a regression record.
@@ -96,7 +97,7 @@ Fable5 first refreshes the frontend snapshot from the review-evidence/timing bac
 
 When verification exposes a defect, isolate the failing layer. Fable5 corrects frontend implementation and page behavior. The backend agent corrects backend behavior, contracts, fixtures, or persistence defects. Do not call M3 complete from fixture-only, typecheck-only, or backend-test-only evidence.
 
-The next assistant-specific acceptance must use the real platform-assistant conversation: preflight a Task through the feasibility tool before proposing `task.submit`, query a failed Action before creating a replacement, and read a small released JSON Artifact through the content tool. Compare every reported value with the product database and confirm that unsupported or oversized content is refused without guessing.
+The next assistant-specific acceptance must use the real platform-assistant conversation: preflight a Task through the feasibility tool before proposing `task.submit`, confirm that one Turn produces one complete Action even when the Runtime repeats a final envelope, query a failed Action before creating a replacement, and read a small released JSON Artifact through the content tool. Compare every reported value with the product database and confirm that unsupported or oversized content is refused without guessing.
 
 ## Next milestone and deferred scope
 
