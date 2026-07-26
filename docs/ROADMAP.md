@@ -1,4 +1,4 @@
-# mutiAI V1 implementation roadmap
+# Nexwork V1 implementation roadmap (`mutiAI` repository)
 
 Status: Active implementation plan. The milestones below are the working order for the first product vertical slice.
 
@@ -141,9 +141,9 @@ Reference: [M2.3 parallel Artifact, result access, and Task usage plan](architec
 
 ## M3. Integrate the web frontend
 
-Status: Ready for frontend integration. Frontend task visualization must consume plan, Artifact, and usage resources instead of the temporary unstructured fan-out shape.
+Status: Active frontend integration and real-backend verification. Frontend task visualization must consume plan, Artifact, and usage resources instead of the temporary unstructured fan-out shape.
 
-Gemini implements bounded frontend tasks against versioned contracts. The integration gate is:
+Fable5 owns frontend implementation, page acceptance, and real-backend browser verification. The backend side owns architecture, product behavior, authoritative contracts, fixtures, API defect resolution, and cross-layer integration support. The integration gate is:
 
 - Generated or reviewed TypeScript client.
 - Real backend integration.
@@ -153,7 +153,7 @@ Gemini implements bounded frontend tasks against versioned contracts. The integr
 
 The active frontend repository is `Purewo/mutiAI-aistdio-gemini`.
 
-The first bounded Gemini task is defined in [M3 frontend task packet](collaboration/M3_FRONTEND_TASK_PACKET.md) and targets backend contract commit `356ae35`.
+The active frontend scope is defined in [M3 frontend task packet](collaboration/M3_FRONTEND_TASK_PACKET.md). Read [current project status](CURRENT_STATUS.md) for the latest backend and frontend baselines and the immediate acceptance gate.
 
 ## M4. Add personal WeChat
 

@@ -1,10 +1,10 @@
-# V1 product definition
+# Nexwork V1 product definition (`mutiAI` repository)
 
 Status: Initial agreed boundary, before application implementation.
 
 ## Product goal
 
-mutiAI enables an individual user to design and operate persistent AI organizations through conversation. The platform assistant manages the user's organizations. Each organization has a mandatory organization lead that plans, delegates, checks, and summarizes work performed by existing specialist roles.
+Nexwork enables an individual user to design and operate persistent AI organizations through conversation. The repository and Python package retain the historical working name `mutiAI`. The platform assistant manages the user's organizations. Each organization has a mandatory organization lead that plans, delegates, checks, and summarizes work performed by existing specialist roles.
 
 The long-term product may become a low-code infinite-canvas organization editor. V1 validates conversational organization design and real task execution before building that editor.
 

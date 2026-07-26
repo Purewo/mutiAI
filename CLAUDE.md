@@ -1,8 +1,14 @@
-# mutiAI development rules
+# Nexwork development rules (`mutiAI` repository)
 
 ## Product intent
 
-mutiAI is a visual AI R&D organization system. A user talks to a platform assistant, designs organizations conversationally, publishes a confirmed organization definition, and sends work to an organization lead. Formal organization roles are persistent product entities backed by complete Codex Runtime sessions, not one-shot LLM function nodes.
+Nexwork is a visual AI R&D organization system. The repository and Python package retain the historical working name `mutiAI` until an explicit rename is planned. A user talks to a platform assistant, designs organizations conversationally, publishes a confirmed organization definition, and sends work to an organization lead. Formal organization roles are persistent product entities backed by complete Codex Runtime sessions, not one-shot LLM function nodes.
+
+## Current handoff
+
+- Read `docs/CURRENT_STATUS.md` before selecting or implementing work. It is the authoritative handoff for the active milestone, current ownership, verified baselines, next acceptance gate, and deliberately deferred scope.
+- Update `docs/CURRENT_STATUS.md` whenever the active milestone, owner, repository baseline, next gate, or deferred boundary changes.
+- Do not infer current priorities from an older chat summary, commit message, or milestone document when `docs/CURRENT_STATUS.md` states a newer handoff.
 
 ## Required architecture boundaries
 

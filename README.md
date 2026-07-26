@@ -1,6 +1,8 @@
-# mutiAI core
+# Nexwork core (`mutiAI` repository)
 
-`mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
+Nexwork is a visual AI R&D organization system. `mutiAI` remains the current repository and Python package name. This repository owns the product model, backend services, orchestration, Runtime adapters, and authoritative contracts.
+
+Before selecting work, read the [current project status](docs/CURRENT_STATUS.md). It records the active milestone, current ownership, verified repository baselines, immediate acceptance gate, and deliberately deferred scope.
 
 The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting. M2.2 now adds immutable TaskExecutionPlans, strict-linear dependency scheduling, structured Artifact delivery, isolated input materialization, and plan/Artifact task responses. M2.3 adds pure-parallel fan-out with complete Artifact joins, controlled Artifact content access, and Task-level usage aggregation; mixed serial-parallel plans remain intentionally deferred. The platform-assistant slice adds product-owned conversations, messages, Turns, confirmed Actions, resumable events, and a persistent Codex Thread with product-only dynamic tools.
 
@@ -18,7 +20,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 ## Current product boundary
 
 - The first-party user interface is a web application.
-- Personal WeChat is the first external messaging channel.
+- Personal WeChat is the first external messaging channel, but it is deferred to M4 until the M3 web flow is stable.
 - Each organization has exactly one mandatory organization lead.
 - The platform assistant manages all organizations owned by one user.
 - Organization design is conversational and preview-first. The first release has no drag-and-drop editor.
@@ -31,6 +33,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 
 ## Documentation
 
+- [Current project status and handoff](docs/CURRENT_STATUS.md)
 - [V1 implementation roadmap](docs/ROADMAP.md)
 - [V1 product definition](docs/product/V1_PRODUCT_DEFINITION.md)
 - [M0 domain model](docs/product/M0_DOMAIN_MODEL.md)
