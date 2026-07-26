@@ -22,7 +22,11 @@ from mutiai.api.schemas.organizations import (
     OrganizationSummaryResponse,
     OrganizationVersionResponse,
 )
-from mutiai.api.schemas.tasks import TaskResponse, TaskTokenUsageResponse
+from mutiai.api.schemas.tasks import (
+    TaskCreateRequest,
+    TaskResponse,
+    TaskTokenUsageResponse,
+)
 from mutiai.config import Settings
 from mutiai.domain import OrganizationSpec, WorkloadRequirements
 from mutiai.models import (
@@ -1011,6 +1015,7 @@ class PlatformAssistantService:
                         conversation.owner_user_id,
                     )
             except Exception as exc:  # noqa: BLE001 - normalize Runtime boundary
+                session.rollback()
                 if not self._closing.is_set():
                     self._fail_turn(session, conversation, turn, exc)
                 self._close_runtime_execution(turn.execution_id)
@@ -1040,7 +1045,12 @@ class PlatformAssistantService:
             conversation = session.get(AssistantConversation, conversation_id)
             if turn is None or conversation is None:
                 return
-            self._finish_turn(session, conversation, turn, completion.result)
+            try:
+                self._finish_turn(session, conversation, turn, completion.result)
+            except Exception as exc:  # noqa: BLE001 - normalize result boundary
+                session.rollback()
+                if not self._closing.is_set():
+                    self._fail_turn(session, conversation, turn, exc)
         self._close_runtime_execution(execution_id)
 
     def _finish_turn(
@@ -1770,10 +1780,46 @@ class PlatformAssistantService:
         owner_user_id: str,
         action_data: Mapping[str, Any],
     ) -> AssistantAction:
+        with self._lock:
+            return self._create_action_locked(
+                session,
+                conversation,
+                source_turn_id=source_turn_id,
+                owner_user_id=owner_user_id,
+                action_data=action_data,
+            )
+
+    def _create_action_locked(
+        self,
+        session: Session,
+        conversation: AssistantConversation | None,
+        *,
+        source_turn_id: str | None,
+        owner_user_id: str,
+        action_data: Mapping[str, Any],
+    ) -> AssistantAction:
         if conversation is None:
             raise ApiError(
                 409, "ASSISTANT_CONVERSATION_NOT_FOUND", "Conversation not found."
             )
+        if source_turn_id is not None:
+            existing_turn_action = session.scalar(
+                select(AssistantAction)
+                .where(
+                    AssistantAction.conversation_id == conversation.conversation_id,
+                    AssistantAction.owner_user_id == owner_user_id,
+                    AssistantAction.source_turn_id == source_turn_id,
+                )
+                .order_by(AssistantAction.proposed_at, AssistantAction.action_id)
+            )
+            if existing_turn_action is not None:
+                logger.warning(
+                    "Ignored an additional assistant Action from Turn %s; "
+                    "the Turn already owns Action %s.",
+                    source_turn_id,
+                    existing_turn_action.action_id,
+                )
+                return existing_turn_action
         payload = action_data.get("payload")
         if payload is None and isinstance(action_data.get("payload_json"), str):
             try:
@@ -1797,6 +1843,14 @@ class PlatformAssistantService:
                 "ASSISTANT_ACTION_INVALID",
                 "The assistant action type is invalid.",
             )
+        payload = self._validate_action_payload(
+            session,
+            action_type=action_type,
+            target_type=action_data.get("target_type"),
+            target_id=action_data.get("target_id"),
+            owner_user_id=owner_user_id,
+            payload=payload,
+        )
         canonical = json.dumps(
             {
                 "action_type": action_type,
@@ -1850,6 +1904,102 @@ class PlatformAssistantService:
             correlation_id=source_turn_id or action.action_id,
         )
         return action
+
+    @staticmethod
+    def _validate_action_payload(
+        session: Session,
+        *,
+        action_type: str,
+        target_type: Any,
+        target_id: Any,
+        owner_user_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if action_type != "task.submit":
+            return payload
+
+        organization_id = payload.get("organization_id")
+        request_text = payload.get("request")
+        feasibility_check_id = payload.get("feasibility_check_id")
+        if (
+            target_type != "organization"
+            or not isinstance(target_id, str)
+            or not target_id
+            or not isinstance(organization_id, str)
+            or organization_id != target_id
+            or not isinstance(request_text, str)
+            or not request_text.strip()
+            or "capability_requirements" not in payload
+            or not isinstance(feasibility_check_id, str)
+            or not feasibility_check_id
+        ):
+            raise ApiError(
+                422,
+                "ASSISTANT_ACTION_PAYLOAD_INVALID",
+                "The Task action requires a matching organization target, request, "
+                "capability requirements, and feasibility check.",
+            )
+
+        try:
+            task_request = TaskCreateRequest.model_validate(
+                {
+                    "request": request_text.strip(),
+                    "orchestration_mode": payload.get(
+                        "orchestration_mode", TaskOrchestrationMode.LEGACY
+                    ),
+                    "capability_requirements": payload["capability_requirements"],
+                }
+            )
+        except ValueError as exc:
+            raise ApiError(
+                422,
+                "ASSISTANT_ACTION_PAYLOAD_INVALID",
+                "The Task action payload is invalid.",
+            ) from exc
+
+        feasibility_check = session.scalar(
+            select(FeasibilityCheck).where(
+                FeasibilityCheck.feasibility_check_id == feasibility_check_id,
+                FeasibilityCheck.owner_user_id == owner_user_id,
+            )
+        )
+        if (
+            feasibility_check is None
+            or feasibility_check.target_type != "task_request"
+            or feasibility_check.phase != "assistant_task_preview"
+            or feasibility_check.outcome != "feasible"
+        ):
+            raise ApiError(
+                422,
+                "ASSISTANT_ACTION_PAYLOAD_INVALID",
+                "The Task action must reference a feasible Task preview owned by the user.",
+            )
+
+        required_inputs = payload.get("required_task_inputs", [])
+        if not isinstance(required_inputs, list) or any(
+            not isinstance(item, dict)
+            or any(
+                not isinstance(item.get(field), str) or not item[field].strip()
+                for field in ("contract_key", "file_name", "media_type")
+            )
+            for item in required_inputs
+        ):
+            raise ApiError(
+                422,
+                "ASSISTANT_ACTION_PAYLOAD_INVALID",
+                "The Task action input declarations are invalid.",
+            )
+
+        normalized = dict(payload)
+        normalized["organization_id"] = organization_id
+        normalized["request"] = task_request.request
+        normalized["orchestration_mode"] = task_request.orchestration_mode.value
+        normalized["capability_requirements"] = (
+            task_request.capability_requirements.model_dump(mode="json")
+        )
+        normalized["feasibility_check_id"] = feasibility_check_id
+        normalized["required_task_inputs"] = required_inputs
+        return normalized
 
     def _ensure_assistant_workspace(self, conversation: AssistantConversation) -> Path:
         path = self.workspace_manager.provision(

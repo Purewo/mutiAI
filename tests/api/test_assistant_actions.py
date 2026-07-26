@@ -124,6 +124,62 @@ def publish(client: TestClient, spec: dict) -> dict:
     return proposal
 
 
+def task_feasibility_preview(
+    app,
+    *,
+    conversation_id: str,
+    owner_user_id: str,
+    organization_id: str,
+    request: str,
+) -> str:
+    with app.state.database.session() as session:
+        preview = app.state.platform_assistant._call_product_tool(
+            session,
+            tool="mutiai_check_task_feasibility",
+            arguments={
+                "organization_id": organization_id,
+                "request": request,
+                "capability_requirements": {},
+            },
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            turn_id="task-preview-test",
+        )
+    return preview["feasibility_check"]["feasibility_check_id"]
+
+
+def create_source_turn(app, conversation_id: str, owner_user_id: str) -> str:
+    with app.state.database.session() as session:
+        conversation = session.get(AssistantConversation, conversation_id)
+        assert conversation is not None
+        conversation.last_message_sequence += 1
+        message = AssistantMessage(
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            sequence=conversation.last_message_sequence,
+            role="user",
+            status="accepted",
+            text_content="Propose one action",
+            content_blocks=[{"type": "text", "text": "Propose one action"}],
+            attachment_refs=[],
+            idempotency_key=f"source-message-{new_id()}",
+        )
+        session.add(message)
+        session.flush()
+        turn = AssistantTurn(
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            source_message_id=message.message_id,
+            execution_id=new_id(),
+            idempotency_key=f"source-turn-{new_id()}",
+            runtime_provider="codex",
+            status="completed",
+        )
+        session.add(turn)
+        session.commit()
+        return turn.turn_id
+
+
 def test_action_decline_is_terminal_and_idempotent(tmp_path) -> None:
     app = assistant_app(tmp_path)
     with TestClient(app) as client:
@@ -320,6 +376,14 @@ def test_task_submit_action_and_product_query_tools_use_persisted_truth(
         owner_user_id = login(client)
         conversation_id = create_conversation(client)
         proposal = publish(client, organization_spec())
+        request = "Write a concise text summary"
+        feasibility_check_id = task_feasibility_preview(
+            app,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            organization_id=proposal["organization_id"],
+            request=request,
+        )
         action_id = create_action(
             app,
             conversation_id,
@@ -330,9 +394,10 @@ def test_task_submit_action_and_product_query_tools_use_persisted_truth(
                 "target_id": proposal["organization_id"],
                 "payload": {
                     "organization_id": proposal["organization_id"],
-                    "request": "Write a concise text summary",
+                    "request": request,
                     "orchestration_mode": "legacy",
                     "capability_requirements": {},
+                    "feasibility_check_id": feasibility_check_id,
                 },
             },
         )
@@ -453,10 +518,10 @@ def test_failed_assistant_action_can_be_proposed_again_with_new_identity(tmp_pat
         owner_user_id = login(client)
         conversation_id = create_conversation(client)
         action_data = {
-            "action_type": "task.submit",
-            "target_type": "organization",
-            "target_id": "organization-1",
-            "payload": {"organization_id": "organization-1", "request": "same"},
+            "action_type": "task.cancel",
+            "target_type": "task",
+            "target_id": "task-1",
+            "payload": {"task_id": "task-1"},
         }
         with app.state.database.session() as session:
             conversation = session.get(AssistantConversation, conversation_id)
@@ -482,6 +547,136 @@ def test_failed_assistant_action_can_be_proposed_again_with_new_identity(tmp_pat
 
         assert second.action_id != first.action_id
         assert second.idempotency_key != first.idempotency_key
+
+
+def test_same_assistant_turn_keeps_first_complete_task_action(tmp_path) -> None:
+    app = assistant_app(tmp_path)
+    with TestClient(app) as client:
+        owner_user_id = login(client)
+        conversation_id = create_conversation(client)
+        proposal = publish(client, organization_spec())
+        request = "Analyze the uploaded Iris dataset"
+        feasibility_check_id = task_feasibility_preview(
+            app,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            organization_id=proposal["organization_id"],
+            request=request,
+        )
+        source_turn_id = create_source_turn(app, conversation_id, owner_user_id)
+        complete = {
+            "action_type": "task.submit",
+            "target_type": "organization",
+            "target_id": proposal["organization_id"],
+            "payload": {
+                "organization_id": proposal["organization_id"],
+                "request": request,
+                "orchestration_mode": "planned",
+                "capability_requirements": {},
+                "feasibility_check_id": feasibility_check_id,
+                "required_task_inputs": [
+                    {
+                        "contract_key": "iris_csv_raw",
+                        "file_name": "iris.csv",
+                        "media_type": "text/csv",
+                    }
+                ],
+            },
+        }
+        degraded_final_envelope = {
+            "action_type": "task.submit",
+            "target_type": "organization",
+            "target_id": proposal["organization_id"],
+            "payload": {
+                "organization_id": proposal["organization_id"],
+                "orchestration_mode": "planned",
+                "feasibility_check_id": feasibility_check_id,
+                "required_task_inputs": [
+                    {
+                        "contract_key": "iris_csv_raw",
+                        "file_name": "iris.csv",
+                        "media_type": "text/csv",
+                    }
+                ],
+            },
+        }
+
+        with app.state.database.session() as session:
+            conversation = session.get(AssistantConversation, conversation_id)
+            first = app.state.platform_assistant._create_action(
+                session,
+                conversation,
+                source_turn_id=source_turn_id,
+                owner_user_id=owner_user_id,
+                action_data=complete,
+            )
+            session.commit()
+            repeated = app.state.platform_assistant._create_action(
+                session,
+                conversation,
+                source_turn_id=source_turn_id,
+                owner_user_id=owner_user_id,
+                action_data=degraded_final_envelope,
+            )
+            session.commit()
+            actions = session.scalars(
+                select(AssistantAction).where(
+                    AssistantAction.source_turn_id == source_turn_id
+                )
+            ).all()
+            proposed_events = session.scalars(
+                select(AssistantEvent).where(
+                    AssistantEvent.correlation_id == source_turn_id,
+                    AssistantEvent.event_type == "assistant.action.proposed",
+                )
+            ).all()
+
+        assert repeated.action_id == first.action_id
+        assert len(actions) == 1
+        assert actions[0].payload["request"] == request
+        assert len(proposed_events) == 1
+
+
+def test_incomplete_task_action_cannot_enter_proposed_state(tmp_path) -> None:
+    app = assistant_app(tmp_path)
+    with TestClient(app) as client:
+        owner_user_id = login(client)
+        conversation_id = create_conversation(client)
+        proposal = publish(client, organization_spec())
+        feasibility_check_id = task_feasibility_preview(
+            app,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            organization_id=proposal["organization_id"],
+            request="Analyze the uploaded Iris dataset",
+        )
+
+        with pytest.raises(ApiError) as exc_info:
+            create_action(
+                app,
+                conversation_id,
+                owner_user_id,
+                {
+                    "action_type": "task.submit",
+                    "target_type": "organization",
+                    "target_id": proposal["organization_id"],
+                    "payload": {
+                        "organization_id": proposal["organization_id"],
+                        "orchestration_mode": "planned",
+                        "feasibility_check_id": feasibility_check_id,
+                        "required_task_inputs": [],
+                    },
+                },
+            )
+
+        assert exc_info.value.code == "ASSISTANT_ACTION_PAYLOAD_INVALID"
+        with app.state.database.session() as session:
+            actions = session.scalars(
+                select(AssistantAction).where(
+                    AssistantAction.conversation_id == conversation_id
+                )
+            ).all()
+        assert actions == []
 
 
 def test_assistant_reads_verified_released_json_artifact_content(tmp_path) -> None:
