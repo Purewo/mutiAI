@@ -69,7 +69,7 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Verified starting point
 
-- Backend repository baseline: `f4c521b` (`fix: deduplicate assistant actions per turn`).
+- Backend repository baseline: `e177fb3` (`feat: add assistant rich content and attachments`).
 - Frontend repository baseline: `b898175` (`fix: make graphs and long identifiers usable on narrow screens`).
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
