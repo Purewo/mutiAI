@@ -69,7 +69,7 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Verified starting point
 
-- Backend repository baseline: `bc591a7` (`fix: sanitize Runtime approval responses`).
+- Backend repository baseline: `b4ce096` (`feat: close platform assistant product read paths`).
 - Frontend repository baseline: `9a5d07b` (`feat: add task execution observation, Artifact access, and usage`).
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
@@ -82,8 +82,10 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 - Account self-service now exposes `PATCH /api/v1/auth/me` and `POST /api/v1/auth/password`. Password changes preserve the current browser session and revoke other active sessions.
 - Runtime responses now expose persisted timing facts and derived queue, run, wall, dependency-wait, and active durations for bottleneck analysis.
 - `lead.review` now receives product-owned execution evidence for plan order, Assignment ownership, Artifact bindings, validation, and Runtime timing without undeclared upstream file contents.
+- The platform assistant now has a persisted Task-feasibility preview tool, owner-scoped Action list/read tools, and a controlled released JSON/text Artifact content reader capped at 64 KiB. It never receives arbitrary URLs, storage paths, Workspace IDs, or binary content through that reader.
+- Failed or terminal Assistant Actions can be proposed again with a new Action and idempotency identity; active duplicate proposals remain deduplicated.
 - The first real browser invoice run (`d608a67b-0542-4004-bd4f-588b4d4b7f50`) validated the complete four-Artifact linear chain and workbook values but correctly returned `needs_revision` because the previous review packet lacked execution evidence. That historical Task remains unchanged as a regression record.
-- The full backend suite passes with `168 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the review-evidence and timing fix.
+- The full backend suite passes with `171 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the review-evidence, timing, and platform-assistant read-path fixes.
 
 Repository commits move after this handoff. Before relying on the two baseline hashes, compare them with each repository's current `HEAD` and read newer commit messages. The product boundaries and active M3 gate remain authoritative until this file is deliberately updated.
 
@@ -92,6 +94,8 @@ Repository commits move after this handoff. Before relying on the two baseline h
 Fable5 first refreshes the frontend snapshot from the review-evidence/timing backend baseline and displays the returned per-role timing fields. Then run a new real Codex invoice Task and confirm the same four-Artifact chain reaches `completed`, with the lead using product execution evidence rather than undeclared upstream files. After that, complete the remaining M3 browser acceptance with the loopback `wait-cancel`, `needs-revision`, and `approval` scenarios. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals and timing, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
 
 When verification exposes a defect, isolate the failing layer. Fable5 corrects frontend implementation and page behavior. The backend agent corrects backend behavior, contracts, fixtures, or persistence defects. Do not call M3 complete from fixture-only, typecheck-only, or backend-test-only evidence.
+
+The next assistant-specific acceptance must use the real platform-assistant conversation: preflight a Task through the feasibility tool before proposing `task.submit`, query a failed Action before creating a replacement, and read a small released JSON Artifact through the content tool. Compare every reported value with the product database and confirm that unsupported or oversized content is refused without guessing.
 
 ## Next milestone and deferred scope
 
