@@ -1,4 +1,7 @@
+import hashlib
+import json
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,12 +11,16 @@ from mutiai.api.errors import ApiError
 from mutiai.config import Settings
 from mutiai.main import create_app
 from mutiai.models import (
+    Artifact,
+    AssistantActionStatus,
     AssistantConversation,
     AssistantEvent,
     AssistantMessage,
     AssistantTurn,
+    Task,
 )
 from mutiai.models.base import new_id
+from mutiai.models.task_plan import ArtifactStatus
 from mutiai.runtime import FakeRuntimeAdapter
 
 
@@ -298,6 +305,184 @@ def test_task_submit_action_and_product_query_tools_use_persisted_truth(
         )
         assert task["task"]["task_id"] == task_id
         assert usage["usage"]["execution_count"] > 0
+
+
+def test_assistant_task_feasibility_preview_and_action_reads_are_scoped(
+    tmp_path,
+) -> None:
+    app = assistant_app(tmp_path)
+    with TestClient(app) as client:
+        owner_user_id = login(client)
+        conversation_id = create_conversation(client)
+        proposal = publish(client, organization_spec())
+
+        with app.state.database.session() as session:
+            preview = app.state.platform_assistant._call_product_tool(
+                session,
+                tool="mutiai_check_task_feasibility",
+                arguments={
+                    "organization_id": proposal["organization_id"],
+                    "request": "Write a concise text summary",
+                    "capability_requirements": {},
+                },
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                turn_id="preview-test",
+            )
+            assert preview["feasibility_check"]["outcome"] == "feasible"
+            assert preview["feasibility_check"]["phase"] == "assistant_task_preview"
+
+            action = app.state.platform_assistant._create_action(
+                session,
+                session.get(AssistantConversation, conversation_id),
+                source_turn_id=None,
+                owner_user_id=owner_user_id,
+                action_data={
+                    "action_type": "task.submit",
+                    "target_type": "organization",
+                    "target_id": proposal["organization_id"],
+                    "payload": {
+                        "organization_id": proposal["organization_id"],
+                        "request": "Write a concise text summary",
+                        "capability_requirements": {},
+                        "feasibility_check_id": preview["feasibility_check"][
+                            "feasibility_check_id"
+                        ],
+                    },
+                },
+            )
+            session.commit()
+            listed = app.state.platform_assistant._call_product_tool(
+                session,
+                tool="mutiai_list_actions",
+                arguments={"status": "proposed", "limit": 100},
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                turn_id="action-list-test",
+            )
+            fetched = app.state.platform_assistant._call_product_tool(
+                session,
+                tool="mutiai_get_action",
+                arguments={"action_id": action.action_id},
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                turn_id="action-get-test",
+            )
+
+        assert any(item["action_id"] == action.action_id for item in listed["actions"])
+        assert fetched["action"]["action_id"] == action.action_id
+        assert fetched["action"]["status"] == "proposed"
+
+
+def test_failed_assistant_action_can_be_proposed_again_with_new_identity(tmp_path) -> None:
+    app = assistant_app(tmp_path)
+    with TestClient(app) as client:
+        owner_user_id = login(client)
+        conversation_id = create_conversation(client)
+        action_data = {
+            "action_type": "task.submit",
+            "target_type": "organization",
+            "target_id": "organization-1",
+            "payload": {"organization_id": "organization-1", "request": "same"},
+        }
+        with app.state.database.session() as session:
+            conversation = session.get(AssistantConversation, conversation_id)
+            first = app.state.platform_assistant._create_action(
+                session,
+                conversation,
+                source_turn_id=None,
+                owner_user_id=owner_user_id,
+                action_data=action_data,
+            )
+            first.status = AssistantActionStatus.FAILED
+            first.error_code = "TEST_FAILURE"
+            session.commit()
+
+            second = app.state.platform_assistant._create_action(
+                session,
+                conversation,
+                source_turn_id=None,
+                owner_user_id=owner_user_id,
+                action_data=action_data,
+            )
+            session.commit()
+
+        assert second.action_id != first.action_id
+        assert second.idempotency_key != first.idempotency_key
+
+
+def test_assistant_reads_verified_released_json_artifact_content(tmp_path) -> None:
+    app = assistant_app(tmp_path)
+    with TestClient(app) as client:
+        owner_user_id = login(client)
+        conversation_id = create_conversation(client)
+        proposal = publish(client, organization_spec())
+        submitted = client.post(
+            f"/api/v1/organizations/{proposal['organization_id']}/tasks",
+            headers={"Idempotency-Key": "assistant-artifact-content-task"},
+            json={"request": "Create a result for assistant content reading."},
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+        content_payload = {"duplicate_rows": 1, "sepal_length_mean": 5.8433}
+        content = json.dumps(content_payload, separators=(",", ":")).encode()
+
+        with app.state.database.session() as session:
+            task = session.get(Task, task_id)
+            assert task is not None
+            artifact_id = "assistant-artifact-content"
+            relative_path = (
+                Path("users")
+                / task.owner_user_id
+                / "organizations"
+                / task.organization_id
+                / "tasks"
+                / task.task_id
+                / "artifacts"
+                / artifact_id
+                / "quality.json"
+            )
+            parent = app.state.workspace_manager.provision(relative_path.parent)
+            (parent / "quality.json").write_bytes(content)
+            session.add(
+                Artifact(
+                    artifact_id=artifact_id,
+                    task_id=task.task_id,
+                    origin="task_input",
+                    source_delivery_id="assistant-content-delivery",
+                    producer_assignment_id=None,
+                    producer_plan_step_id=None,
+                    source_workspace_id=None,
+                    contract_key="iris.quality.v1",
+                    schema_version="1.0",
+                    artifact_version=1,
+                    media_type="application/json",
+                    file_name="quality.json",
+                    source_relative_path="quality.json",
+                    storage_relative_path=relative_path.as_posix(),
+                    sha256=hashlib.sha256(content).hexdigest(),
+                    byte_size=len(content),
+                    status=ArtifactStatus.RELEASED,
+                    validation_summary="Validated test JSON.",
+                )
+            )
+            session.commit()
+
+            result = app.state.platform_assistant._call_product_tool(
+                session,
+                tool="mutiai_get_artifact_content",
+                arguments={"task_id": task_id, "artifact_id": artifact_id},
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                turn_id="artifact-content-test",
+            )
+
+        assert result["content"] == content_payload
+        assert result["content_format"] == "json"
+        assert result["complete"] is True
+        assert result["artifact"]["sha256"] == hashlib.sha256(content).hexdigest()
+        assert "storage_relative_path" not in result["artifact"]
+        assert "source_workspace_id" not in result["artifact"]
 
 
 def test_action_type_whitelist_rejects_unknown_mutation(tmp_path) -> None:

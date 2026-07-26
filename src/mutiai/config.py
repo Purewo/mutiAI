@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     assistant_reasoning_effort: str | None = Field(default=None, max_length=32)
     assistant_thread_max_compactions: int | None = Field(default=None, ge=1)
     assistant_tool_contract_version: str = Field(
-        default="1.0", min_length=1, max_length=20
+        default="1.1", min_length=1, max_length=20
     )
     bootstrap_admin_enabled: bool = True
     bootstrap_admin_username: str = "admin"

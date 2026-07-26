@@ -11,6 +11,8 @@ The Runtime bridge exposes product capabilities. Exact transport names may chang
 - `mutiai_list_tasks` and `mutiai_get_task` read persisted Task, Assignment, plan, and Artifact metadata.
 - `mutiai_get_task_usage` reads persisted Task and Assignment token usage.
 - `mutiai_get_feasibility_check` and `mutiai_list_version_feasibility_checks` read persisted feasibility evidence.
+- `mutiai_list_actions` and `mutiai_get_action` read owner-scoped Actions from the current assistant conversation.
+- `mutiai_get_artifact_content` reads a released UTF-8 JSON or text Artifact up to 64 KiB through product validation. It refuses larger or binary content instead of truncating it, and never accepts a URL, filesystem path, or workspace path.
 
 Read operations do not require a proposed-action confirmation. They remain owner-scoped.
 
@@ -19,6 +21,7 @@ Read operations do not require a proposed-action confirmation. They remain owner
 - `mutiai_propose_organization` creates an OrganizationSpec proposal.
 - Create a revised proposal from an existing version.
 - `mutiai_propose_action` creates a proposed product action for a later state transition.
+- `mutiai_check_task_feasibility` evaluates and persists a Task feasibility preview without creating a Task, consuming Runtime capacity, or authorizing a later submission.
 
 Draft operations may persist a proposal or action record, but they do not publish a version or start external Runtime work.
 
@@ -37,6 +40,10 @@ The backend performs and persists a fresh feasibility check during organization
 confirmation/publication and Task submission. Do not manufacture a check
 identity, claim that an earlier preview still authorizes execution, or
 substitute conversational approval for a feasible result.
+
+If a confirmed Action fails, query the failed Action and current target state before
+deciding whether to propose a replacement. A replacement is a new Action and must
+be confirmed again; the failed Action remains immutable.
 
 ## Required response handling
 

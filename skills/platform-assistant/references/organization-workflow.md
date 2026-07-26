@@ -14,13 +14,17 @@
 ## Send work to an organization
 
 1. Read the current published OrganizationSpec and identify the requested organization.
-2. Normalize the Task's workload requirements and run the product feasibility validator against every affected role and current capability profile.
+2. Normalize the Task's workload requirements and call the product Task feasibility preview tool against every affected role and current capability profile.
 3. For a blocked or unknown result, explain the mismatch and alternatives without creating a Runtime-consuming action.
 4. Create a proposed Task action only for a feasible request. Preserve the user's request, selected organization, requirement summary, and feasibility check identity.
 5. Require confirmation before submitting work that can consume Runtime capacity or tokens.
 6. Submit through the Task service with its stable idempotency identity. The Task service revalidates immediately before Runtime start.
 7. Let the organization lead plan, delegate to existing roles, review, and summarize.
 8. Query Task, Assignment, approval, Artifact, and usage resources for progress and results.
+
+If an Action fails or becomes stale, read the Action and current target resource
+before proposing a replacement. Create a new Action and wait for a new confirmation;
+never retry the failed Action in place.
 
 ## Change an organization during active work
 

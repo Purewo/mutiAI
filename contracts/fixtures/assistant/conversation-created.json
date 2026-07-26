@@ -4,7 +4,7 @@
   "runtime_provider": "fake",
   "runtime_thread_generation": 0,
   "observed_compactions": 0,
-  "tool_contract_version": "1.0",
+  "tool_contract_version": "1.1",
   "system_prompt_version": "6e435505180667559e587f60f29c5fa1b4f4f8812f37523104b3947c05c79a0e",
   "last_message_sequence": 0,
   "last_event_sequence": 1,

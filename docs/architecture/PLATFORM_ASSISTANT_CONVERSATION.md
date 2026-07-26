@@ -186,10 +186,18 @@ Platform-assistant Threads:
 - Do not receive shell, filesystem, Git, terminal, or raw database authority.
 
 The current product-tool bridge can list and read organizations, read a
-published OrganizationSpec version, create proposal drafts, propose confirmed
-actions, list and read Tasks, read Task token usage, and read feasibility
-checks. Organization confirmation/publication, Task submission/retry/cancel,
-and approval decisions remain explicit `AssistantAction` mutations.
+published OrganizationSpec version, create proposal drafts, check Task
+feasibility, propose confirmed actions, list and read Actions and Tasks, read
+released JSON or text Artifact content up to 64 KiB, read Task token usage, and read
+feasibility checks. Organization confirmation/publication, Task
+submission/retry/cancel, and approval decisions remain explicit
+`AssistantAction` mutations.
+
+The Artifact content tool accepts only Task and Artifact identities. It reuses
+the product's owner scope, released-state, managed-root, byte-size, and SHA-256
+verification. It returns no storage path or Workspace identity, refuses binary
+and oversized content without partial truncation, and leaves those files on the
+controlled download path.
 
 The canonical feasibility policy is sourced from `skills/platform-assistant/references/system-prompt.md` and the detailed rules in `skills/platform-assistant/references/feasibility-rules.md`. The Runtime adapter injects the policy for every Thread generation and records the policy version or hash on each AssistantTurn. Deployment must not rely on a compressed Thread summary to preserve this law.
 

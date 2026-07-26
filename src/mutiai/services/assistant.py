@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from mutiai.api.errors import ApiError
+from mutiai.api.schemas.assistant import AssistantActionResponse
 from mutiai.api.schemas.feasibility import FeasibilityCheckResponse
 from mutiai.api.schemas.organizations import (
     OrganizationSummaryResponse,
@@ -24,6 +25,7 @@ from mutiai.api.schemas.tasks import TaskResponse, TaskTokenUsageResponse
 from mutiai.config import Settings
 from mutiai.domain import OrganizationSpec, WorkloadRequirements
 from mutiai.models import (
+    Artifact,
     Assignment,
     AssistantAction,
     AssistantActionStatus,
@@ -53,6 +55,7 @@ from mutiai.runtime import (
     WorkspaceManager,
 )
 from mutiai.services.approvals import RuntimeApprovalCoordinator
+from mutiai.services.artifacts import ArtifactError, ArtifactManager
 from mutiai.services.organizations import create_proposal, get_owned_organization
 from mutiai.services.tasks import create_task, get_owned_task
 
@@ -65,6 +68,7 @@ SYSTEM_PROMPT_PATH = (
 )
 SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 SYSTEM_PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
+ASSISTANT_ARTIFACT_CONTENT_MAX_BYTES = 64 * 1024
 
 ASSISTANT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -191,6 +195,61 @@ ASSISTANT_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         },
     ),
     _tool(
+        "mutiai_list_actions",
+        "Read recent product actions from the current assistant conversation.",
+        {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": ["string", "null"],
+                    "enum": [
+                        "proposed",
+                        "confirmed",
+                        "executing",
+                        "completed",
+                        "failed",
+                        "declined",
+                        "cancelled",
+                        "expired",
+                        "superseded",
+                        None,
+                    ],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "required": ["status", "limit"],
+            "additionalProperties": False,
+        },
+    ),
+    _tool(
+        "mutiai_get_action",
+        "Read one product action from the current assistant conversation.",
+        {
+            "type": "object",
+            "properties": {"action_id": {"type": "string"}},
+            "required": ["action_id"],
+            "additionalProperties": False,
+        },
+    ),
+    _tool(
+        "mutiai_check_task_feasibility",
+        "Run and persist a Task feasibility preview without creating a Task or action.",
+        {
+            "type": "object",
+            "properties": {
+                "organization_id": {"type": "string"},
+                "request": {"type": "string", "minLength": 1, "maxLength": 10000},
+                "capability_requirements": WorkloadRequirements.model_json_schema(),
+            },
+            "required": [
+                "organization_id",
+                "request",
+                "capability_requirements",
+            ],
+            "additionalProperties": False,
+        },
+    ),
+    _tool(
         "mutiai_list_tasks",
         "Read the user's recent product Tasks and their persisted statuses.",
         {
@@ -207,6 +266,19 @@ ASSISTANT_DYNAMIC_TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"task_id": {"type": "string"}},
             "required": ["task_id"],
+            "additionalProperties": False,
+        },
+    ),
+    _tool(
+        "mutiai_get_artifact_content",
+        "Read one small released UTF-8 JSON or text Artifact through product access controls.",
+        {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string"},
+                "artifact_id": {"type": "string"},
+            },
+            "required": ["task_id", "artifact_id"],
             "additionalProperties": False,
         },
     ),
@@ -1166,6 +1238,114 @@ class PlatformAssistantService:
             )
             session.commit()
             return {"action": {"action_id": action.action_id, "status": action.status}}
+        if tool == "mutiai_list_actions":
+            limit = arguments.get("limit", 20)
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+                raise ApiError(
+                    422,
+                    "ASSISTANT_TOOL_ARGUMENT_INVALID",
+                    "The action list limit must be between 1 and 100.",
+                )
+            query = select(AssistantAction).where(
+                AssistantAction.owner_user_id == owner_user_id,
+                AssistantAction.conversation_id == conversation_id,
+            )
+            status = arguments.get("status")
+            if status is not None:
+                try:
+                    normalized_status = AssistantActionStatus(str(status))
+                except ValueError as exc:
+                    raise ApiError(
+                        422,
+                        "ASSISTANT_TOOL_ARGUMENT_INVALID",
+                        "The requested action status is invalid.",
+                    ) from exc
+                query = query.where(AssistantAction.status == normalized_status)
+            rows = session.scalars(
+                query.order_by(
+                    AssistantAction.proposed_at.desc(),
+                    AssistantAction.action_id.desc(),
+                ).limit(limit)
+            ).all()
+            return {
+                "actions": [
+                    AssistantActionResponse.from_record(row).model_dump(mode="json")
+                    for row in rows
+                ]
+            }
+        if tool == "mutiai_get_action":
+            action = session.scalar(
+                select(AssistantAction).where(
+                    AssistantAction.action_id == str(arguments.get("action_id", "")),
+                    AssistantAction.owner_user_id == owner_user_id,
+                    AssistantAction.conversation_id == conversation_id,
+                )
+            )
+            if action is None:
+                raise ApiError(
+                    404,
+                    "ASSISTANT_ACTION_NOT_FOUND",
+                    "Assistant action not found.",
+                )
+            return {
+                "action": AssistantActionResponse.from_record(action).model_dump(
+                    mode="json"
+                )
+            }
+        if tool == "mutiai_check_task_feasibility":
+            organization = get_owned_organization(
+                session,
+                organization_id=str(arguments.get("organization_id", "")),
+                owner_user_id=owner_user_id,
+            )
+            if organization.current_published_version_id is None:
+                raise ApiError(
+                    409,
+                    "ORGANIZATION_NOT_PUBLISHED",
+                    "Publish an organization version before checking Task feasibility.",
+                )
+            version = session.get(
+                OrganizationSpecVersion,
+                organization.current_published_version_id,
+            )
+            if version is None:
+                raise ApiError(
+                    409,
+                    "ORGANIZATION_VERSION_MISSING",
+                    "The organization version is unavailable.",
+                )
+            request_text = arguments.get("request")
+            if not isinstance(request_text, str) or not request_text.strip():
+                raise ApiError(
+                    422,
+                    "ASSISTANT_TOOL_ARGUMENT_INVALID",
+                    "The Task request is missing.",
+                )
+            try:
+                requirements = WorkloadRequirements.model_validate(
+                    arguments.get("capability_requirements") or {}
+                )
+            except ValueError as exc:
+                raise ApiError(
+                    422,
+                    "ASSISTANT_TOOL_ARGUMENT_INVALID",
+                    "The Task capability requirements are invalid.",
+                ) from exc
+            check = self.orchestrator.feasibility.evaluate_task_request(
+                session,
+                owner_user_id=owner_user_id,
+                spec=OrganizationSpec.model_validate(version.spec_payload),
+                request_text=request_text,
+                explicit_requirements=requirements,
+                target_id=new_id(),
+                phase="assistant_task_preview",
+            )
+            session.commit()
+            return {
+                "feasibility_check": FeasibilityCheckResponse.from_record(
+                    check, locale="zh-CN"
+                ).model_dump(mode="json")
+            }
         if tool == "mutiai_list_tasks":
             query = select(Task).where(Task.owner_user_id == owner_user_id)
             organization_id = arguments.get("organization_id")
@@ -1187,6 +1367,73 @@ class PlatformAssistantService:
                 owner_user_id=owner_user_id,
             )
             return {"task": TaskResponse.from_record(task).model_dump(mode="json")}
+        if tool == "mutiai_get_artifact_content":
+            task_id = str(arguments.get("task_id", ""))
+            artifact_id = str(arguments.get("artifact_id", ""))
+            get_owned_task(session, task_id=task_id, owner_user_id=owner_user_id)
+            artifact = session.scalar(
+                select(Artifact).where(
+                    Artifact.artifact_id == artifact_id,
+                    Artifact.task_id == task_id,
+                )
+            )
+            if artifact is None:
+                raise ApiError(404, "ARTIFACT_NOT_FOUND", "Artifact not found.")
+            media_type = artifact.media_type.partition(";")[0].strip().casefold()
+            if media_type != "application/json" and not media_type.startswith("text/"):
+                raise ApiError(
+                    415,
+                    "ASSISTANT_ARTIFACT_MEDIA_UNSUPPORTED",
+                    "The platform assistant can read only released UTF-8 JSON or text Artifacts.",
+                )
+            if artifact.byte_size > ASSISTANT_ARTIFACT_CONTENT_MAX_BYTES:
+                raise ApiError(
+                    413,
+                    "ASSISTANT_ARTIFACT_CONTENT_TOO_LARGE",
+                    "The Artifact is too large for the platform assistant content reader.",
+                    details={
+                        "artifact_id": artifact.artifact_id,
+                        "byte_size": artifact.byte_size,
+                        "max_bytes": ASSISTANT_ARTIFACT_CONTENT_MAX_BYTES,
+                    },
+                )
+            try:
+                path = ArtifactManager(self.workspace_manager).resolve_stored_file(
+                    artifact
+                )
+                content_text = path.read_text(encoding="utf-8")
+                content: Any = (
+                    json.loads(content_text)
+                    if media_type == "application/json"
+                    else content_text
+                )
+            except ArtifactError as exc:
+                raise ApiError(409, exc.code, str(exc)) from exc
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ApiError(
+                    409,
+                    "ASSISTANT_ARTIFACT_CONTENT_INVALID",
+                    "The released Artifact content could not be read safely.",
+                ) from exc
+            return {
+                "artifact": {
+                    "artifact_id": artifact.artifact_id,
+                    "task_id": artifact.task_id,
+                    "contract_key": artifact.contract_key,
+                    "schema_version": artifact.schema_version,
+                    "artifact_version": artifact.artifact_version,
+                    "media_type": artifact.media_type,
+                    "file_name": artifact.file_name,
+                    "sha256": artifact.sha256,
+                    "byte_size": artifact.byte_size,
+                    "status": artifact.status,
+                },
+                "content_format": (
+                    "json" if media_type == "application/json" else "text"
+                ),
+                "content": content,
+                "complete": True,
+            }
         if tool == "mutiai_get_task_usage":
             task_id = str(arguments.get("task_id", ""))
             get_owned_task(session, task_id=task_id, owner_user_id=owner_user_id)
@@ -1559,14 +1806,15 @@ class PlatformAssistantService:
                         AssistantActionStatus.PROPOSED,
                         AssistantActionStatus.CONFIRMED,
                         AssistantActionStatus.EXECUTING,
-                        AssistantActionStatus.COMPLETED,
                     ]
                 ),
             )
         )
         if existing is not None:
             return existing
+        action_id = new_id()
         action = AssistantAction(
+            action_id=action_id,
             conversation_id=conversation.conversation_id,
             owner_user_id=owner_user_id,
             source_turn_id=source_turn_id,
@@ -1575,7 +1823,7 @@ class PlatformAssistantService:
             target_id=action_data.get("target_id"),
             payload=payload,
             payload_hash=payload_hash,
-            idempotency_key=f"assistant-action:{payload_hash}",
+            idempotency_key=f"assistant-action:{action_id}:{payload_hash}",
             status=AssistantActionStatus.PROPOSED,
         )
         session.add(action)
