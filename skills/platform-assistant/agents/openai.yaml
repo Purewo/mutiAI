@@ -1,0 +1,4 @@
+interface:
+  display_name: "Platform Assistant"
+  short_description: "Manage mutiAI organizations safely"
+  default_prompt: "Use $platform-assistant to manage my organizations and tasks through approved product actions."
