@@ -6,6 +6,7 @@
 | --- | --- |
 | User-visible conversations and messages | Product database |
 | Organizations, versions, roles, tasks, permissions, costs, and Artifacts | Product database |
+| Declared Runtime capabilities and feasibility check records | Product database |
 | Durable workflow position, routing, and waits | Replaceable orchestration layer |
 | Runtime reasoning, private context, commands, and tool activity | Codex Thread |
 | Code, files, commits, and tests | Managed workspace and Git |
@@ -17,6 +18,8 @@ The platform assistant operates above organizations. It is not an organization r
 The product stores user-visible messages, Runtime identifiers, selected summaries, action records, and event positions. It does not copy the complete Codex transcript or hidden tool activity.
 
 Query product state before reporting a mutable fact. Thread context can help interpret the user, but it cannot prove that an organization was published, a Task started, or an approval was resolved.
+
+Runtime capability claims follow the same rule. Read the current product-owned capability profile and feasibility check. Do not infer host resources from a provider, model, workspace path, or earlier successful Task.
 
 ## Runtime isolation
 

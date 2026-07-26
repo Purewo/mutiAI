@@ -50,6 +50,15 @@ mutiAI is a visual AI R&D organization system. A user talks to a platform assist
 - Use configuration and cross-platform path APIs in the core.
 - Validate the first complete Runtime vertical slice on Linux before production hardening.
 
+## Runtime feasibility laws
+
+- The platform assistant must validate every proposed organization and Task against product-owned Runtime capability profiles. Prompt text alone is not enforcement.
+- Runtime capabilities include OS, architecture, headless or GUI availability, CPU and memory capacity, GPU and accelerators, installed tools, network policy, external services or hardware, supported media, and workload limits.
+- Treat unknown capability as unsupported for required, platform-specific, GUI, hardware, proprietary-software, or resource-intensive work.
+- Block Windows-only work on Linux, GUI work on headless hosts, GPU-required work without a declared suitable GPU, and heavy media, rendering, or training without explicit capacity evidence.
+- A user confirmation cannot override a blocked or capability-unknown result. Offer a feasible binding, smaller workload, external service, headless or cross-platform tool, or manual alternative.
+- Enforce feasibility deterministically before OrganizationSpec confirmation/publication, Task submission, and Runtime start. Persist the profile revision, requirements, validator version, findings, and result.
+
 ## Security and quality
 
 - Development credentials belong in ignored local environment files, never committed source.

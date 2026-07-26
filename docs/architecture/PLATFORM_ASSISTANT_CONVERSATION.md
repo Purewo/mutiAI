@@ -8,6 +8,8 @@ The platform assistant is the user's system-level entry point for designing orga
 
 The product owns the conversation system. Codex supplies reasoning and tool use through an AssistantRuntimeAdapter.
 
+Feasibility is a product law, not a prompt suggestion. The platform assistant must never publish an organization or start work that the selected Runtime cannot execute. The product therefore combines a canonical system prompt, versioned Runtime capability profiles, and a deterministic validator. The prompt explains the rule to the assistant; the validator enforces it for every caller.
+
 ## Component flow
 
 ```text
@@ -43,9 +45,28 @@ LangGraph is not required for every chat turn. A simple query reads product stat
 | Durable action workflow and waits | Product service or replaceable orchestration layer |
 | Organization, Task, approval, Artifact, and usage truth | Product database |
 
+The product also owns Runtime capability profiles and feasibility checks. A profile describes the declared execution environment, while a check records the requirements evaluated against a particular profile revision. Codex Thread memory cannot establish or extend either record.
+
 The product stores public conversation history because the web application and future channels must display the same messages. It does not copy Codex's complete internal transcript.
 
 ## Domain resources
+
+### RuntimeCapabilityProfile and FeasibilityCheck
+
+`RuntimeCapabilityProfile` is a versioned product record selected by a `RuntimeBinding`. It describes the capabilities that the binding is allowed to claim: operating-system family and architecture, headless or GUI availability, CPU and memory capacity class, GPU and accelerator support, installed tools and runtimes, network policy, external hardware or proprietary software, supported media, and workload limits. Unknown values remain unknown. The model must not assume that a local development host has the same capabilities as a production Linux Runtime.
+
+`FeasibilityCheck` is an immutable product record containing the normalized workload requirements, affected role and binding identities, profile revision, validator version, input hashes, outcome, and findings. Its outcome is one of `feasible`, `conditional`, `blocked`, or `capability_unknown`. Only `feasible` permits the relevant state transition. Conditional, blocked, and capability-unknown results remain visible for preview and explanation but cannot be overridden by a user confirmation.
+
+The initial capability dimensions are deliberately provider-neutral. They must be sufficient to reject Windows-only work on Linux, GUI work on headless hosts, GPU-dependent work without a declared GPU, heavy media/rendering/training without an explicit capacity profile, and work requiring undeclared tools, services, hardware, network, or media formats. The validator may use a policy catalog for known workload classes, but it must fail closed when required evidence is absent.
+
+The same check is required at four boundaries:
+
+1. Proposal creation, to show feasibility findings in preview.
+2. Confirmation and publication, to prevent an infeasible OrganizationSpec from becoming active.
+3. Task submission, against the current published spec and current binding profile.
+4. Runtime start, to catch profile drift, revoked tools, or changed resource limits.
+
+If a check is reused, its input hashes and profile revisions must still match. A successful earlier check is not proof after the binding changes.
 
 ### AssistantConversation
 
@@ -153,6 +174,8 @@ Platform-assistant Threads:
 - Receive only product-owned tools needed by the platform assistant.
 - Do not receive shell, filesystem, Git, terminal, or raw database authority.
 
+The canonical feasibility policy is sourced from `skills/platform-assistant/references/system-prompt.md` and the detailed rules in `skills/platform-assistant/references/feasibility-rules.md`. The Runtime adapter injects the policy for every Thread generation and records the policy version or hash on each AssistantTurn. Deployment must not rely on a compressed Thread summary to preserve this law.
+
 The product creates a new Thread generation when the previous Thread is unavailable, exceeds the configured compaction policy, or becomes incompatible with the current prompt or tool-contract version. Rotation carries forward only product-owned messages, selected summary, and current resource references.
 
 ## Skill packaging
@@ -172,6 +195,7 @@ Before real Runtime integration is complete, the frontend may use contract-shape
 - Proposed action awaiting confirmation.
 - Accepted, declined, stale, completed, and failed actions.
 - SSE reconnect and duplicate-event handling.
+- Feasibility preview marked feasible, conditional, blocked, or capability unknown, including the affected role, binding, reason, profile evidence, and suggested alternative.
 
 UI mocks must remain visibly separate from captured backend Fixtures. Real Fixtures are generated only after the implemented API returns validated responses.
 
@@ -183,3 +207,5 @@ UI mocks must remain visibly separate from captured backend Fixtures. Real Fixtu
 - Using one Thread for the platform assistant and organization roles.
 - Routing every chat message through LangGraph.
 - Allowing conversational text alone to bypass explicit product confirmation.
+- Treating a model provider or Codex Thread as evidence of host capabilities.
+- Allowing a user confirmation to override a known or unknown hard feasibility failure.
