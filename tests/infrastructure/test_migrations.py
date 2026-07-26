@@ -34,6 +34,11 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "alembic_version",
         "browser_sessions",
         "assignments",
+        "assistant_actions",
+        "assistant_conversations",
+        "assistant_events",
+        "assistant_messages",
+        "assistant_turns",
         "artifact_input_bindings",
         "artifacts",
         "approval_requests",
@@ -74,4 +79,4 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "last_compacted_at",
         "last_delivery_summary",
     } <= workspace_columns
-    assert revision == "20260726_0011"
+    assert revision == "07468d4d9da8"

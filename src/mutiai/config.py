@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     )
     codex_model: str | None = None
     codex_reasoning_effort: str | None = Field(default=None, max_length=32)
+    assistant_runtime_provider: Literal["inherit", "fake", "codex"] = "inherit"
+    assistant_model: str | None = Field(default=None, max_length=100)
+    assistant_reasoning_effort: str | None = Field(default=None, max_length=32)
+    assistant_thread_max_compactions: int | None = Field(default=None, ge=1)
+    assistant_tool_contract_version: str = Field(
+        default="1.0", min_length=1, max_length=20
+    )
     bootstrap_admin_enabled: bool = True
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: SecretStr = SecretStr("change-me-before-network-access")
@@ -86,9 +93,7 @@ class Settings(BaseSettings):
             self.runtime_security_mode == "demo_full_access"
             and self.app_host not in loopback_hosts
         ):
-            raise ValueError(
-                "demo Full Access requires APP_HOST to remain on loopback"
-            )
+            raise ValueError("demo Full Access requires APP_HOST to remain on loopback")
         budget_values = (
             self.runtime_token_budget_limit,
             self.runtime_token_reservation_per_execution,

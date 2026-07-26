@@ -1,0 +1,18 @@
+{
+  "action_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
+  "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+  "source_turn_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
+  "action_type": "task.cancel",
+  "target_type": "task",
+  "target_id": "missing-fixture-task",
+  "payload": {
+    "task_id": "missing-fixture-task"
+  },
+  "status": "failed",
+  "result": null,
+  "error_code": "TASK_NOT_FOUND",
+  "error_message": "Task not found.",
+  "proposed_at": "2026-07-26T12:25:50.014695Z",
+  "confirmed_at": "2026-07-26T12:25:50.041957Z",
+  "executed_at": null
+}

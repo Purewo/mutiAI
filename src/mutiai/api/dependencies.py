@@ -17,6 +17,7 @@ from mutiai.orchestration import TaskOrchestrator
 from mutiai.runtime import WorkspaceManager
 from mutiai.security import hash_session_token
 from mutiai.services.approvals import RuntimeApprovalCoordinator
+from mutiai.services.assistant import PlatformAssistantService
 
 
 def get_db_session(request: Request) -> Iterator[Session]:
@@ -53,6 +54,16 @@ def get_approval_coordinator(request: Request) -> RuntimeApprovalCoordinator:
 ApprovalManager = Annotated[
     RuntimeApprovalCoordinator,
     Depends(get_approval_coordinator),
+]
+
+
+def get_platform_assistant(request: Request) -> PlatformAssistantService:
+    return request.app.state.platform_assistant
+
+
+PlatformAssistant = Annotated[
+    PlatformAssistantService,
+    Depends(get_platform_assistant),
 ]
 
 

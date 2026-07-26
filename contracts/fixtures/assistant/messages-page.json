@@ -1,0 +1,45 @@
+{
+  "items": [
+    {
+      "message_id": "74b47049-f9a8-4946-89dd-bcac02ff9d44",
+      "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+      "sequence": 1,
+      "role": "user",
+      "status": "accepted",
+      "text": "List my current organizations.",
+      "content_blocks": [
+        {
+          "type": "text",
+          "text": "List my current organizations."
+        }
+      ],
+      "attachment_refs": [],
+      "reply_to_message_id": null,
+      "related_resource_type": null,
+      "related_resource_id": null,
+      "created_at": "2026-07-26T12:25:49.714864Z",
+      "completed_at": null
+    },
+    {
+      "message_id": "1278e638-90bd-46ac-bb2a-d7284e5bf4e3",
+      "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+      "sequence": 2,
+      "role": "assistant",
+      "status": "completed",
+      "text": "I prepared a product action for confirmation.",
+      "content_blocks": [
+        {
+          "type": "text",
+          "text": "I prepared a product action for confirmation."
+        }
+      ],
+      "attachment_refs": [],
+      "reply_to_message_id": "74b47049-f9a8-4946-89dd-bcac02ff9d44",
+      "related_resource_type": null,
+      "related_resource_id": null,
+      "created_at": "2026-07-26T12:25:49.748444Z",
+      "completed_at": "2026-07-26T12:25:49.748444Z"
+    }
+  ],
+  "next_cursor": null
+}

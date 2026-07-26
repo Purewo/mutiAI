@@ -1,5 +1,6 @@
-"""Versioned HTTP API boundary."""
+"""Versioned HTTP API boundary.
 
-from mutiai.api.router import api_router
-
-__all__ = ["api_router"]
+Import the concrete Router from :mod:`mutiai.api.router`. Keeping package
+initialization side-effect free prevents schema and error imports from loading
+the complete application dependency graph.
+"""

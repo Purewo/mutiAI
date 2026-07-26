@@ -147,8 +147,7 @@ class CodexTurnCancelledError(CodexAppServerError):
         )
         self.cancellation_message = message or "Codex Turn was interrupted"
         super().__init__(
-            f"Codex turn '{turn_id}' was interrupted: "
-            f"{self.cancellation_message}"
+            f"Codex turn '{turn_id}' was interrupted: {self.cancellation_message}"
         )
 
 
@@ -161,6 +160,9 @@ class _ActiveExecution:
     recovered_turn: dict[str, Any] | None = None
     cancellation_requested: bool = False
     cancellation_acknowledged: bool = False
+    server_request_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = (
+        None
+    )
 
 
 class CodexRuntimeAdapter:
@@ -179,9 +181,7 @@ class CodexRuntimeAdapter:
         model: str | None = None,
         approval_policy: str = "on-request",
         output_schema: Mapping[str, Any] | None = None,
-        approval_handler: Callable[
-            [CodexApprovalRequest], Mapping[str, Any]
-        ]
+        approval_handler: Callable[[CodexApprovalRequest], Mapping[str, Any]]
         | None = None,
         capacity_cache_seconds: float = 30.0,
     ) -> None:
@@ -259,6 +259,11 @@ class CodexRuntimeAdapter:
         thread_id: str | None = None,
         output_schema: Mapping[str, Any] | None = None,
         runtime_config: RuntimeExecutionConfig | None = None,
+        developer_instructions: str | None = None,
+        dynamic_tools: list[dict[str, Any]] | None = None,
+        thread_config: dict[str, Any] | None = None,
+        server_request_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]]
+        | None = None,
     ) -> RuntimeResult:
         """Start one Thread and Turn, then return their durable identities."""
 
@@ -296,6 +301,7 @@ class CodexRuntimeAdapter:
                 command=self.command,
                 endpoint=self.app_server_endpoint,
                 env={"CODEX_HOME": str(self.codex_home)},
+                experimental_api=bool(dynamic_tools),
             )
             try:
                 session.connect()
@@ -304,6 +310,9 @@ class CodexRuntimeAdapter:
                         model=resolved_config.model,
                         approval_policy=resolved_config.approval_policy,
                         sandbox=resolved_config.sandbox_mode,
+                        developer_instructions=developer_instructions,
+                        dynamic_tools=dynamic_tools,
+                        config=thread_config,
                     )
                 else:
                     thread_response = session.resume_thread(
@@ -311,6 +320,9 @@ class CodexRuntimeAdapter:
                         model=resolved_config.model,
                         approval_policy=resolved_config.approval_policy,
                         sandbox=resolved_config.sandbox_mode,
+                        developer_instructions=developer_instructions,
+                        dynamic_tools=dynamic_tools,
+                        config=thread_config,
                     )
                 resolved_thread_id = self._require_id(
                     thread_response,
@@ -353,6 +365,7 @@ class CodexRuntimeAdapter:
                 self._active[execution_id] = _ActiveExecution(
                     session=session,
                     waiting_result=waiting_result,
+                    server_request_handler=server_request_handler,
                 )
                 return waiting_result
             except Exception:
@@ -384,6 +397,7 @@ class CodexRuntimeAdapter:
             command=self.command,
             endpoint=self.app_server_endpoint,
             env={"CODEX_HOME": str(self.codex_home)},
+            experimental_api=bool(request.dynamic_tools),
         )
         try:
             session.connect()
@@ -392,6 +406,9 @@ class CodexRuntimeAdapter:
                 model=resolved_config.model,
                 approval_policy=resolved_config.approval_policy,
                 sandbox=resolved_config.sandbox_mode,
+                developer_instructions=request.developer_instructions,
+                dynamic_tools=request.dynamic_tools,
+                config=request.thread_config,
             )
             resolved_thread_id = self._require_id(
                 thread_response,
@@ -435,6 +452,7 @@ class CodexRuntimeAdapter:
                     self._active[request.execution_id] = _ActiveExecution(
                         session=session,
                         waiting_result=waiting_result,
+                        server_request_handler=request.server_request_handler,
                         recovered_turn=(
                             dict(turn)
                             if turn.get("status")
@@ -471,10 +489,7 @@ class CodexRuntimeAdapter:
                 raise CodexAppServerError(
                     "active Codex execution has no Thread or Turn ID"
                 )
-            if (
-                expected_turn_id is not None
-                and waiting.turn_id != expected_turn_id
-            ):
+            if expected_turn_id is not None and waiting.turn_id != expected_turn_id:
                 raise LookupError(
                     f"Codex execution '{execution_id}' now owns another Turn"
                 )
@@ -486,17 +501,11 @@ class CodexRuntimeAdapter:
                         thread_id=waiting.thread_id,
                         turn_id=waiting.turn_id,
                         timeout=timeout,
-                        server_request_handler=(
-                            (
-                                lambda request: self._handle_approval_request(
-                                    execution_id=execution_id,
-                                    waiting=waiting,
-                                    request=request,
-                                    handler=approval_handler,
-                                )
-                            )
-                            if approval_handler is not None
-                            else None
+                        server_request_handler=self._server_request_dispatcher(
+                            execution_id=execution_id,
+                            waiting=waiting,
+                            dynamic_handler=active.server_request_handler,
+                            approval_handler=approval_handler,
                         ),
                     )
             except CodexAppServerError as exc:
@@ -804,6 +813,47 @@ class CodexRuntimeAdapter:
         return min(resets) if resets else None
 
     @staticmethod
+    def _server_request_dispatcher(
+        *,
+        execution_id: str,
+        waiting: RuntimeResult,
+        dynamic_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
+        approval_handler: Callable[[CodexApprovalRequest], Mapping[str, Any]] | None,
+    ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]] | None:
+        if dynamic_handler is None and approval_handler is None:
+            return None
+
+        def dispatch(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            if request.get("method") == "item/tool/call":
+                if dynamic_handler is None:
+                    return {
+                        "success": False,
+                        "contentItems": [
+                            {
+                                "type": "inputText",
+                                "text": "This Runtime does not expose dynamic tools.",
+                            }
+                        ],
+                    }
+                return dynamic_handler(request)
+            if dynamic_handler is not None:
+                raise CodexAppServerError(
+                    "the platform assistant cannot use built-in tools"
+                )
+            if approval_handler is None:
+                raise CodexAppServerError(
+                    "the platform assistant cannot approve built-in tools"
+                )
+            return CodexRuntimeAdapter._handle_approval_request(
+                execution_id=execution_id,
+                waiting=waiting,
+                request=request,
+                handler=approval_handler,
+            )
+
+        return dispatch
+
+    @staticmethod
     def _handle_approval_request(
         *,
         execution_id: str,
@@ -830,19 +880,21 @@ class CodexRuntimeAdapter:
         thread_id = params.get("threadId")
         turn_id = params.get("turnId")
         item_id = params.get("itemId")
-        if not all(isinstance(value, str) and value for value in (thread_id, turn_id, item_id)):
+        if not all(
+            isinstance(value, str) and value for value in (thread_id, turn_id, item_id)
+        ):
             raise CodexAppServerError("approval request has incomplete Runtime IDs")
         if thread_id != waiting.thread_id or turn_id != waiting.turn_id:
-            raise CodexAppServerError("approval request does not belong to the active Turn")
+            raise CodexAppServerError(
+                "approval request does not belong to the active Turn"
+            )
 
         details: dict[str, Any] = {}
         detail_fields = {
             "commandActions": "command_actions",
             "networkApprovalContext": "network_approval_context",
             "proposedExecpolicyAmendment": "proposed_execpolicy_amendment",
-            "proposedNetworkPolicyAmendments": (
-                "proposed_network_policy_amendments"
-            ),
+            "proposedNetworkPolicyAmendments": ("proposed_network_policy_amendments"),
             "grantRoot": "grant_root",
         }
         for wire_name, product_name in detail_fields.items():
@@ -874,16 +926,14 @@ class CodexRuntimeAdapter:
                     if isinstance(params.get("command"), str)
                     else None
                 ),
-                cwd=(
-                    params.get("cwd")
-                    if isinstance(params.get("cwd"), str)
-                    else None
-                ),
+                cwd=(params.get("cwd") if isinstance(params.get("cwd"), str) else None),
                 details=details,
                 runtime_started_at_ms=normalized_started_at_ms,
             )
         )
         decision = response.get("decision")
         if decision not in {"accept", "decline", "cancel"}:
-            raise CodexAppServerError("product returned an unsupported approval decision")
+            raise CodexAppServerError(
+                "product returned an unsupported approval decision"
+            )
         return {"decision": decision}

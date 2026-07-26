@@ -2,7 +2,7 @@
 
 `mutiAI` is the source repository for the product model, backend services, orchestration, runtime adapters, and authoritative contracts of the mutiAI project.
 
-The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting. M2.2 now adds immutable TaskExecutionPlans, strict-linear dependency scheduling, structured Artifact delivery, isolated input materialization, and plan/Artifact task responses. M2.3 adds pure-parallel fan-out with complete Artifact joins, controlled Artifact content access, and Task-level usage aggregation; mixed serial-parallel plans remain intentionally deferred.
+The M1 backend walking skeleton is complete. M2 and M2.1 now include the local Codex App Server boundary, role-level Runtime bindings, execution-policy snapshots, Thread compaction lifecycle, product-owned Runtime concurrency, Provider capacity signals, and token-budget accounting. M2.2 now adds immutable TaskExecutionPlans, strict-linear dependency scheduling, structured Artifact delivery, isolated input materialization, and plan/Artifact task responses. M2.3 adds pure-parallel fan-out with complete Artifact joins, controlled Artifact content access, and Task-level usage aggregation; mixed serial-parallel plans remain intentionally deferred. The platform-assistant slice adds product-owned conversations, messages, Turns, confirmed Actions, resumable events, and a persistent Codex Thread with product-only dynamic tools.
 
 ## Repository responsibilities
 
@@ -35,6 +35,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [V1 product definition](docs/product/V1_PRODUCT_DEFINITION.md)
 - [M0 domain model](docs/product/M0_DOMAIN_MODEL.md)
 - [System boundaries](docs/architecture/SYSTEM_BOUNDARIES.md)
+- [Platform assistant conversation architecture](docs/architecture/PLATFORM_ASSISTANT_CONVERSATION.md)
 - [M0 API and event boundary](docs/architecture/API_EVENT_BOUNDARY.md)
 - [Task execution plans and Artifact handoff](docs/architecture/TASK_PLAN_ARTIFACT_HANDOFF.md)
 - [M2.3 parallel Artifact, result access, and Task usage plan](docs/architecture/M2_3_PARALLEL_ARTIFACT_ACCESS_USAGE.md)
@@ -105,6 +106,25 @@ uv run uvicorn mutiai.main:app --reload
 ```
 
 The API checks `/readyz` before recovering waiting Runtime executions. The sidecar uses the isolated managed `CODEX_HOME`; it does not use the interactive Codex session directory. A sidecar restart restores service availability but does not claim that an in-flight Turn survived the process exit. The disconnected execution becomes `runtime_owner_lost`; after the sidecar is ready, the existing task retry endpoint reuses the recorded Thread and Workspace and starts a new Turn. Plain WebSocket transport is restricted to loopback. Linux production should prefer a Unix socket and an external service manager.
+
+### Run the platform assistant with Codex
+
+The platform assistant can use Codex while organization Tasks continue to use
+the deterministic fake Runtime during local UI integration:
+
+```powershell
+$env:ASSISTANT_RUNTIME_PROVIDER="codex"
+$env:ASSISTANT_MODEL="gpt-5.5"
+$env:ASSISTANT_REASONING_EFFORT="medium"
+uv run uvicorn mutiai.main:app --host 127.0.0.1 --port 8000
+```
+
+Each conversation receives a dedicated managed workspace and Codex Thread. The
+assistant runs with `read-only`, `approvalPolicy=never`, no network access, and
+no shell, filesystem, Git, web search, app, plugin, or multi-agent tools. It can
+read and mutate product state only through the versioned product-tool bridge.
+The product database stores user-visible messages, Action state, Runtime IDs,
+token usage, and event cursors without copying Codex private history.
 
 ### Configure Runtime controls
 

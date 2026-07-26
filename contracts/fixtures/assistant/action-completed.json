@@ -1,0 +1,22 @@
+{
+  "action_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
+  "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+  "source_turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
+  "action_type": "organization.confirm",
+  "target_type": "organization_version",
+  "target_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056",
+  "payload": {
+    "organization_id": "b457e18e-1366-420b-ab33-608bce4c7878",
+    "spec_version_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056"
+  },
+  "status": "completed",
+  "result": {
+    "spec_version_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056",
+    "status": "confirmed"
+  },
+  "error_code": null,
+  "error_message": null,
+  "proposed_at": "2026-07-26T12:25:49.873139Z",
+  "confirmed_at": "2026-07-26T12:25:49.900204Z",
+  "executed_at": "2026-07-26T12:25:49.955287Z"
+}

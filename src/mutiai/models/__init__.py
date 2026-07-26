@@ -1,6 +1,18 @@
 """Authoritative persistence models."""
 
 from mutiai.models.approval import ApprovalRequest
+from mutiai.models.assistant import (
+    AssistantAction,
+    AssistantActionStatus,
+    AssistantConversation,
+    AssistantConversationStatus,
+    AssistantEvent,
+    AssistantMessage,
+    AssistantMessageRole,
+    AssistantMessageStatus,
+    AssistantTurn,
+    AssistantTurnStatus,
+)
 from mutiai.models.auth import BrowserSession, User
 from mutiai.models.base import Base
 from mutiai.models.feasibility import (
@@ -41,6 +53,16 @@ __all__ = [
     "ArtifactInputBindingStatus",
     "ArtifactStatus",
     "Assignment",
+    "AssistantAction",
+    "AssistantActionStatus",
+    "AssistantConversation",
+    "AssistantConversationStatus",
+    "AssistantEvent",
+    "AssistantMessage",
+    "AssistantMessageRole",
+    "AssistantMessageStatus",
+    "AssistantTurn",
+    "AssistantTurnStatus",
     "Base",
     "BrowserSession",
     "FeasibilityCheck",

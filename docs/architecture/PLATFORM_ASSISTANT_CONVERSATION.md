@@ -1,7 +1,8 @@
 # Platform assistant conversation architecture
 
-Status: Accepted design baseline. Runtime feasibility implementation is available
-in V1; platform-assistant conversation persistence remains pending.
+Status: Implemented V1 backend baseline. Conversation persistence, resumable
+Codex Threads, confirmed actions, SSE replay, and Runtime feasibility gates are
+available through the public API.
 
 ## Purpose
 
@@ -134,21 +135,30 @@ Represents append-only product events for a conversation.
 
 The envelope follows the existing event rules: event identity, schema version, aggregate identity, sequence, timestamp, source, correlation identity, and versioned payload. Conversation event ordering is independent from Task event ordering.
 
-## Initial HTTP surface
+## HTTP surface
 
-The implementation should expose resource-oriented routes under `/api/v1/assistant`:
+The implementation exposes resource-oriented routes under `/api/v1/assistant`:
 
-- Create and list conversations.
-- Read one conversation.
-- List its messages with cursor pagination.
-- Submit a user message with `Idempotency-Key`.
-- Read one AssistantTurn.
-- Stream resumable conversation events with `Last-Event-ID`.
-- Read pending actions.
-- Submit an accept or decline decision for one action.
-- Cancel a non-terminal AssistantTurn.
+- `POST /conversations` and `GET /conversations`.
+- `GET /conversations/{conversation_id}` and `POST /conversations/{conversation_id}/archive`.
+- `GET /conversations/{conversation_id}/messages` with cursor pagination.
+- `POST /conversations/{conversation_id}/messages` with `Idempotency-Key`.
+- `GET /turns/{turn_id}` and `POST /turns/{turn_id}/cancel`.
+- `GET /conversations/{conversation_id}/actions` and `GET /actions/{action_id}`.
+- `POST /actions/{action_id}/decision` with `confirm` or `decline`.
+- `GET /conversations/{conversation_id}/events` with `Last-Event-ID`.
 
-The exact payloads enter OpenAPI only when the persistence and service invariants are implemented and tested. The frontend must not infer action completion from streamed text alone.
+The event route returns an ordered replay batch and closes the response. Its
+`retry` directive lets `EventSource` reconnect with `Last-Event-ID`, which keeps
+V1 resource progress resumable without holding one API worker indefinitely.
+Clients refresh messages, actions, and referenced product resources after each
+event batch. The frontend must not infer action completion from streamed text.
+
+Confirmed actions execute outside the decision request. The decision response
+can therefore contain `confirmed`, `executing`, or a terminal status. The
+product event stream and `GET /actions/{action_id}` provide the authoritative
+completion state. Confirmed or executing actions are resumed after an API
+process restart.
 
 ## Event catalog
 
@@ -174,6 +184,12 @@ Platform-assistant Threads:
 - Do not use a product source repository or organization development workspace as their working directory.
 - Receive only product-owned tools needed by the platform assistant.
 - Do not receive shell, filesystem, Git, terminal, or raw database authority.
+
+The current product-tool bridge can list and read organizations, read a
+published OrganizationSpec version, create proposal drafts, propose confirmed
+actions, list and read Tasks, read Task token usage, and read feasibility
+checks. Organization confirmation/publication, Task submission/retry/cancel,
+and approval decisions remain explicit `AssistantAction` mutations.
 
 The canonical feasibility policy is sourced from `skills/platform-assistant/references/system-prompt.md` and the detailed rules in `skills/platform-assistant/references/feasibility-rules.md`. The Runtime adapter injects the policy for every Thread generation and records the policy version or hash on each AssistantTurn. Deployment must not rely on a compressed Thread summary to preserve this law.
 

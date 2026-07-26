@@ -9,8 +9,8 @@ from uuid import uuid4
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import RequestResponseEndpoint
 
-from mutiai.api import api_router
 from mutiai.api.errors import install_error_handlers
+from mutiai.api.router import api_router
 from mutiai.bootstrap import seed_development_admin
 from mutiai.config import Settings, get_settings
 from mutiai.db import Database
@@ -26,12 +26,14 @@ from mutiai.runtime import (
     require_codex_app_server_ready,
 )
 from mutiai.services.approvals import RuntimeApprovalCoordinator
+from mutiai.services.assistant import PlatformAssistantService
 from mutiai.services.workspaces import WorkspaceProvisioner
 
 
 def create_app(
     settings: Settings | None = None,
     runtime_adapter: AgentRuntimeAdapter | None = None,
+    assistant_runtime_adapter: AgentRuntimeAdapter | None = None,
 ) -> FastAPI:
     """Build an application with isolated configuration and database state."""
 
@@ -42,18 +44,15 @@ def create_app(
     workspace_provisioner = WorkspaceProvisioner(workspace_manager)
     managed_codex_endpoint: str | None = None
     resolved_runtime_adapter = runtime_adapter
+
+    def require_explicit_workspace(execution_id: str) -> RuntimeWorkspaceBinding:
+        raise RuntimeError(
+            f"Codex execution requires a product-owned Workspace: {execution_id}"
+        )
+
     if resolved_runtime_adapter is None:
         if resolved_settings.runtime_provider == "codex":
             codex_home = workspace_provisioner.ensure_codex_home()
-
-            def require_explicit_workspace(
-                execution_id: str,
-            ) -> RuntimeWorkspaceBinding:
-                raise RuntimeError(
-                    "Codex execution requires a product-owned Workspace: "
-                    f"{execution_id}"
-                )
-
             managed_codex_endpoint = resolved_settings.codex_app_server_endpoint
             resolved_runtime_adapter = CodexRuntimeAdapter(
                 workspace_manager=workspace_manager,
@@ -67,6 +66,30 @@ def create_app(
             )
         else:
             resolved_runtime_adapter = FakeRuntimeAdapter()
+    resolved_assistant_adapter = assistant_runtime_adapter
+    if resolved_assistant_adapter is None:
+        assistant_provider = resolved_settings.assistant_runtime_provider
+        if assistant_provider == "inherit":
+            resolved_assistant_adapter = resolved_runtime_adapter
+        elif assistant_provider == "fake":
+            resolved_assistant_adapter = FakeRuntimeAdapter()
+        elif isinstance(resolved_runtime_adapter, CodexRuntimeAdapter):
+            resolved_assistant_adapter = resolved_runtime_adapter
+        else:
+            codex_home = workspace_provisioner.ensure_codex_home()
+            managed_codex_endpoint = resolved_settings.codex_app_server_endpoint
+            resolved_assistant_adapter = CodexRuntimeAdapter(
+                workspace_manager=workspace_manager,
+                resolve_workspace=require_explicit_workspace,
+                codex_home=codex_home,
+                app_server_endpoint=managed_codex_endpoint,
+                model=resolved_settings.assistant_model
+                or resolved_settings.codex_model,
+                approval_policy="never",
+                capacity_cache_seconds=(
+                    resolved_settings.runtime_provider_capacity_cache_seconds
+                ),
+            )
     approval_coordinator = RuntimeApprovalCoordinator(
         database,
         mutation_lock=product_mutation_lock,
@@ -90,6 +113,15 @@ def create_app(
         resolved_runtime_adapter.set_approval_handler(
             approval_coordinator.request_approval
         )
+    platform_assistant = PlatformAssistantService(
+        database,
+        resolved_settings,
+        resolved_assistant_adapter,
+        workspace_manager,
+        task_orchestrator,
+        approval_coordinator=approval_coordinator,
+        mutation_lock=product_mutation_lock,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -97,9 +129,7 @@ def create_app(
             if managed_codex_endpoint is not None:
                 require_codex_app_server_ready(
                     managed_codex_endpoint,
-                    timeout=(
-                        resolved_settings.codex_app_server_ready_timeout_seconds
-                    ),
+                    timeout=(resolved_settings.codex_app_server_ready_timeout_seconds),
                 )
             if resolved_settings.database_auto_migrate:
                 upgrade_database(resolved_settings.database_url)
@@ -118,11 +148,16 @@ def create_app(
                 )
                 approval_coordinator.recover_orphaned_approvals()
             task_orchestrator.resume_deferred_runtime_executions()
+            platform_assistant.recover_incomplete_actions()
+            platform_assistant.recover_incomplete_turns()
             yield
         finally:
+            platform_assistant.close()
             approval_coordinator.close()
             if runtime_supervisor is not None:
                 runtime_supervisor.close()
+            elif isinstance(resolved_assistant_adapter, CodexRuntimeAdapter):
+                resolved_assistant_adapter.close()
             database.dispose()
 
     app = FastAPI(
@@ -136,6 +171,8 @@ def create_app(
     app.state.settings = resolved_settings
     app.state.database = database
     app.state.runtime_adapter = resolved_runtime_adapter
+    app.state.assistant_runtime_adapter = resolved_assistant_adapter
+    app.state.platform_assistant = platform_assistant
     app.state.task_orchestrator = task_orchestrator
     app.state.approval_coordinator = approval_coordinator
     app.state.workspace_manager = workspace_manager

@@ -112,9 +112,7 @@ class _RuntimeUsageAccumulator:
     def _add(left: RuntimeTokenUsage, right: RuntimeTokenUsage) -> RuntimeTokenUsage:
         return RuntimeTokenUsage(
             input_tokens=left.input_tokens + right.input_tokens,
-            cached_input_tokens=(
-                left.cached_input_tokens + right.cached_input_tokens
-            ),
+            cached_input_tokens=(left.cached_input_tokens + right.cached_input_tokens),
             output_tokens=left.output_tokens + right.output_tokens,
             reasoning_output_tokens=(
                 left.reasoning_output_tokens + right.reasoning_output_tokens
@@ -148,14 +146,8 @@ def validate_codex_app_server_endpoint(endpoint: str) -> SplitResult:
     parsed = urlsplit(endpoint)
     if parsed.scheme in {"ws", "wss"}:
         host = parsed.hostname
-        if (
-            host is None
-            or parsed.username is not None
-            or parsed.password is not None
-        ):
-            raise CodexAppServerError(
-                "Codex App Server WebSocket endpoint is invalid"
-            )
+        if host is None or parsed.username is not None or parsed.password is not None:
+            raise CodexAppServerError("Codex App Server WebSocket endpoint is invalid")
         if host.lower() != "localhost":
             try:
                 address = ipaddress.ip_address(host)
@@ -451,6 +443,9 @@ class CodexAppServerSession:
         model: str | None = None,
         approval_policy: str = "on-request",
         sandbox: str = "workspace-write",
+        developer_instructions: str | None = None,
+        dynamic_tools: Sequence[Mapping[str, Any]] | None = None,
+        config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Start a new thread bound to the validated managed cwd."""
 
@@ -461,6 +456,12 @@ class CodexAppServerSession:
         }
         if model is not None:
             params["model"] = model
+        if developer_instructions is not None:
+            params["developerInstructions"] = developer_instructions
+        if dynamic_tools is not None:
+            params["dynamicTools"] = [dict(tool) for tool in dynamic_tools]
+        if config is not None:
+            params["config"] = dict(config)
         return self.request("thread/start", params)
 
     def resume_thread(
@@ -470,6 +471,9 @@ class CodexAppServerSession:
         model: str | None = None,
         approval_policy: str = "on-request",
         sandbox: str = "workspace-write",
+        developer_instructions: str | None = None,
+        dynamic_tools: Sequence[Mapping[str, Any]] | None = None,
+        config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Resume a previously recorded thread and check its cwd binding."""
 
@@ -481,6 +485,12 @@ class CodexAppServerSession:
         }
         if model is not None:
             params["model"] = model
+        if developer_instructions is not None:
+            params["developerInstructions"] = developer_instructions
+        if dynamic_tools is not None:
+            params["dynamicTools"] = [dict(tool) for tool in dynamic_tools]
+        if config is not None:
+            params["config"] = dict(config)
         return self.request("thread/resume", params)
 
     def read_thread(
@@ -524,6 +534,8 @@ class CodexAppServerSession:
                 "writableRoots": [str(self.cwd)],
                 "networkAccess": network_access,
             }
+        elif sandbox_mode == "read-only":
+            sandbox_policy = {"type": "readOnly"}
         else:
             raise ValueError(f"unsupported Codex sandbox mode '{sandbox_mode}'")
 
@@ -565,9 +577,7 @@ class CodexAppServerSession:
         thread_id: str,
         turn_id: str,
         timeout: float | None = None,
-        server_request_handler: Callable[
-            [Mapping[str, Any]], Mapping[str, Any]
-        ]
+        server_request_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]]
         | None = None,
     ) -> dict[str, Any]:
         """Wait for the terminal notification for one turn."""
@@ -717,7 +727,9 @@ class CodexAppServerSession:
                 self._dispatch_message(payload)
         except Exception as exc:  # noqa: BLE001 - transport boundary
             if self._websocket is websocket:
-                self._events.put({"_mutiai_error": f"App Server connection closed: {exc}"})
+                self._events.put(
+                    {"_mutiai_error": f"App Server connection closed: {exc}"}
+                )
         finally:
             self._responses.put(None)
             self._events.put(None)

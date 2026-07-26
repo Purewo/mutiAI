@@ -63,6 +63,18 @@ _ZH_MESSAGES = {
     "FEASIBILITY_CONDITIONAL": "当前组织或任务需要补充条件后才能运行。",
     "FEASIBILITY_CAPABILITY_UNKNOWN": "运行环境能力信息不足，已阻止执行。",
     "FEASIBILITY_CHECK_NOT_FOUND": "未找到可行性校验记录。",
+    "ASSISTANT_CONVERSATION_NOT_FOUND": "未找到小助理会话。",
+    "ASSISTANT_CONVERSATION_ARCHIVED": "小助理会话已归档，不能继续发送消息。",
+    "ASSISTANT_TURN_IN_PROGRESS": "小助理仍在处理上一条消息。",
+    "ASSISTANT_TURN_NOT_FOUND": "未找到小助理 Turn。",
+    "ASSISTANT_TURN_NOT_CANCELLABLE": "当前小助理 Turn 无法取消。",
+    "ASSISTANT_TURN_RUNTIME_NOT_ACTIVE": "小助理 Runtime 已不再执行此 Turn。",
+    "ASSISTANT_ACTION_NOT_FOUND": "未找到小助理操作。",
+    "ASSISTANT_ACTION_STATE_CONFLICT": "小助理操作当前状态不允许此决定。",
+    "ASSISTANT_ACTION_INVALID": "小助理操作类型无效。",
+    "ASSISTANT_ACTION_PAYLOAD_INVALID": "小助理操作参数无效。",
+    "ASSISTANT_EVENT_CURSOR_INVALID": "小助理事件游标不可用。",
+    "ASSISTANT_MESSAGE_CURSOR_INVALID": "小助理消息游标不可用。",
     "INTERNAL_ERROR": "服务器发生未预期的错误。",
     "HTTP_ERROR": "请求无法完成。",
 }
@@ -74,6 +86,7 @@ _ZH_PREFIX_MESSAGES = (
     ("ORGANIZATION_", "组织操作无法完成。"),
     ("RUNTIME_", "Runtime 操作无法完成。"),
     ("APPROVAL_", "审批操作无法完成。"),
+    ("ASSISTANT_", "小助理操作无法完成。"),
 )
 
 _ZH_STATUS_MESSAGES = {

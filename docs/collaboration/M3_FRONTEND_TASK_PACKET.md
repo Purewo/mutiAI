@@ -1,10 +1,11 @@
 # M3 frontend task packet
 
-Status: Ready for Gemini implementation.
+Status: Ready for Fable5 real-backend integration.
 
 ## Contract source
 
-Use the backend repository commit `356ae35` as the contract baseline. The authoritative files are:
+Use the current backend repository commit that contains this packet as the
+contract baseline. The authoritative files are:
 
 - `contracts/openapi/openapi.v1.json`
 - `contracts/schemas/organization-spec.v1.json`
@@ -13,6 +14,9 @@ Use the backend repository commit `356ae35` as the contract baseline. The author
 - `docs/architecture/TASK_PLAN_ARTIFACT_HANDOFF.md`
 - `docs/architecture/M2_3_PARALLEL_ARTIFACT_ACCESS_USAGE.md`
 - `docs/acceptance/M2_1_RUNTIME_POLICY.md`
+- `contracts/events/assistant-event.v1.json`
+- `contracts/fixtures/assistant/`
+- `docs/architecture/PLATFORM_ASSISTANT_CONVERSATION.md`
 
 Do not redefine backend resource shapes in the frontend repository. If a screen needs a field that is not in the OpenAPI snapshot, stop and report the missing contract instead of inventing one.
 
@@ -30,6 +34,7 @@ Build the authenticated single-user web shell and the preview-first organization
 8. Show released Artifact results through `content_url` and `download_url`. Never construct or display host paths from `storage_relative_path`.
 9. Show Task-level Token totals and the per-Assignment usage breakdown. Label Provider-observed counters separately from the conservative `charged_tokens` budget value.
 10. Reconnect task progress using the task event endpoint and then refresh the Task and usage resources.
+11. Replace the platform-assistant demo engine with the real conversation API. Keep the browser UI owner-scoped and preview-first; do not create a second client-side source of truth for messages or Actions.
 
 The UI can borrow Dify's visual clarity, but the first slice does not include a drag-and-drop editor. Organization changes remain structured preview data and backend-confirmed publication actions.
 
@@ -58,6 +63,32 @@ The UI can borrow Dify's visual clarity, but the first slice does not include a 
 - `POST /api/v1/tasks/{task_id}/approvals/{approval_id}/decision`
 - `POST /api/v1/tasks/{task_id}/retry`
 - `POST /api/v1/tasks/{task_id}/cancel`
+
+Platform-assistant conversation routes:
+
+- `POST /api/v1/assistant/conversations`
+- `GET /api/v1/assistant/conversations`
+- `GET /api/v1/assistant/conversations/{conversation_id}`
+- `POST /api/v1/assistant/conversations/{conversation_id}/archive`
+- `GET /api/v1/assistant/conversations/{conversation_id}/messages`
+- `POST /api/v1/assistant/conversations/{conversation_id}/messages`
+- `GET /api/v1/assistant/turns/{turn_id}`
+- `POST /api/v1/assistant/turns/{turn_id}/cancel`
+- `GET /api/v1/assistant/conversations/{conversation_id}/actions`
+- `GET /api/v1/assistant/actions/{action_id}`
+- `POST /api/v1/assistant/actions/{action_id}/decision`
+- `GET /api/v1/assistant/conversations/{conversation_id}/events`
+
+Assistant message submission requires a unique `Idempotency-Key`. Action
+confirmation is asynchronous: render `confirmed` and `executing` as pending
+states, then refresh the Action and referenced resource after
+`assistant.action.completed` or `assistant.action.failed`. Event replay uses
+`Last-Event-ID`; the response is a finite ordered batch and the browser
+`EventSource` reconnects using the server-provided `retry` value.
+
+The assistant's product-tool results are not a second frontend API. They are
+visible through persisted Organization, Task, Artifact, usage, and feasibility
+resources. Do not render Codex private history or raw tool calls.
 
 Task submission must send a unique `Idempotency-Key` and set `orchestration_mode` to `planned` for the plan-driven workflow. An initial Artifact `contract_key` must appear in `execution_plan.initial_input_contracts`; send the uploaded file's schema version, media type, file name, and bytes through `TaskInputArtifactRequest`, whose current transport uses `content_base64`. Event replay uses `Last-Event-ID` and deduplicates by `event_id` or `sequence`.
 
@@ -100,6 +131,9 @@ Treat these as product states, not LangGraph states:
 - Artifact: `draft`, `validated`, `released`, `rejected`, `superseded`.
 - Approval: `pending`, `accepted`, `declined`, `cancelled`.
 - Organization version: `proposal`, `confirmed`, `published`, `superseded`, `archived`.
+- Assistant conversation: `active`, `archived`.
+- Assistant Turn: `queued`, `submitted`, `running`, `waiting`, `completed`, `failed`, `cancelled`.
+- Assistant Action: `proposed`, `confirmed`, `executing`, `completed`, `failed`, `declined`, `cancelled`, `expired`, `superseded`.
 
 `waiting` is not an error. It can mean an external Runtime Turn, capacity queue, or approval boundary. A terminal task remains queryable after the SSE response ends.
 
@@ -135,6 +169,7 @@ Render plan topology from `execution_plan.steps[*].plan_step_id` and `dependency
 - Task usage totals match the returned per-Assignment rows, while observed totals and charged budget totals remain visibly distinct.
 - Runtime approval decisions are shown only for an approval record returned by the backend.
 - Completed, failed, cancelled, and needs-revision task states are visibly distinct.
+- Assistant Actions show explicit proposed, pending, completed, failed, and declined states and never treat a chat reply as mutation completion.
 - Browser console has no uncaught errors, and network requests match the OpenAPI contract.
 
 After Gemini submits the frontend change, Codex will run the frontend against the real local backend and perform browser verification before calling M3 complete.

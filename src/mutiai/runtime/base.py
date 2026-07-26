@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -35,7 +36,7 @@ class RuntimeExecutionConfig:
     reasoning_effort: str | None
     security_mode: Literal["demo_full_access", "workspace_restricted"]
     approval_policy: Literal["never", "on-request"]
-    sandbox_mode: Literal["danger-full-access", "workspace-write"]
+    sandbox_mode: Literal["danger-full-access", "workspace-write", "read-only"]
     network_access: bool
 
 
@@ -64,6 +65,12 @@ class RuntimeRecoveryRequest:
     workspace_id: str
     workspace_path: str
     runtime_config: RuntimeExecutionConfig | None = None
+    developer_instructions: str | None = None
+    dynamic_tools: list[dict[str, Any]] | None = None
+    thread_config: dict[str, Any] | None = None
+    server_request_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = (
+        None
+    )
 
 
 class AgentRuntimeAdapter(Protocol):
@@ -82,6 +89,11 @@ class AgentRuntimeAdapter(Protocol):
         thread_id: str | None = None,
         output_schema: dict[str, Any] | None = None,
         runtime_config: RuntimeExecutionConfig | None = None,
+        developer_instructions: str | None = None,
+        dynamic_tools: list[dict[str, Any]] | None = None,
+        thread_config: dict[str, Any] | None = None,
+        server_request_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]]
+        | None = None,
     ) -> RuntimeResult: ...
 
     def recover(self, request: RuntimeRecoveryRequest) -> bool: ...

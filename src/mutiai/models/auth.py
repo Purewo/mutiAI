@@ -31,6 +31,11 @@ class User(Base):
         back_populates="owner",
         cascade="all, delete-orphan",
     )
+    assistant_conversations = relationship(
+        "AssistantConversation",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
 
 
 class BrowserSession(Base):

@@ -6,18 +6,19 @@ The Runtime bridge exposes product capabilities. Exact transport names may chang
 
 ### Read operations
 
-- List and read organizations and OrganizationSpec versions.
-- Read Tasks, Assignments, approvals, Artifacts, and usage.
-- Read current Runtime controls and binding summaries.
-- Read versioned Runtime capability profiles and current feasibility checks.
+- `mutiai_list_organizations` lists owner-scoped organizations.
+- `mutiai_get_organization` reads an organization and its published OrganizationSpec version.
+- `mutiai_list_tasks` and `mutiai_get_task` read persisted Task, Assignment, plan, and Artifact metadata.
+- `mutiai_get_task_usage` reads persisted Task and Assignment token usage.
+- `mutiai_get_feasibility_check` and `mutiai_list_version_feasibility_checks` read persisted feasibility evidence.
 
 Read operations do not require a proposed-action confirmation. They remain owner-scoped.
 
 ### Draft operations
 
-- Create an OrganizationSpec proposal.
+- `mutiai_propose_organization` creates an OrganizationSpec proposal.
 - Create a revised proposal from an existing version.
-- Create a proposed product action for a later state transition.
+- `mutiai_propose_action` creates a proposed product action for a later state transition.
 
 Draft operations may persist a proposal or action record, but they do not publish a version or start external Runtime work.
 
@@ -32,7 +33,10 @@ A feasibility operation normalizes a versioned requirement set, compares it with
 
 Every confirmed operation receives a persisted action identity and an idempotency identity from the product. Execute the exact recorded action. Reject stale targets and payload mismatches instead of silently creating a replacement.
 
-Organization confirmation/publication and Task submission must also reference the current feasibility check identity. The backend verifies its input hashes, profile revisions, and outcome. Do not manufacture a check identity, reuse a stale result, or substitute conversational approval for a feasible result.
+The backend performs and persists a fresh feasibility check during organization
+confirmation/publication and Task submission. Do not manufacture a check
+identity, claim that an earlier preview still authorizes execution, or
+substitute conversational approval for a feasible result.
 
 ## Required response handling
 

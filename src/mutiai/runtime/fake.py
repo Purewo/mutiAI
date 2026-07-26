@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable, Mapping
 from threading import Lock
 from typing import Any, Literal
 
@@ -62,7 +63,14 @@ class FakeRuntimeAdapter:
         thread_id: str | None = None,
         output_schema: dict[str, Any] | None = None,
         runtime_config: RuntimeExecutionConfig | None = None,
+        developer_instructions: str | None = None,
+        dynamic_tools: list[dict[str, Any]] | None = None,
+        thread_config: dict[str, Any] | None = None,
+        server_request_handler: Callable[[Mapping[str, Any]], Mapping[str, Any]]
+        | None = None,
     ) -> RuntimeResult:
+        del developer_instructions, dynamic_tools, thread_config
+        del server_request_handler
         del workspace_id, workspace_path, thread_id
         del instructions
         with self._lock:
