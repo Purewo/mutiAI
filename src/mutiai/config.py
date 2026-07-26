@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     database_auto_migrate: bool = True
     langgraph_checkpoint_path: Path = Path("./var/langgraph-checkpoints.db")
     runtime_provider: Literal["fake", "codex"] = "fake"
+    fake_runtime_scenario: Literal[
+        "default",
+        "wait_first_specialist",
+        "needs_revision",
+    ] = "default"
     runtime_max_concurrent_executions: int = Field(default=2, ge=1, le=64)
     runtime_token_budget_limit: int | None = Field(default=None, ge=1)
     runtime_token_reservation_per_execution: int | None = Field(
@@ -88,6 +93,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "production cannot use RUNTIME_SECURITY_MODE=demo_full_access"
             )
+        if self.fake_runtime_scenario != "default":
+            if self.app_env == "production":
+                raise ValueError(
+                    "production cannot use a non-default fake Runtime scenario"
+                )
+            if self.runtime_provider != "fake":
+                raise ValueError(
+                    "a fake Runtime scenario requires RUNTIME_PROVIDER=fake"
+                )
         loopback_hosts = {"127.0.0.1", "localhost", "::1"}
         if (
             self.runtime_security_mode == "demo_full_access"

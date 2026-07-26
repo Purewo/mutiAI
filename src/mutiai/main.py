@@ -65,7 +65,23 @@ def create_app(
                 ),
             )
         else:
-            resolved_runtime_adapter = FakeRuntimeAdapter()
+            fake_scenario = resolved_settings.fake_runtime_scenario
+            if fake_scenario == "wait_first_specialist":
+                resolved_runtime_adapter = FakeRuntimeAdapter(
+                    wait_first_specialist_once=True,
+                )
+            elif fake_scenario == "needs_revision":
+                resolved_runtime_adapter = FakeRuntimeAdapter(
+                    lead_review_decision="needs_revision",
+                    lead_review_final_summary=(
+                        "The delivery needs a user-directed revision."
+                    ),
+                    lead_review_issues=(
+                        "The test evidence is incomplete.",
+                    ),
+                )
+            else:
+                resolved_runtime_adapter = FakeRuntimeAdapter()
     resolved_assistant_adapter = assistant_runtime_adapter
     if resolved_assistant_adapter is None:
         assistant_provider = resolved_settings.assistant_runtime_provider

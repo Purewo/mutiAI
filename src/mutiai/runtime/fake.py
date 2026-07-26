@@ -25,6 +25,7 @@ class FakeRuntimeAdapter:
         *,
         fail_once_role_keys: set[str] | None = None,
         wait_once_role_keys: set[str] | None = None,
+        wait_first_specialist_once: bool = False,
         lead_review_decision: Literal["accepted", "needs_revision"] = "accepted",
         lead_review_final_summary: str = (
             "The organization lead accepted the specialist deliveries."
@@ -40,6 +41,8 @@ class FakeRuntimeAdapter:
         self._failed_role_keys: set[str] = set()
         self._wait_once_role_keys = wait_once_role_keys or set()
         self._waited_role_keys: set[str] = set()
+        self._wait_first_specialist_once = wait_first_specialist_once
+        self._waited_first_specialist = False
         self._active_execution_ids: set[str] = set()
         self._cancelled_execution_ids: set[str] = set()
         self._lead_review_decision = lead_review_decision
@@ -87,6 +90,19 @@ class FakeRuntimeAdapter:
                 and role_key not in self._waited_role_keys
             ):
                 self._waited_role_keys.add(role_key)
+                self._active_execution_ids.add(execution_id)
+                return RuntimeResult(
+                    status="waiting",
+                    runtime_job_id=f"fake:{execution_id}",
+                )
+            is_specialist_delivery = (
+                output_schema is not None
+                and "artifacts" in output_schema.get("properties", {})
+            )
+            if self._wait_first_specialist_once and (
+                is_specialist_delivery and not self._waited_first_specialist
+            ):
+                self._waited_first_specialist = True
                 self._active_execution_ids.add(execution_id)
                 return RuntimeResult(
                     status="waiting",

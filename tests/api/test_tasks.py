@@ -59,7 +59,7 @@ def task_spec() -> dict:
     }
 
 
-def task_settings(tmp_path) -> Settings:
+def task_settings(tmp_path, *, fake_runtime_scenario: str = "default") -> Settings:
     return Settings(
         app_env="test",
         database_url=f"sqlite+pysqlite:///{tmp_path / 'tasks.db'}",
@@ -68,6 +68,8 @@ def task_settings(tmp_path) -> Settings:
         bootstrap_admin_enabled=True,
         bootstrap_admin_username="admin",
         bootstrap_admin_password="123456",
+        fake_runtime_scenario=fake_runtime_scenario,
+        assistant_runtime_provider="inherit",
     )
 
 
@@ -190,6 +192,83 @@ def test_default_fake_planned_task_publishes_downloadable_artifacts(tmp_path) ->
             event["event_type"] == "artifact.released" for event in events
         ) == 2
         assert events[-1]["event_type"] == "task.completed"
+
+
+def test_configured_fake_wait_scenario_supports_browser_cancel_flow(tmp_path) -> None:
+    settings = task_settings(
+        tmp_path,
+        fake_runtime_scenario="wait_first_specialist",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "configured-fake-wait-scenario"},
+            json={
+                "request": "Leave one specialist waiting for browser cancellation.",
+                "orchestration_mode": "planned",
+            },
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+
+        started = client.post(f"/api/v1/tasks/{task_id}/start")
+        assert started.status_code == 200
+        assert started.json()["status"] == "waiting"
+
+        cancelled = client.post(f"/api/v1/tasks/{task_id}/cancel")
+        assert cancelled.status_code == 200
+        cancelled_payload = cancelled.json()
+        assert cancelled_payload["status"] == "cancelled"
+        assert cancelled_payload["execution_plan"]["status"] == "cancelled"
+        assert all(
+            step["status"] == "cancelled"
+            for step in cancelled_payload["execution_plan"]["steps"]
+        )
+
+        events = sse_payloads(client.get(f"/api/v1/tasks/{task_id}/events"))
+        event_types = [event["event_type"] for event in events]
+        assert "task.cancellation_requested" in event_types
+        assert event_types.count("plan.step_cancelled") == 3
+        assert event_types.count("task.execution_plan_cancelled") == 1
+        assert "task.cancelled" in event_types
+
+
+def test_configured_fake_needs_revision_scenario_supports_browser_terminal_state(
+    tmp_path,
+) -> None:
+    settings = task_settings(
+        tmp_path,
+        fake_runtime_scenario="needs_revision",
+    )
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "configured-fake-needs-revision"},
+            json={
+                "request": "Return a deterministic needs-revision result.",
+                "orchestration_mode": "planned",
+            },
+        )
+        assert submitted.status_code == 201
+        task_id = submitted.json()["task_id"]
+
+        started = client.post(f"/api/v1/tasks/{task_id}/start")
+        assert started.status_code == 200
+        payload = started.json()
+        assert payload["status"] == "needs_revision"
+        assert payload["result_summary"] == (
+            "The delivery needs a user-directed revision."
+        )
+        events = sse_payloads(client.get(f"/api/v1/tasks/{task_id}/events"))
+        assert events[-1]["event_type"] == "task.needs_revision"
 
 
 def test_planned_task_submit_returns_persisted_failure_for_runtime_error(

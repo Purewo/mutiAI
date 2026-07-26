@@ -1092,6 +1092,14 @@ class TaskOrchestrator:
                         )
 
             if not already_cancelled:
+                self._cancel_execution_plan(
+                    session,
+                    task=task,
+                    cancelled_at=cancelled_at,
+                    reason=reason,
+                )
+
+            if not already_cancelled:
                 task.status = TaskStatus.CANCELLED
                 task.result_summary = None
                 task.completed_at = cancelled_at
@@ -1123,6 +1131,84 @@ class TaskOrchestrator:
             session.commit()
             session.refresh(task)
             return task, targets, already_cancelled
+
+    @staticmethod
+    def _cancel_execution_plan(
+        session: Session,
+        *,
+        task: Task,
+        cancelled_at: datetime,
+        reason: str,
+    ) -> None:
+        """Converge the current plan and every unfinished step on cancellation."""
+
+        plan = session.scalar(
+            select(TaskExecutionPlan)
+            .where(TaskExecutionPlan.task_id == task.task_id)
+            .order_by(TaskExecutionPlan.plan_version.desc())
+            .limit(1)
+        )
+        if plan is None:
+            return
+
+        terminal_step_statuses = {
+            PlanStepStatus.COMPLETED,
+            PlanStepStatus.BLOCKED,
+            PlanStepStatus.FAILED,
+            PlanStepStatus.CANCELLED,
+        }
+        steps = session.scalars(
+            select(PlanStep)
+            .where(PlanStep.plan_id == plan.plan_id)
+            .order_by(PlanStep.sequence)
+        ).all()
+        for step in steps:
+            if step.status in terminal_step_statuses:
+                continue
+            step.status = PlanStepStatus.CANCELLED
+            step.completed_at = step.completed_at or cancelled_at
+            append_task_event(
+                session,
+                task=task,
+                event_type="plan.step_cancelled",
+                aggregate_type="plan_step",
+                aggregate_id=step.plan_step_id,
+                assignment_id=(
+                    step.assignment.assignment_id
+                    if step.assignment is not None
+                    else None
+                ),
+                source="product",
+                payload={
+                    "plan_step_id": step.plan_step_id,
+                    "step_key": step.step_key,
+                    "status": PlanStepStatus.CANCELLED,
+                    "reason": reason,
+                },
+            )
+
+        if plan.status not in {
+            TaskExecutionPlanStatus.COMPLETED,
+            TaskExecutionPlanStatus.NEEDS_REVISION,
+            TaskExecutionPlanStatus.FAILED,
+            TaskExecutionPlanStatus.CANCELLED,
+        }:
+            plan.status = TaskExecutionPlanStatus.CANCELLED
+            plan.completed_at = plan.completed_at or cancelled_at
+            append_task_event(
+                session,
+                task=task,
+                event_type="task.execution_plan_cancelled",
+                aggregate_type="task_execution_plan",
+                aggregate_id=plan.plan_id,
+                source="product",
+                payload={
+                    "plan_id": plan.plan_id,
+                    "plan_version": plan.plan_version,
+                    "status": TaskExecutionPlanStatus.CANCELLED,
+                    "reason": reason,
+                },
+            )
 
     def _dispatch_runtime_cancellations(
         self,

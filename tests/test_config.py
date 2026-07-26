@@ -37,6 +37,23 @@ def test_production_rejects_demo_full_access() -> None:
         )
 
 
+def test_non_default_fake_runtime_scenario_is_development_only() -> None:
+    with pytest.raises(ValidationError, match="production"):
+        Settings(
+            app_env="production",
+            database_auto_migrate=False,
+            bootstrap_admin_enabled=False,
+            runtime_security_mode="workspace_restricted",
+            fake_runtime_scenario="wait_first_specialist",
+        )
+
+    with pytest.raises(ValidationError, match="requires RUNTIME_PROVIDER=fake"):
+        Settings(
+            runtime_provider="codex",
+            fake_runtime_scenario="needs_revision",
+        )
+
+
 def test_demo_full_access_requires_loopback_binding() -> None:
     with pytest.raises(ValidationError, match="loopback"):
         Settings(

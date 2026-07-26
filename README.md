@@ -51,6 +51,7 @@ The companion frontend repository is [Purewo/mutiAI-aistdio-gemini](https://gith
 - [M1 task orchestration decision](docs/decisions/ADR-0004-m1-task-orchestration.md)
 - [Codex App Server Runtime decision](docs/decisions/ADR-0005-codex-app-server-runtime.md)
 - [M2 Codex Runtime acceptance](docs/acceptance/M2_CODEX_RUNTIME.md)
+- [M3 Runtime browser acceptance scenarios](docs/acceptance/M3_RUNTIME_SCENARIOS.md)
 - [M2.1 Runtime policy acceptance](docs/acceptance/M2_1_RUNTIME_POLICY.md)
 - [M1 vertical-slice acceptance](docs/acceptance/M1_VERTICAL_SLICE.md)
 - [Contract directory](contracts/README.md)
