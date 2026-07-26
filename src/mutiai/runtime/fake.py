@@ -72,7 +72,6 @@ class FakeRuntimeAdapter:
         del developer_instructions, dynamic_tools, thread_config
         del server_request_handler
         del workspace_id, workspace_path, thread_id
-        del instructions
         with self._lock:
             self._calls[execution_id] += 1
             self._runtime_configs[execution_id] = runtime_config
@@ -107,16 +106,95 @@ class FakeRuntimeAdapter:
         elif output_schema is not None and "steps" in output_schema.get(
             "properties", {}
         ):
-            if self._planning_plan is None:
-                raise RuntimeError(
-                    "Fake Runtime requires planning_plan for planning output"
-                )
-            summary = json.dumps(self._planning_plan, ensure_ascii=False)
+            planning_plan = self._planning_plan or self._default_planning_plan(
+                instructions
+            )
+            summary = json.dumps(planning_plan, ensure_ascii=False)
         return RuntimeResult(
             status="completed",
             runtime_job_id=f"fake:{execution_id}",
             summary=summary,
         )
+
+    @staticmethod
+    def _default_planning_plan(instructions: str) -> dict[str, Any]:
+        """Derive a deterministic pure-parallel plan for local API integration."""
+
+        marker = "Published OrganizationSpec:"
+        try:
+            _, raw_spec = instructions.rsplit(marker, maxsplit=1)
+            spec = json.loads(raw_spec.strip())
+            roles = spec["roles"]
+            lead = next(role for role in roles if role.get("is_lead") is True)
+            specialists = sorted(
+                (role for role in roles if role.get("is_lead") is not True),
+                key=lambda role: role["role_key"],
+            )
+        except (json.JSONDecodeError, KeyError, StopIteration, TypeError) as exc:
+            raise RuntimeError(
+                "Fake Runtime could not derive a planning plan from the published "
+                "OrganizationSpec"
+            ) from exc
+        if not specialists:
+            raise RuntimeError(
+                "Fake Runtime requires at least one specialist role for planning"
+            )
+
+        steps: list[dict[str, Any]] = []
+        specialist_step_keys: list[str] = []
+        specialist_output_keys: list[str] = []
+        for index, role in enumerate(specialists, start=1):
+            step_key = f"specialist-{index}"
+            output_key = f"fake.specialist-{index}.output.v1"
+            specialist_step_keys.append(step_key)
+            specialist_output_keys.append(output_key)
+            steps.append(
+                {
+                    "step_key": step_key,
+                    "role_key": role["role_key"],
+                    "step_kind": "specialist",
+                    "objective": (
+                        "Produce a deterministic fake delivery within this role's "
+                        f"responsibility: {role['responsibility']}"
+                    ),
+                    "acceptance_criteria": (
+                        "Return one JSON Artifact for local contract and UI testing."
+                    ),
+                    "depends_on": [],
+                    "input_contracts": [],
+                    "output_contracts": [
+                        {
+                            "contract_key": output_key,
+                            "schema_version": "1.0",
+                            "media_type": "application/json",
+                            "file_name": f"specialist-{index}.json",
+                        }
+                    ],
+                }
+            )
+        steps.append(
+            {
+                "step_key": "lead-review",
+                "role_key": lead["role_key"],
+                "step_kind": "lead_review",
+                "objective": "Review every deterministic fake specialist delivery.",
+                "acceptance_criteria": (
+                    "Return an accepted or needs_revision decision for UI testing."
+                ),
+                "depends_on": specialist_step_keys,
+                "input_contracts": specialist_output_keys,
+                "output_contracts": [],
+            }
+        )
+        return {
+            "schema_version": "1.0",
+            "summary": (
+                "Fake Runtime generated a deterministic pure-parallel plan for "
+                "local integration testing."
+            ),
+            "initial_input_contracts": [],
+            "steps": steps,
+        }
 
     def recover(self, request: RuntimeRecoveryRequest) -> bool:
         """The in-memory fake Runtime cannot recover across processes."""

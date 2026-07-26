@@ -95,6 +95,82 @@ def publish_organization(client: TestClient) -> str:
     return version["organization_id"]
 
 
+def test_planned_task_submit_uses_default_fake_plan(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        response = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "default-fake-planned-task"},
+            json={
+                "request": "Create a deterministic plan for frontend testing.",
+                "orchestration_mode": "planned",
+            },
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["status"] == "created"
+        plan = payload["execution_plan"]
+        assert plan is not None
+        assert plan["status"] == "validated"
+        assert plan["validation_summary"] == (
+            "Validated as a pure parallel M2.3 plan."
+        )
+        specialist_steps = plan["steps"][:-1]
+        review = plan["steps"][-1]
+        assert {step["role_key"] for step in specialist_steps} == {
+            "backend",
+            "test",
+        }
+        assert all(not step["dependency_step_ids"] for step in specialist_steps)
+        assert all(len(step["output_contracts"]) == 1 for step in specialist_steps)
+        assert review["role_key"] == "lead"
+        assert review["step_kind"] == "lead_review"
+        assert len(review["dependency_step_ids"]) == len(specialist_steps)
+        assert set(review["input_contracts"]) == {
+            step["output_contracts"][0]["contract_key"]
+            for step in specialist_steps
+        }
+
+
+def test_planned_task_submit_returns_persisted_failure_for_runtime_error(
+    tmp_path,
+) -> None:
+    settings = task_settings(tmp_path)
+    adapter = FakeRuntimeAdapter(fail_once_role_keys={"lead"})
+    app = create_app(settings, runtime_adapter=adapter)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        response = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "failed-fake-planning-task"},
+            json={
+                "request": "Persist a failed planning attempt.",
+                "orchestration_mode": "planned",
+            },
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["status"] == "failed"
+        assert payload["execution_plan"] is None
+        assert len(payload["assignments"]) == 1
+        assignment = payload["assignments"][0]
+        assert assignment["assignment_kind"] == "lead_plan"
+        assert assignment["status"] == "failed"
+        assert assignment["runtime_execution"]["status"] == "failed"
+
+        persisted = client.get(f"/api/v1/tasks/{payload['task_id']}")
+        assert persisted.status_code == 200
+        assert persisted.json()["status"] == "failed"
+
+
 def sse_payloads(response) -> list[dict]:
     return [
         json.loads(line.removeprefix("data: "))

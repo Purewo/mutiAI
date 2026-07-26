@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from mutiai.api.dependencies import (
     ApprovalManager,
@@ -84,9 +85,17 @@ def load_task_response(session: DbSession, task_id: str) -> TaskResponse:
     return TaskResponse.from_record(task)
 
 
-def run_orchestration(operation: Callable[[], Task]) -> Task:
+def run_orchestration(
+    operation: Callable[[], Task],
+    *,
+    session: Session | None = None,
+    task_id: str | None = None,
+    return_persisted_failure: bool = False,
+) -> Task:
     try:
         return operation()
+    except ApiError:
+        raise
     except RuntimeProviderRateLimitedError as exc:
         raise ApiError(
             429,
@@ -109,6 +118,13 @@ def run_orchestration(operation: Callable[[], Task]) -> Task:
         ) from exc
     except RuntimeBindingResolutionError as exc:
         raise ApiError(409, "RUNTIME_BINDING_INVALID", str(exc)) from exc
+    except Exception:
+        if return_persisted_failure and session is not None and task_id is not None:
+            session.expire_all()
+            task = session.get(Task, task_id)
+            if task is not None and task.status == TaskStatus.FAILED:
+                return task
+        raise
 
 
 def require_feasible(check, orchestrator: TaskRunner) -> None:
@@ -199,7 +215,12 @@ def submit_task(
         task_id=task_id,
     )
     if payload.orchestration_mode.value == "planned":
-        run_orchestration(lambda: orchestrator.plan(task.task_id))
+        run_orchestration(
+            lambda: orchestrator.plan(task.task_id),
+            session=session,
+            task_id=task.task_id,
+            return_persisted_failure=True,
+        )
     else:
         run_orchestration(lambda: orchestrator.run(task.task_id))
     if not created:
@@ -220,7 +241,12 @@ def plan_task(
 ) -> TaskResponse:
     get_owned_task(session, task_id=task_id, owner_user_id=user.user_id)
     try:
-        run_orchestration(lambda: orchestrator.plan(task_id))
+        run_orchestration(
+            lambda: orchestrator.plan(task_id),
+            session=session,
+            task_id=task_id,
+            return_persisted_failure=True,
+        )
     except ValueError as exc:
         raise ApiError(409, "TASK_PLAN_NOT_ALLOWED", str(exc)) from exc
     return load_task_response(session, task_id)
