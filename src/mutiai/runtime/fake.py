@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
 
@@ -71,7 +72,7 @@ class FakeRuntimeAdapter:
     ) -> RuntimeResult:
         del developer_instructions, dynamic_tools, thread_config
         del server_request_handler
-        del workspace_id, workspace_path, thread_id
+        del workspace_id, thread_id
         with self._lock:
             self._calls[execution_id] += 1
             self._runtime_configs[execution_id] = runtime_config
@@ -110,10 +111,89 @@ class FakeRuntimeAdapter:
                 instructions
             )
             summary = json.dumps(planning_plan, ensure_ascii=False)
+        elif output_schema is not None and "artifacts" in output_schema.get(
+            "properties", {}
+        ):
+            summary = self._assignment_delivery(
+                instructions=instructions,
+                execution_id=execution_id,
+                role_key=role_key,
+                workspace_path=workspace_path,
+            )
         return RuntimeResult(
             status="completed",
             runtime_job_id=f"fake:{execution_id}",
             summary=summary,
+        )
+
+    @staticmethod
+    def _assignment_delivery(
+        *,
+        instructions: str,
+        execution_id: str,
+        role_key: str,
+        workspace_path: str | None,
+    ) -> str:
+        """Create a deterministic valid delivery for planned specialist steps."""
+
+        if workspace_path is None:
+            raise RuntimeError(
+                "Fake Runtime requires a Workspace for Assignment Artifact output"
+            )
+        marker = "Assignment packet:"
+        try:
+            _, raw_packet = instructions.rsplit(marker, maxsplit=1)
+            packet = json.loads(raw_packet.strip())
+            required_outputs = packet["required_outputs"]
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Fake Runtime could not derive required outputs from the Assignment packet"
+            ) from exc
+
+        artifacts: list[dict[str, str]] = []
+        workspace = Path(workspace_path)
+        for output in required_outputs:
+            contract_key = output["contract_key"]
+            file_name = output["file_name"]
+            media_type = output["media_type"]
+            if media_type != "application/json":
+                raise RuntimeError(
+                    "Fake Runtime only generates application/json placeholder Artifacts"
+                )
+            relative_path = (Path("outputs") / file_name).as_posix()
+            destination = workspace / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(
+                json.dumps(
+                    {
+                        "fake": True,
+                        "execution_id": execution_id,
+                        "role_key": role_key,
+                        "contract_key": contract_key,
+                        "schema_version": output.get("schema_version", "1.0"),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            artifacts.append(
+                {
+                    "contract_key": contract_key,
+                    "relative_path": relative_path,
+                    "media_type": media_type,
+                }
+            )
+        return json.dumps(
+            {
+                "status": "completed",
+                "summary": (
+                    f"{role_key} produced deterministic placeholder Artifacts "
+                    "for local integration testing."
+                ),
+                "artifacts": artifacts,
+            },
+            ensure_ascii=False,
         )
 
     @staticmethod

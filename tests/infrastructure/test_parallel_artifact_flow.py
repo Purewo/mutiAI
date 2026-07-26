@@ -114,6 +114,48 @@ class StructuredParallelRuntime:
         return False
 
 
+class InvalidFirstParallelRuntime(StructuredParallelRuntime):
+    """Return one invalid delivery while keeping the sibling valid."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._invalid_emitted = False
+
+    def execute(
+        self,
+        *,
+        execution_id: str,
+        role_key: str,
+        instructions: str,
+        workspace_id: str | None = None,
+        workspace_path: str | None = None,
+        thread_id: str | None = None,
+        output_schema: dict | None = None,
+        runtime_config=None,
+    ) -> RuntimeResult:
+        if role_key == "worker_a" and not self._invalid_emitted:
+            self._invalid_emitted = True
+            del instructions, thread_id, output_schema, runtime_config
+            assert workspace_path is not None
+            self.calls.append((role_key, "invalid delivery"))
+            return RuntimeResult(
+                status="completed",
+                runtime_job_id=f"fake:{execution_id}",
+                workspace_id=workspace_id,
+                summary="worker_a completed without a structured delivery.",
+            )
+        return super().execute(
+            execution_id=execution_id,
+            role_key=role_key,
+            instructions=instructions,
+            workspace_id=workspace_id,
+            workspace_path=workspace_path,
+            thread_id=thread_id,
+            output_schema=output_schema,
+            runtime_config=runtime_config,
+        )
+
+
 def delivery(suffix: str) -> str:
     return json.dumps(
         {
@@ -309,6 +351,74 @@ def test_parallel_graph_publishes_both_artifacts_before_lead_review(tmp_path) ->
             assert sorted(
                 path.name for path in Path(lead_workspace.canonical_path).rglob("*.json")
             ) == ["a.json", "b.json"]
+    finally:
+        app.state.database.dispose()
+        database.dispose()
+
+
+def test_parallel_graph_converges_sibling_states_after_invalid_delivery(tmp_path) -> None:
+    database, settings, task_id, plan_id = parallel_environment(tmp_path)
+    runtime = InvalidFirstParallelRuntime()
+    app = create_app(settings, runtime_adapter=runtime)
+    try:
+        result = app.state.task_orchestrator.run(task_id)
+        assert result.status == TaskStatus.FAILED
+
+        with app.state.database.session() as session:
+            steps = session.scalars(
+                select(PlanStep)
+                .where(PlanStep.plan_id == plan_id)
+                .order_by(PlanStep.sequence)
+            ).all()
+            assert [step.status for step in steps] == [
+                PlanStepStatus.FAILED,
+                PlanStepStatus.COMPLETED,
+                PlanStepStatus.CANCELLED,
+            ]
+            artifacts = session.scalars(
+                select(Artifact)
+                .where(Artifact.task_id == task_id)
+            ).all()
+            assert [artifact.contract_key for artifact in artifacts] == [
+                "worker.b.v1"
+            ]
+            assignments = session.scalars(
+                select(Assignment)
+                .where(Assignment.task_id == task_id)
+                .order_by(Assignment.agent_role_key)
+            ).all()
+            by_role = {assignment.agent_role_key: assignment for assignment in assignments}
+            assert by_role["worker_a"].status == "failed"
+            assert "Product delivery validation failed" in (
+                by_role["worker_a"].result_summary or ""
+            )
+            assert by_role["worker_a"].runtime_execution.status == "completed"
+            assert "Product delivery validation failed" in (
+                by_role["worker_a"].runtime_execution.result_summary or ""
+            )
+            assert "lead" not in by_role
+            event_types = session.scalars(
+                select(ProductEvent.event_type)
+                .where(ProductEvent.task_id == task_id)
+                .order_by(ProductEvent.sequence)
+            ).all()
+            assert "plan.step_cancelled" in event_types
+
+        recovered = app.state.task_orchestrator.retry(task_id)
+        assert recovered.status == TaskStatus.COMPLETED
+        with app.state.database.session() as session:
+            steps = session.scalars(
+                select(PlanStep)
+                .where(PlanStep.plan_id == plan_id)
+                .order_by(PlanStep.sequence)
+            ).all()
+            assert all(step.status == PlanStepStatus.COMPLETED for step in steps)
+            assert session.scalar(
+                select(Artifact).where(
+                    Artifact.task_id == task_id,
+                    Artifact.contract_key == "worker.a.v1",
+                )
+            ) is not None
     finally:
         app.state.database.dispose()
         database.dispose()

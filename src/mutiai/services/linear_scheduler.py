@@ -232,16 +232,70 @@ class LinearTaskScheduler:
             result["assignment_id"]: result for result in results
         }
         review: dict[str, Any] | None = None
+        failures: list[str] = []
         for assignment_work in work:
             result = result_by_assignment.get(assignment_work["assignment_id"])
             if result is None:
                 raise RuntimeError(
                     "parallel specialist wave completed without every result"
                 )
-            outcome = self.finalize_step(task_id, assignment_work, result)
+            try:
+                outcome = self.finalize_step(task_id, assignment_work, result)
+            except RuntimeError as exc:
+                # Finalize every branch before ending the fan-in. One invalid
+                # delivery must not leave a sibling in validating_output.
+                failures.append(str(exc))
+                continue
             if outcome.get("review"):
                 review = outcome["review"]
-        return {"review": review}
+        if failures:
+            self._cancel_unreachable_steps(
+                task_id,
+                reason="parallel_sibling_failed",
+            )
+            return {"review": None, "terminal": True}
+        return {"review": review, "terminal": False}
+
+    def _cancel_unreachable_steps(self, task_id: str, *, reason: str) -> None:
+        """Move plan steps that can no longer run to a terminal state."""
+
+        terminal_statuses = {
+            PlanStepStatus.COMPLETED,
+            PlanStepStatus.BLOCKED,
+            PlanStepStatus.FAILED,
+            PlanStepStatus.CANCELLED,
+        }
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            plan = self._current_plan(session, task_id)
+            if task is None or plan is None:
+                raise LookupError("failed parallel plan records are unavailable")
+            steps = session.scalars(
+                select(PlanStep)
+                .where(PlanStep.plan_id == plan.plan_id)
+                .order_by(PlanStep.sequence)
+            ).all()
+            cancelled_at = utc_now()
+            for step in steps:
+                if step.status in terminal_statuses:
+                    continue
+                step.status = PlanStepStatus.CANCELLED
+                step.completed_at = cancelled_at
+                append_task_event(
+                    session,
+                    task=task,
+                    event_type="plan.step_cancelled",
+                    aggregate_type="plan_step",
+                    aggregate_id=step.plan_step_id,
+                    source="langgraph",
+                    payload={
+                        "plan_step_id": step.plan_step_id,
+                        "step_key": step.step_key,
+                        "status": step.status,
+                        "reason": reason,
+                    },
+                )
+            session.commit()
 
     @staticmethod
     def _activate_plan(session, *, task: Task, plan: TaskExecutionPlan) -> None:
@@ -678,9 +732,19 @@ class LinearTaskScheduler:
         reason: str,
         error: str,
     ) -> None:
+        failure_summary = (
+            f"Product delivery validation failed ({reason}): {error[:1000]}"
+        )
         step.status = PlanStepStatus.FAILED
         plan.status = TaskExecutionPlanStatus.FAILED
         assignment.status = AssignmentStatus.FAILED
+        assignment.result_summary = failure_summary
+        execution = assignment.runtime_execution
+        if execution is not None:
+            # The Provider execution may have completed successfully while its
+            # product delivery failed validation. Preserve that layered status,
+            # but do not expose a misleading success summary on the failed work.
+            execution.result_summary = failure_summary
         task.status = TaskStatus.FAILED
         task.updated_at = utc_now()
         append_task_event(
@@ -710,6 +774,7 @@ class LinearTaskScheduler:
             payload={
                 "status": assignment.status,
                 "reason": reason,
+                "summary": failure_summary,
             },
         )
         append_task_event(

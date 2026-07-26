@@ -59,6 +59,7 @@ class ParallelTaskGraphState(TypedDict):
     review_work: AssignmentWork | None
     review_result: AssignmentResult | None
     review: LeadReviewState | None
+    terminal: bool
 
 
 class PlanningGraphState(TypedDict):
@@ -185,7 +186,11 @@ def build_parallel_task_graph(
         )
 
     def route_after_specialists(state: ParallelTaskGraphState) -> str:
-        return "__end__" if state.get("review") else "prepare_review"
+        return (
+            "__end__"
+            if state.get("review") or state.get("terminal")
+            else "prepare_review"
+        )
 
     def prepare_review_node(state: ParallelTaskGraphState) -> dict[str, Any]:
         work = prepare_review(state["task_id"])

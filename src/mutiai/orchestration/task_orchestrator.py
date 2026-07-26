@@ -625,6 +625,7 @@ class TaskOrchestrator:
             "review_work": None,
             "review_result": None,
             "review": None,
+            "terminal": False,
         }
         checkpoint_path = Path(self.settings.langgraph_checkpoint_path)
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
@@ -766,6 +767,45 @@ class TaskOrchestrator:
                         "reason": "retry",
                     },
                 )
+
+            plan = self._current_plan(session, task_id)
+            if plan is not None:
+                cancelled_steps = session.scalars(
+                    select(PlanStep)
+                    .where(
+                        PlanStep.plan_id == plan.plan_id,
+                        PlanStep.status == PlanStepStatus.CANCELLED,
+                    )
+                    .order_by(PlanStep.sequence)
+                ).all()
+                for step in cancelled_steps:
+                    if step.assignment is not None:
+                        continue
+                    step.status = (
+                        PlanStepStatus.PENDING_DEPENDENCY
+                        if step.dependencies
+                        else PlanStepStatus.READY
+                    )
+                    step.ready_at = (
+                        None
+                        if step.status == PlanStepStatus.PENDING_DEPENDENCY
+                        else utc_now()
+                    )
+                    step.completed_at = None
+                    append_task_event(
+                        session,
+                        task=task,
+                        event_type="plan.step_status_changed",
+                        aggregate_type="plan_step",
+                        aggregate_id=step.plan_step_id,
+                        source="product",
+                        payload={
+                            "plan_step_id": step.plan_step_id,
+                            "step_key": step.step_key,
+                            "status": step.status,
+                            "reason": "retry",
+                        },
+                    )
 
             task.status = TaskStatus.RUNNING
             task.result_summary = None

@@ -137,6 +137,61 @@ def test_planned_task_submit_uses_default_fake_plan(tmp_path) -> None:
         }
 
 
+def test_default_fake_planned_task_publishes_downloadable_artifacts(tmp_path) -> None:
+    settings = task_settings(tmp_path)
+    app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
+
+    with TestClient(app) as client:
+        login(client)
+        organization_id = publish_organization(client)
+        submitted = client.post(
+            f"/api/v1/organizations/{organization_id}/tasks",
+            headers={"Idempotency-Key": "default-fake-planned-execution"},
+            json={
+                "request": "Complete the fake parallel delivery flow.",
+                "orchestration_mode": "planned",
+            },
+        )
+        assert submitted.status_code == 201
+
+        task_id = submitted.json()["task_id"]
+        started = client.post(f"/api/v1/tasks/{task_id}/start")
+        assert started.status_code == 200
+        payload = started.json()
+        assert payload["status"] == "completed"
+        assert all(
+            step["status"] == "completed"
+            for step in payload["execution_plan"]["steps"]
+        )
+        assert len(payload["artifacts"]) == 2
+        assert {
+            artifact["contract_key"] for artifact in payload["artifacts"]
+        } == {
+            "fake.specialist-1.output.v1",
+            "fake.specialist-2.output.v1",
+        }
+        for artifact in payload["artifacts"]:
+            assert artifact["status"] == "released"
+            content = client.get(artifact["content_url"])
+            assert content.status_code == 200
+            assert content.json()["contract_key"] == artifact["contract_key"]
+            download = client.get(artifact["download_url"])
+            assert download.status_code == 200
+            assert "attachment" in download.headers["content-disposition"]
+
+        usage = client.get(f"/api/v1/tasks/{task_id}/usage")
+        assert usage.status_code == 200
+        usage_payload = usage.json()
+        assert usage_payload["execution_count"] == 4
+        assert usage_payload["unavailable_execution_count"] == 4
+
+        events = sse_payloads(client.get(f"/api/v1/tasks/{task_id}/events"))
+        assert sum(
+            event["event_type"] == "artifact.released" for event in events
+        ) == 2
+        assert events[-1]["event_type"] == "task.completed"
+
+
 def test_planned_task_submit_returns_persisted_failure_for_runtime_error(
     tmp_path,
 ) -> None:
