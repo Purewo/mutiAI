@@ -7,7 +7,7 @@ from mutiai.config import Settings
 from mutiai.main import create_app
 from mutiai.models import BrowserSession, User
 from mutiai.models.base import utc_now
-from mutiai.security import hash_session_token
+from mutiai.security import hash_password, hash_session_token, verify_password
 
 
 def auth_app(tmp_path):
@@ -185,3 +185,214 @@ def test_bootstrap_admin_is_idempotent_across_restarts(tmp_path) -> None:
         users = session.scalars(select(User)).all()
 
     assert len(users) == 1
+
+
+def test_account_self_service_requires_authentication(tmp_path) -> None:
+    app, _ = auth_app(tmp_path)
+
+    with TestClient(app) as client:
+        profile = client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "New display name"},
+        )
+        password = client.post(
+            "/api/v1/auth/password",
+            json={
+                "current_password": "123456",
+                "new_password": "new-password-789",
+            },
+        )
+
+    assert profile.status_code == 401
+    assert profile.json()["code"] == "AUTH_REQUIRED"
+    assert password.status_code == 401
+    assert password.json()["code"] == "AUTH_REQUIRED"
+
+
+def test_display_name_update_is_persisted_and_username_is_immutable(tmp_path) -> None:
+    app, _ = auth_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "123456"},
+        ).status_code == 200
+
+        updated = client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "  Nexwork Owner  "},
+        )
+        immutable_username = client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "Nexwork Owner", "username": "renamed"},
+        )
+        current = client.get("/api/v1/auth/me")
+
+    assert updated.status_code == 200
+    assert updated.json() == {
+        "user_id": updated.json()["user_id"],
+        "username": "admin",
+        "display_name": "Nexwork Owner",
+    }
+    assert immutable_username.status_code == 422
+    assert immutable_username.json()["code"] == "INVALID_REQUEST"
+    assert current.status_code == 200
+    assert current.json()["username"] == "admin"
+    assert current.json()["display_name"] == "Nexwork Owner"
+
+    with app.state.database.session() as session:
+        user = session.scalar(select(User).where(User.username == "admin"))
+        assert user is not None
+        assert user.display_name == "Nexwork Owner"
+        assert session.scalar(select(User).where(User.username == "renamed")) is None
+
+
+def test_account_self_service_field_validation_does_not_echo_passwords(
+    tmp_path,
+) -> None:
+    app, _ = auth_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "123456"},
+        ).status_code == 200
+
+        empty_display_name = client.patch(
+            "/api/v1/auth/me",
+            headers={"Accept-Language": "zh-CN"},
+            json={"display_name": "   "},
+        )
+        long_display_name = client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "x" * 101},
+        )
+        short_password = client.post(
+            "/api/v1/auth/password",
+            headers={"Accept-Language": "zh-CN"},
+            json={"current_password": "123456", "new_password": "short"},
+        )
+        long_password = client.post(
+            "/api/v1/auth/password",
+            json={"current_password": "123456", "new_password": "x" * 129},
+        )
+
+    for response in (
+        empty_display_name,
+        long_display_name,
+        short_password,
+        long_password,
+    ):
+        assert response.status_code == 422
+        assert response.json()["code"] == "INVALID_REQUEST"
+        assert "123456" not in str(response.json())
+        assert "'short'" not in str(response.json())
+        assert "x" * 129 not in str(response.json())
+    assert empty_display_name.headers["Content-Language"] == "zh-CN"
+    assert short_password.headers["Content-Language"] == "zh-CN"
+
+
+def test_password_change_rejects_wrong_current_and_unchanged_password(
+    tmp_path,
+) -> None:
+    app, _ = auth_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "123456"},
+        ).status_code == 200
+
+        wrong_current = client.post(
+            "/api/v1/auth/password",
+            headers={"Accept-Language": "zh-CN"},
+            json={
+                "current_password": "wrong-password",
+                "new_password": "new-password-789",
+            },
+        )
+
+        unchanged_password = "current-password-123"
+        with app.state.database.session() as session:
+            user = session.scalar(select(User).where(User.username == "admin"))
+            assert user is not None
+            user.password_hash = hash_password(unchanged_password)
+            session.commit()
+        unchanged = client.post(
+            "/api/v1/auth/password",
+            headers={"Accept-Language": "zh-CN"},
+            json={
+                "current_password": unchanged_password,
+                "new_password": unchanged_password,
+            },
+        )
+
+    assert wrong_current.status_code == 400
+    assert wrong_current.json()["code"] == "AUTH_CURRENT_PASSWORD_INVALID"
+    assert wrong_current.json()["message"] == "当前密码无效。"
+    assert unchanged.status_code == 409
+    assert unchanged.json()["code"] == "AUTH_NEW_PASSWORD_MUST_DIFFER"
+    assert unchanged.json()["message"] == "新密码不能与当前密码相同。"
+
+
+def test_password_change_rotates_credentials_and_revokes_other_sessions(
+    tmp_path,
+) -> None:
+    app, settings = auth_app(tmp_path)
+    new_password = "new-password-789"
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "123456"},
+        ).status_code == 200
+        current_token = client.cookies.get(settings.session_cookie_name)
+        assert current_token
+
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "123456"},
+        ).status_code == 200
+        other_token = client.cookies.get(settings.session_cookie_name)
+        assert other_token and other_token != current_token
+
+        client.cookies.set(settings.session_cookie_name, current_token)
+        changed = client.post(
+            "/api/v1/auth/password",
+            json={
+                "current_password": "123456",
+                "new_password": new_password,
+            },
+        )
+        current_session = client.get("/api/v1/auth/me")
+
+        client.cookies.set(settings.session_cookie_name, other_token)
+        revoked_session = client.get("/api/v1/auth/me")
+        old_login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "123456"},
+        )
+        new_login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": new_password},
+        )
+
+    assert changed.status_code == 204
+    assert current_session.status_code == 200
+    assert revoked_session.status_code == 401
+    assert revoked_session.json()["code"] == "AUTH_REQUIRED"
+    assert old_login.status_code == 401
+    assert old_login.json()["code"] == "AUTH_INVALID_CREDENTIALS"
+    assert new_login.status_code == 200
+
+    with app.state.database.session() as session:
+        user = session.scalar(select(User).where(User.username == "admin"))
+        sessions = session.scalars(
+            select(BrowserSession).order_by(BrowserSession.created_at)
+        ).all()
+
+        assert user is not None
+        assert verify_password(new_password, user.password_hash)
+        session_by_token = {item.token_hash: item for item in sessions}
+        assert session_by_token[hash_session_token(current_token)].revoked_at is None
+        assert session_by_token[hash_session_token(other_token)].revoked_at is not None

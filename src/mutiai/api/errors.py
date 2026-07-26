@@ -19,7 +19,9 @@ DEFAULT_LOCALE = "en-US"
 SUPPORTED_LOCALES = frozenset({"en-US", "zh-CN"})
 
 _ZH_MESSAGES = {
+    "AUTH_CURRENT_PASSWORD_INVALID": "当前密码无效。",
     "AUTH_INVALID_CREDENTIALS": "用户名或密码无效。",
+    "AUTH_NEW_PASSWORD_MUST_DIFFER": "新密码不能与当前密码相同。",
     "AUTH_REQUIRED": "需要登录后才能执行此操作。",
     "INVALID_REQUEST": "请求参数无效。",
     "ORGANIZATION_NOT_FOUND": "未找到组织。",
