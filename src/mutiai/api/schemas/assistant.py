@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from mutiai.api.errors import DEFAULT_LOCALE, localize_error_message
 from mutiai.api.schemas.organizations import as_utc
 from mutiai.models import (
     AssistantAction,
@@ -162,13 +163,31 @@ class AssistantActionResponse(BaseModel):
     status: AssistantActionStatus
     result: dict | None
     error_code: str | None
+    error_status_code: int | None
+    error_details: Any | None
     error_message: str | None
     proposed_at: datetime
     confirmed_at: datetime | None
     executed_at: datetime | None
 
     @classmethod
-    def from_record(cls, action: AssistantAction) -> AssistantActionResponse:
+    def from_record(
+        cls,
+        action: AssistantAction,
+        *,
+        locale: str = DEFAULT_LOCALE,
+    ) -> AssistantActionResponse:
+        error_message = action.error_message
+        if action.error_code is not None:
+            error_message = localize_error_message(
+                code=action.error_code,
+                fallback=(
+                    action.error_message
+                    or "The assistant action could not be completed."
+                ),
+                locale=locale,
+                status_code=action.error_status_code or 409,
+            )
         return cls(
             action_id=action.action_id,
             conversation_id=action.conversation_id,
@@ -180,7 +199,9 @@ class AssistantActionResponse(BaseModel):
             status=AssistantActionStatus(action.status),
             result=dict(action.result) if action.result is not None else None,
             error_code=action.error_code,
-            error_message=action.error_message,
+            error_status_code=action.error_status_code,
+            error_details=action.error_details,
+            error_message=error_message,
             proposed_at=as_utc(action.proposed_at),
             confirmed_at=as_utc(action.confirmed_at),
             executed_at=as_utc(action.executed_at),

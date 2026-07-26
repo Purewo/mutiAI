@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterator
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Query, Response
+from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -15,7 +15,7 @@ from mutiai.api.dependencies import (
     DbSession,
     PlatformAssistant,
 )
-from mutiai.api.errors import ApiError, ErrorEnvelope
+from mutiai.api.errors import ApiError, ErrorEnvelope, resolve_locale
 from mutiai.api.schemas.assistant import (
     AssistantActionDecisionRequest,
     AssistantActionResponse,
@@ -36,6 +36,18 @@ ERROR_RESPONSES = {
     409: {"model": ErrorEnvelope},
     422: {"model": ErrorEnvelope},
 }
+
+
+def _action_response(
+    action: AssistantAction,
+    *,
+    request: Request,
+    response: Response,
+) -> AssistantActionResponse:
+    locale = resolve_locale(request.headers.get("Accept-Language"))
+    response.headers["Content-Language"] = locale
+    response.headers["Vary"] = "Accept-Language"
+    return AssistantActionResponse.from_record(action, locale=locale)
 
 
 @router.post(
@@ -213,17 +225,23 @@ def cancel_turn(
 )
 def list_actions(
     conversation_id: str,
+    request: Request,
+    response: Response,
     user: CurrentUser,
     session: DbSession,
     assistant: PlatformAssistant,
 ) -> list[AssistantActionResponse]:
+    actions = assistant.list_actions(
+        session,
+        conversation_id=conversation_id,
+        owner_user_id=user.user_id,
+    )
+    locale = resolve_locale(request.headers.get("Accept-Language"))
+    response.headers["Content-Language"] = locale
+    response.headers["Vary"] = "Accept-Language"
     return [
-        AssistantActionResponse.from_record(action)
-        for action in assistant.list_actions(
-            session,
-            conversation_id=conversation_id,
-            owner_user_id=user.user_id,
-        )
+        AssistantActionResponse.from_record(action, locale=locale)
+        for action in actions
     ]
 
 
@@ -234,6 +252,8 @@ def list_actions(
 )
 def get_action(
     action_id: str,
+    request: Request,
+    response: Response,
     user: CurrentUser,
     session: DbSession,
 ) -> AssistantActionResponse:
@@ -245,7 +265,7 @@ def get_action(
     )
     if action is None:
         raise ApiError(404, "ASSISTANT_ACTION_NOT_FOUND", "Assistant action not found.")
-    return AssistantActionResponse.from_record(action)
+    return _action_response(action, request=request, response=response)
 
 
 @router.post(
@@ -256,6 +276,8 @@ def get_action(
 def decide_action(
     action_id: str,
     payload: AssistantActionDecisionRequest,
+    request: Request,
+    response: Response,
     user: CurrentUser,
     session: DbSession,
     assistant: PlatformAssistant,
@@ -266,7 +288,7 @@ def decide_action(
         owner_user_id=user.user_id,
         decision=payload.decision,
     )
-    return AssistantActionResponse.from_record(action)
+    return _action_response(action, request=request, response=response)
 
 
 @router.get(

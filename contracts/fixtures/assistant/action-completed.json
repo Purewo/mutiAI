@@ -1,22 +1,24 @@
 {
-  "action_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
-  "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
-  "source_turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
+  "action_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
+  "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+  "source_turn_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
   "action_type": "organization.confirm",
   "target_type": "organization_version",
-  "target_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056",
+  "target_id": "3e938e87-5ae8-4446-8876-73bcac72b738",
   "payload": {
-    "organization_id": "b457e18e-1366-420b-ab33-608bce4c7878",
-    "spec_version_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056"
+    "organization_id": "16f38046-d83a-4a6b-9c69-b8b4a082d416",
+    "spec_version_id": "3e938e87-5ae8-4446-8876-73bcac72b738"
   },
   "status": "completed",
   "result": {
-    "spec_version_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056",
+    "spec_version_id": "3e938e87-5ae8-4446-8876-73bcac72b738",
     "status": "confirmed"
   },
   "error_code": null,
+  "error_status_code": null,
+  "error_details": null,
   "error_message": null,
-  "proposed_at": "2026-07-26T12:25:49.873139Z",
-  "confirmed_at": "2026-07-26T12:25:49.900204Z",
-  "executed_at": "2026-07-26T12:25:49.955287Z"
+  "proposed_at": "2026-07-26T20:02:12.603226Z",
+  "confirmed_at": "2026-07-26T20:02:12.627735Z",
+  "executed_at": "2026-07-26T20:02:12.677112Z"
 }

@@ -1,429 +1,429 @@
 [
   {
-    "event_id": "5ab2a1b9-e79f-420c-b710-92c471f10f7f",
+    "event_id": "1633689b-4bd9-4b3a-8b4f-137c27957fe0",
     "event_type": "assistant.conversation.created",
     "schema_version": "1.0",
     "aggregate_type": "assistant_conversation",
-    "aggregate_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 1,
-    "occurred_at": "2026-07-26T12:25:49.691806Z",
+    "occurred_at": "2026-07-26T20:02:12.425880Z",
     "source": "platform_assistant",
-    "correlation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "correlation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "payload": {
-      "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14"
+      "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77"
     }
   },
   {
-    "event_id": "32d3d0ce-6e2c-4615-9087-ac37a667f9bc",
+    "event_id": "3e34c64a-2346-4cd2-92e7-14e909d20d9c",
     "event_type": "assistant.message.accepted",
     "schema_version": "1.0",
     "aggregate_type": "assistant_message",
-    "aggregate_id": "74b47049-f9a8-4946-89dd-bcac02ff9d44",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "8f6194d7-f2ff-4eff-bc2c-c5d5b451a55a",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 2,
-    "occurred_at": "2026-07-26T12:25:49.715864Z",
+    "occurred_at": "2026-07-26T20:02:12.450896Z",
     "source": "platform_assistant",
-    "correlation_id": "204bf545-ca34-4db3-b176-66b256e943fa",
+    "correlation_id": "eda82141-5cfc-47dd-886c-55219b2f67a0",
     "payload": {
-      "message_id": "74b47049-f9a8-4946-89dd-bcac02ff9d44",
+      "message_id": "8f6194d7-f2ff-4eff-bc2c-c5d5b451a55a",
       "sequence": 1
     }
   },
   {
-    "event_id": "ee871046-1532-4afd-b649-b83bcf3d1eb2",
+    "event_id": "c589cac8-c93b-4f02-bcf7-d559fd80e671",
     "event_type": "assistant.turn.queued",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "29185388-c068-41a3-a14b-a766f4b3853c",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "117e69f1-2c37-4711-a818-f0b319082f35",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 3,
-    "occurred_at": "2026-07-26T12:25:49.716864Z",
+    "occurred_at": "2026-07-26T20:02:12.451896Z",
     "source": "platform_assistant",
-    "correlation_id": "204bf545-ca34-4db3-b176-66b256e943fa",
+    "correlation_id": "eda82141-5cfc-47dd-886c-55219b2f67a0",
     "payload": {
-      "turn_id": "29185388-c068-41a3-a14b-a766f4b3853c",
-      "message_id": "74b47049-f9a8-4946-89dd-bcac02ff9d44"
+      "turn_id": "117e69f1-2c37-4711-a818-f0b319082f35",
+      "message_id": "8f6194d7-f2ff-4eff-bc2c-c5d5b451a55a"
     }
   },
   {
-    "event_id": "477dc70b-f7bc-44b7-90ff-59fd6cfc2268",
+    "event_id": "bf35fc64-f490-4f3b-93a8-08cfd401f941",
     "event_type": "assistant.runtime_thread.resumed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_conversation",
-    "aggregate_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 4,
-    "occurred_at": "2026-07-26T12:25:49.746441Z",
+    "occurred_at": "2026-07-26T20:02:12.481604Z",
     "source": "platform_assistant",
-    "correlation_id": "204bf545-ca34-4db3-b176-66b256e943fa",
+    "correlation_id": "eda82141-5cfc-47dd-886c-55219b2f67a0",
     "payload": {
-      "turn_id": "29185388-c068-41a3-a14b-a766f4b3853c",
+      "turn_id": "117e69f1-2c37-4711-a818-f0b319082f35",
       "thread_generation": 0
     }
   },
   {
-    "event_id": "2d980692-836c-4524-9ff4-9e6bae2d09e4",
+    "event_id": "0aeab1cf-3aea-4154-b25f-18b4d8b59c4b",
     "event_type": "assistant.turn.started",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "29185388-c068-41a3-a14b-a766f4b3853c",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "117e69f1-2c37-4711-a818-f0b319082f35",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 5,
-    "occurred_at": "2026-07-26T12:25:49.748444Z",
+    "occurred_at": "2026-07-26T20:02:12.484609Z",
     "source": "platform_assistant",
-    "correlation_id": "204bf545-ca34-4db3-b176-66b256e943fa",
+    "correlation_id": "eda82141-5cfc-47dd-886c-55219b2f67a0",
     "payload": {
-      "turn_id": "29185388-c068-41a3-a14b-a766f4b3853c"
+      "turn_id": "117e69f1-2c37-4711-a818-f0b319082f35"
     }
   },
   {
-    "event_id": "d64dedb0-985d-46bf-b8d5-2592946bdb0b",
+    "event_id": "fc918942-28c9-46d9-9800-44bdb7c37919",
     "event_type": "assistant.message.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_message",
-    "aggregate_id": "1278e638-90bd-46ac-bb2a-d7284e5bf4e3",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "ea5d81ac-9f68-494e-a8d0-0f25b152e8a6",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 6,
-    "occurred_at": "2026-07-26T12:25:49.749947Z",
+    "occurred_at": "2026-07-26T20:02:12.485440Z",
     "source": "platform_assistant",
-    "correlation_id": "204bf545-ca34-4db3-b176-66b256e943fa",
+    "correlation_id": "eda82141-5cfc-47dd-886c-55219b2f67a0",
     "payload": {
-      "message_id": "1278e638-90bd-46ac-bb2a-d7284e5bf4e3",
-      "turn_id": "29185388-c068-41a3-a14b-a766f4b3853c"
+      "message_id": "ea5d81ac-9f68-494e-a8d0-0f25b152e8a6",
+      "turn_id": "117e69f1-2c37-4711-a818-f0b319082f35"
     }
   },
   {
-    "event_id": "e34b7b07-879c-4404-8481-fcd443939cd4",
+    "event_id": "099129c4-688c-450c-b5fe-8bacd61a9c00",
     "event_type": "assistant.action.proposed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "290ca0ea-c054-4b27-aded-e2088375b64d",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "5c9c3f84-9402-41f4-a6ae-178b067f8f55",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 7,
-    "occurred_at": "2026-07-26T12:25:49.752457Z",
+    "occurred_at": "2026-07-26T20:02:12.487608Z",
     "source": "platform_assistant",
-    "correlation_id": "29185388-c068-41a3-a14b-a766f4b3853c",
+    "correlation_id": "117e69f1-2c37-4711-a818-f0b319082f35",
     "payload": {
-      "action_id": "290ca0ea-c054-4b27-aded-e2088375b64d",
+      "action_id": "5c9c3f84-9402-41f4-a6ae-178b067f8f55",
       "action_type": "task.cancel"
     }
   },
   {
-    "event_id": "14c3ae6e-1e5c-4fdb-bed6-29fc9c4e3108",
+    "event_id": "db14f8d2-1725-459d-9f41-94a388d54fd5",
     "event_type": "assistant.turn.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "29185388-c068-41a3-a14b-a766f4b3853c",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "117e69f1-2c37-4711-a818-f0b319082f35",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 8,
-    "occurred_at": "2026-07-26T12:25:49.752457Z",
+    "occurred_at": "2026-07-26T20:02:12.487608Z",
     "source": "platform_assistant",
-    "correlation_id": "204bf545-ca34-4db3-b176-66b256e943fa",
+    "correlation_id": "eda82141-5cfc-47dd-886c-55219b2f67a0",
     "payload": {
-      "turn_id": "29185388-c068-41a3-a14b-a766f4b3853c",
-      "message_id": "1278e638-90bd-46ac-bb2a-d7284e5bf4e3"
+      "turn_id": "117e69f1-2c37-4711-a818-f0b319082f35",
+      "message_id": "ea5d81ac-9f68-494e-a8d0-0f25b152e8a6"
     }
   },
   {
-    "event_id": "0e2ac3eb-fc3e-4e46-ad20-878b2dd8d539",
+    "event_id": "0a680dec-07c6-4858-af1a-32ef3ece725a",
     "event_type": "assistant.action.declined",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "290ca0ea-c054-4b27-aded-e2088375b64d",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "5c9c3f84-9402-41f4-a6ae-178b067f8f55",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 9,
-    "occurred_at": "2026-07-26T12:25:49.778057Z",
+    "occurred_at": "2026-07-26T20:02:12.513116Z",
     "source": "platform_assistant",
-    "correlation_id": "290ca0ea-c054-4b27-aded-e2088375b64d",
+    "correlation_id": "5c9c3f84-9402-41f4-a6ae-178b067f8f55",
     "payload": {
-      "action_id": "290ca0ea-c054-4b27-aded-e2088375b64d"
+      "action_id": "5c9c3f84-9402-41f4-a6ae-178b067f8f55"
     }
   },
   {
-    "event_id": "f5afa2ed-4d72-4879-9fed-a96d8dece2d0",
+    "event_id": "f54f84e8-c8e3-48a1-bf1b-f25748f5fb57",
     "event_type": "assistant.message.accepted",
     "schema_version": "1.0",
     "aggregate_type": "assistant_message",
-    "aggregate_id": "02170393-7a97-4090-9949-e56fc47de94e",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "33294798-2a43-4803-8e18-542d0d680453",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 10,
-    "occurred_at": "2026-07-26T12:25:49.836431Z",
+    "occurred_at": "2026-07-26T20:02:12.574561Z",
     "source": "platform_assistant",
-    "correlation_id": "34e86589-9f29-46fa-a4a5-4685ffee8d20",
+    "correlation_id": "f6e3c8bd-255f-42dd-ac04-936d27cb0f1e",
     "payload": {
-      "message_id": "02170393-7a97-4090-9949-e56fc47de94e",
+      "message_id": "33294798-2a43-4803-8e18-542d0d680453",
       "sequence": 3
     }
   },
   {
-    "event_id": "0fe8fa35-5edb-4ede-9873-ddb311a3192d",
+    "event_id": "da701146-036c-4101-b7b5-4d72cd56bad1",
     "event_type": "assistant.turn.queued",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 11,
-    "occurred_at": "2026-07-26T12:25:49.837431Z",
+    "occurred_at": "2026-07-26T20:02:12.575561Z",
     "source": "platform_assistant",
-    "correlation_id": "34e86589-9f29-46fa-a4a5-4685ffee8d20",
+    "correlation_id": "f6e3c8bd-255f-42dd-ac04-936d27cb0f1e",
     "payload": {
-      "turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
-      "message_id": "02170393-7a97-4090-9949-e56fc47de94e"
+      "turn_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
+      "message_id": "33294798-2a43-4803-8e18-542d0d680453"
     }
   },
   {
-    "event_id": "a0ed402d-a836-4efc-861b-764b6cb86559",
+    "event_id": "5ad024e4-3799-4ac3-baff-8d312bf09d3d",
     "event_type": "assistant.runtime_thread.resumed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_conversation",
-    "aggregate_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 12,
-    "occurred_at": "2026-07-26T12:25:49.870116Z",
+    "occurred_at": "2026-07-26T20:02:12.600226Z",
     "source": "platform_assistant",
-    "correlation_id": "34e86589-9f29-46fa-a4a5-4685ffee8d20",
+    "correlation_id": "f6e3c8bd-255f-42dd-ac04-936d27cb0f1e",
     "payload": {
-      "turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
+      "turn_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
       "thread_generation": 0
     }
   },
   {
-    "event_id": "0673f023-b9ec-472d-982a-879e92639829",
+    "event_id": "a641e769-07a0-42ea-b809-b07c3d9d69ea",
     "event_type": "assistant.turn.started",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 13,
-    "occurred_at": "2026-07-26T12:25:49.872139Z",
+    "occurred_at": "2026-07-26T20:02:12.601226Z",
     "source": "platform_assistant",
-    "correlation_id": "34e86589-9f29-46fa-a4a5-4685ffee8d20",
+    "correlation_id": "f6e3c8bd-255f-42dd-ac04-936d27cb0f1e",
     "payload": {
-      "turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d"
+      "turn_id": "9b22d3c5-c015-4501-a96d-88306a0881c9"
     }
   },
   {
-    "event_id": "2565c1d5-c92c-4e98-b9c9-c55055e55ce5",
+    "event_id": "91bad2b6-e113-4081-b82c-b84bb10762e0",
     "event_type": "assistant.message.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_message",
-    "aggregate_id": "6f940a54-88a3-41bc-b666-d445cb6f063f",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "d310f614-cd8c-445a-968c-c1f4e597d20e",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 14,
-    "occurred_at": "2026-07-26T12:25:49.872139Z",
+    "occurred_at": "2026-07-26T20:02:12.602226Z",
     "source": "platform_assistant",
-    "correlation_id": "34e86589-9f29-46fa-a4a5-4685ffee8d20",
+    "correlation_id": "f6e3c8bd-255f-42dd-ac04-936d27cb0f1e",
     "payload": {
-      "message_id": "6f940a54-88a3-41bc-b666-d445cb6f063f",
-      "turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d"
+      "message_id": "d310f614-cd8c-445a-968c-c1f4e597d20e",
+      "turn_id": "9b22d3c5-c015-4501-a96d-88306a0881c9"
     }
   },
   {
-    "event_id": "66a7f14d-420f-40f2-ba42-f2aa56194652",
+    "event_id": "95b77d37-60d6-4d46-8596-54dca43622e0",
     "event_type": "assistant.action.proposed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 15,
-    "occurred_at": "2026-07-26T12:25:49.873139Z",
+    "occurred_at": "2026-07-26T20:02:12.603226Z",
     "source": "platform_assistant",
-    "correlation_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
+    "correlation_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
     "payload": {
-      "action_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
+      "action_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
       "action_type": "organization.confirm"
     }
   },
   {
-    "event_id": "c4a214bc-58b0-4bcc-977b-b822eaa331e0",
+    "event_id": "1d074def-f6af-4eef-9ab1-2aa80ab3648c",
     "event_type": "assistant.turn.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 16,
-    "occurred_at": "2026-07-26T12:25:49.874138Z",
+    "occurred_at": "2026-07-26T20:02:12.604227Z",
     "source": "platform_assistant",
-    "correlation_id": "34e86589-9f29-46fa-a4a5-4685ffee8d20",
+    "correlation_id": "f6e3c8bd-255f-42dd-ac04-936d27cb0f1e",
     "payload": {
-      "turn_id": "08024a99-af23-4c4e-a1ac-491e02122b3d",
-      "message_id": "6f940a54-88a3-41bc-b666-d445cb6f063f"
+      "turn_id": "9b22d3c5-c015-4501-a96d-88306a0881c9",
+      "message_id": "d310f614-cd8c-445a-968c-c1f4e597d20e"
     }
   },
   {
-    "event_id": "ef49c251-5aff-4262-94fc-637623d78213",
+    "event_id": "a01fc94d-014e-49b1-afac-daed6e32c194",
     "event_type": "assistant.action.confirmed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 17,
-    "occurred_at": "2026-07-26T12:25:49.900204Z",
+    "occurred_at": "2026-07-26T20:02:12.627735Z",
     "source": "platform_assistant",
-    "correlation_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
+    "correlation_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
     "payload": {
-      "action_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb"
+      "action_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225"
     }
   },
   {
-    "event_id": "f5ce0e64-a63a-4010-909d-1106f1e5bcd2",
+    "event_id": "0d09972e-4b17-431c-aa3b-055ca11ac9ee",
     "event_type": "assistant.action.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 18,
-    "occurred_at": "2026-07-26T12:25:49.955287Z",
+    "occurred_at": "2026-07-26T20:02:12.677112Z",
     "source": "platform_assistant",
-    "correlation_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
+    "correlation_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
     "payload": {
-      "action_id": "383643c5-fc69-47bd-91fd-39cc8b93b4fb",
+      "action_id": "7d365fdb-700a-4979-9f5e-ed94fe2b4225",
       "result": {
-        "spec_version_id": "77fbe96e-7427-4146-bfd4-c3caf50cc056",
+        "spec_version_id": "3e938e87-5ae8-4446-8876-73bcac72b738",
         "status": "confirmed"
       }
     }
   },
   {
-    "event_id": "327a654b-c7fa-4e61-b41b-04ac4b6caf10",
+    "event_id": "5eac68b4-be1d-496a-8600-1f2d2212f7e0",
     "event_type": "assistant.message.accepted",
     "schema_version": "1.0",
     "aggregate_type": "assistant_message",
-    "aggregate_id": "aceba961-986f-4034-8a6d-a8a340ddafa7",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "25699140-adf1-40ef-88c8-6977d61ae259",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 19,
-    "occurred_at": "2026-07-26T12:25:49.975975Z",
+    "occurred_at": "2026-07-26T20:02:12.704518Z",
     "source": "platform_assistant",
-    "correlation_id": "165c29b9-33b7-4e58-b1a8-ee6f0c422238",
+    "correlation_id": "5411092d-d417-4ca7-9cdd-a70cab75fe8b",
     "payload": {
-      "message_id": "aceba961-986f-4034-8a6d-a8a340ddafa7",
+      "message_id": "25699140-adf1-40ef-88c8-6977d61ae259",
       "sequence": 5
     }
   },
   {
-    "event_id": "1bd67428-4a0f-4132-b995-e736cd84e14e",
+    "event_id": "0b7833c1-d06a-4f6b-a734-33a2979fc7a7",
     "event_type": "assistant.turn.queued",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "df8edac2-7102-434e-a137-63d6c52215cd",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 20,
-    "occurred_at": "2026-07-26T12:25:49.976975Z",
+    "occurred_at": "2026-07-26T20:02:12.704518Z",
     "source": "platform_assistant",
-    "correlation_id": "165c29b9-33b7-4e58-b1a8-ee6f0c422238",
+    "correlation_id": "5411092d-d417-4ca7-9cdd-a70cab75fe8b",
     "payload": {
-      "turn_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
-      "message_id": "aceba961-986f-4034-8a6d-a8a340ddafa7"
+      "turn_id": "df8edac2-7102-434e-a137-63d6c52215cd",
+      "message_id": "25699140-adf1-40ef-88c8-6977d61ae259"
     }
   },
   {
-    "event_id": "924a3fa3-0669-48f3-926b-2926051c93ef",
+    "event_id": "4c890297-e26c-4b3c-b70f-000d534602cf",
     "event_type": "assistant.runtime_thread.resumed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_conversation",
-    "aggregate_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 21,
-    "occurred_at": "2026-07-26T12:25:50.011624Z",
+    "occurred_at": "2026-07-26T20:02:12.738031Z",
     "source": "platform_assistant",
-    "correlation_id": "165c29b9-33b7-4e58-b1a8-ee6f0c422238",
+    "correlation_id": "5411092d-d417-4ca7-9cdd-a70cab75fe8b",
     "payload": {
-      "turn_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
+      "turn_id": "df8edac2-7102-434e-a137-63d6c52215cd",
       "thread_generation": 0
     }
   },
   {
-    "event_id": "b983e27d-6492-4180-972d-07e11f49747a",
+    "event_id": "e18c1079-1847-4154-b136-743cbd4ed0d4",
     "event_type": "assistant.turn.started",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "df8edac2-7102-434e-a137-63d6c52215cd",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 22,
-    "occurred_at": "2026-07-26T12:25:50.013167Z",
+    "occurred_at": "2026-07-26T20:02:12.739029Z",
     "source": "platform_assistant",
-    "correlation_id": "165c29b9-33b7-4e58-b1a8-ee6f0c422238",
+    "correlation_id": "5411092d-d417-4ca7-9cdd-a70cab75fe8b",
     "payload": {
-      "turn_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1"
+      "turn_id": "df8edac2-7102-434e-a137-63d6c52215cd"
     }
   },
   {
-    "event_id": "9a7ce1ac-2064-4b4a-9505-4a01d857f4d7",
+    "event_id": "9692ea88-df04-4da8-8de2-3e6b14c052ee",
     "event_type": "assistant.message.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_message",
-    "aggregate_id": "3e3972e3-625b-416f-a7c4-42f69fb07644",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "06b46258-775e-4a5e-a9b1-51db2b7e4c20",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 23,
-    "occurred_at": "2026-07-26T12:25:50.013674Z",
+    "occurred_at": "2026-07-26T20:02:12.740029Z",
     "source": "platform_assistant",
-    "correlation_id": "165c29b9-33b7-4e58-b1a8-ee6f0c422238",
+    "correlation_id": "5411092d-d417-4ca7-9cdd-a70cab75fe8b",
     "payload": {
-      "message_id": "3e3972e3-625b-416f-a7c4-42f69fb07644",
-      "turn_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1"
+      "message_id": "06b46258-775e-4a5e-a9b1-51db2b7e4c20",
+      "turn_id": "df8edac2-7102-434e-a137-63d6c52215cd"
     }
   },
   {
-    "event_id": "484f3e85-dcdb-4828-bb23-992dd836b9ed",
+    "event_id": "0ca99e94-9c10-4e87-9e89-9498ca32273e",
     "event_type": "assistant.action.proposed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 24,
-    "occurred_at": "2026-07-26T12:25:50.014695Z",
+    "occurred_at": "2026-07-26T20:02:12.740029Z",
     "source": "platform_assistant",
-    "correlation_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
+    "correlation_id": "df8edac2-7102-434e-a137-63d6c52215cd",
     "payload": {
-      "action_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
+      "action_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
       "action_type": "task.cancel"
     }
   },
   {
-    "event_id": "a5492546-ee9d-4a0f-9571-3c317fd09608",
+    "event_id": "219e62f5-10d4-493c-a2ca-37b8eb280877",
     "event_type": "assistant.turn.completed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_turn",
-    "aggregate_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "df8edac2-7102-434e-a137-63d6c52215cd",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 25,
-    "occurred_at": "2026-07-26T12:25:50.015205Z",
+    "occurred_at": "2026-07-26T20:02:12.741029Z",
     "source": "platform_assistant",
-    "correlation_id": "165c29b9-33b7-4e58-b1a8-ee6f0c422238",
+    "correlation_id": "5411092d-d417-4ca7-9cdd-a70cab75fe8b",
     "payload": {
-      "turn_id": "120faa56-f9d5-4db0-8955-7a93c68d34f1",
-      "message_id": "3e3972e3-625b-416f-a7c4-42f69fb07644"
+      "turn_id": "df8edac2-7102-434e-a137-63d6c52215cd",
+      "message_id": "06b46258-775e-4a5e-a9b1-51db2b7e4c20"
     }
   },
   {
-    "event_id": "3283a38f-7b45-4a08-abb0-216f7f309662",
+    "event_id": "21568721-f96b-4532-a787-e5b3c07f5a83",
     "event_type": "assistant.action.confirmed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 26,
-    "occurred_at": "2026-07-26T12:25:50.041957Z",
+    "occurred_at": "2026-07-26T20:02:12.768119Z",
     "source": "platform_assistant",
-    "correlation_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
+    "correlation_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
     "payload": {
-      "action_id": "a6329838-5680-42e5-a050-cefbdbd4ac04"
+      "action_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c"
     }
   },
   {
-    "event_id": "f0e934e3-aee8-4626-b4d7-92d235920934",
+    "event_id": "b11a529b-68e1-43ab-82ea-aad13fc70bdb",
     "event_type": "assistant.action.failed",
     "schema_version": "1.0",
     "aggregate_type": "assistant_action",
-    "aggregate_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
-    "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
+    "aggregate_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
+    "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
     "sequence": 27,
-    "occurred_at": "2026-07-26T12:25:50.068698Z",
+    "occurred_at": "2026-07-26T20:02:12.802122Z",
     "source": "platform_assistant",
-    "correlation_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
+    "correlation_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
     "payload": {
-      "action_id": "a6329838-5680-42e5-a050-cefbdbd4ac04",
+      "action_id": "917c2606-8d94-41a0-9b8f-0c4e8ee0214c",
       "code": "TASK_NOT_FOUND"
     }
   }

@@ -3798,6 +3798,26 @@
             ],
             "title": "Error Code"
           },
+          "error_status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Status Code"
+          },
+          "error_details": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Details"
+          },
           "error_message": {
             "anyOf": [
               {
@@ -3851,6 +3871,8 @@
           "status",
           "result",
           "error_code",
+          "error_status_code",
+          "error_details",
           "error_message",
           "proposed_at",
           "confirmed_at",

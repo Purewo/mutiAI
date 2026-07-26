@@ -170,6 +170,13 @@ for clients that do not send a locale. Validation details use stable locations
 and types with localized messages, and must not echo secrets or raw Runtime
 diagnostics.
 
+Persisted `AssistantAction` failures follow the same rule. The database stores
+the stable error code, original status, structured details, and an untranslated
+fallback. Action list, detail, and decision resources render `error_message` for
+the current reader instead of storing a translated sentence. Existing records
+with a stable code are localized at read time even when their fallback is
+English.
+
 The API must distinguish invalid organization definitions, ownership violations, stale versions, idempotency conflicts, Runtime unavailability, and task terminal-state conflicts. It must not expose raw LangGraph or Codex stack traces to the browser.
 
 Runtime binding failures use stable conflict codes: `RUNTIME_PROVIDER_MISMATCH`, `RUNTIME_SECURITY_MODE_INVALID`, and `RUNTIME_BINDING_INVALID`. The browser must present the product error and must not retry with a broader sandbox policy automatically.

@@ -23,6 +23,9 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         task_columns = {
             column["name"] for column in inspector.get_columns("tasks")
         }
+        assistant_action_columns = {
+            column["name"] for column in inspector.get_columns("assistant_actions")
+        }
         with engine.connect() as connection:
             revision = connection.scalar(
                 text("SELECT version_num FROM alembic_version")
@@ -79,4 +82,5 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "last_compacted_at",
         "last_delivery_summary",
     } <= workspace_columns
-    assert revision == "07468d4d9da8"
+    assert {"error_status_code", "error_details"} <= assistant_action_columns
+    assert revision == "20260727_0012"

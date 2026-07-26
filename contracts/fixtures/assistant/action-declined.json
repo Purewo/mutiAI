@@ -1,7 +1,7 @@
 {
-  "action_id": "290ca0ea-c054-4b27-aded-e2088375b64d",
-  "conversation_id": "c35cc5ab-ce98-4932-a29f-0151c7c08c14",
-  "source_turn_id": "29185388-c068-41a3-a14b-a766f4b3853c",
+  "action_id": "5c9c3f84-9402-41f4-a6ae-178b067f8f55",
+  "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+  "source_turn_id": "117e69f1-2c37-4711-a818-f0b319082f35",
   "action_type": "task.cancel",
   "target_type": "task",
   "target_id": "fixture-task-id",
@@ -11,8 +11,10 @@
   "status": "declined",
   "result": null,
   "error_code": null,
+  "error_status_code": null,
+  "error_details": null,
   "error_message": null,
-  "proposed_at": "2026-07-26T12:25:49.751454Z",
-  "confirmed_at": "2026-07-26T12:25:49.777057Z",
+  "proposed_at": "2026-07-26T20:02:12.487608Z",
+  "confirmed_at": "2026-07-26T20:02:12.512116Z",
   "executed_at": null
 }

@@ -75,6 +75,8 @@ _ZH_MESSAGES = {
     "ASSISTANT_ACTION_STATE_CONFLICT": "小助理操作当前状态不允许此决定。",
     "ASSISTANT_ACTION_INVALID": "小助理操作类型无效。",
     "ASSISTANT_ACTION_PAYLOAD_INVALID": "小助理操作参数无效。",
+    "ASSISTANT_ACTION_DATABASE_FAILED": "小助理操作记录保存失败。",
+    "ASSISTANT_ACTION_EXECUTION_FAILED": "小助理操作执行失败。",
     "ASSISTANT_EVENT_CURSOR_INVALID": "小助理事件游标不可用。",
     "ASSISTANT_MESSAGE_CURSOR_INVALID": "小助理消息游标不可用。",
     "INTERNAL_ERROR": "服务器发生未预期的错误。",
@@ -171,6 +173,24 @@ def _localized_message(
     return _ZH_STATUS_MESSAGES.get(status_code, "请求无法完成。")
 
 
+def localize_error_message(
+    *,
+    code: str,
+    fallback: str,
+    locale: str,
+    status_code: int,
+) -> str:
+    """Render a persisted product error for the current response locale."""
+
+    normalized_locale = locale if locale in SUPPORTED_LOCALES else DEFAULT_LOCALE
+    return _localized_message(
+        code=code,
+        fallback=fallback,
+        locale=normalized_locale,
+        status_code=status_code,
+    )
+
+
 def _localized_validation_message(error_type: str, locale: str) -> str:
     if locale == "en-US":
         return ""
@@ -203,7 +223,7 @@ def _response(
     locale = resolve_locale(request.headers.get("Accept-Language"))
     envelope = ErrorEnvelope(
         code=code,
-        message=_localized_message(
+        message=localize_error_message(
             code=code,
             fallback=message,
             locale=locale,

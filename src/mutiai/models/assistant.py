@@ -288,6 +288,10 @@ class AssistantAction(Base):
     )
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_details: Mapped[dict | list | str | int | float | bool | None] = (
+        mapped_column(JSON, nullable=True)
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     proposed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=utc_now

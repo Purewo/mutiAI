@@ -125,9 +125,16 @@ Required facts:
 - Action identity, conversation, source Turn, type, target, and versioned payload.
 - Payload hash and stable idempotency identity.
 - Status: proposed, confirmed, executing, completed, failed, declined, cancelled, expired, or superseded.
-- Confirmation, execution, result, failure, and audit metadata.
+- Confirmation, execution, result, failure, and audit metadata. Failures persist
+  a stable code, original HTTP status, structured details, and an untranslated
+  fallback instead of a reader-specific translation.
 
 Organization confirmation/publication, Task submission, Task retry/cancellation, and Runtime approval decisions require a confirmed AssistantAction. Read-only queries and proposal drafts do not.
+
+Action list, detail, and decision responses localize `error_message` when the
+record is read, using the current request's `Accept-Language`. The same persisted
+failure can therefore be read in different languages without changing the
+record. Responses declare `Content-Language` and vary on `Accept-Language`.
 
 ### AssistantEvent
 

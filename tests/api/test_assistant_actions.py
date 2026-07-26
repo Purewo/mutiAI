@@ -12,6 +12,7 @@ from mutiai.config import Settings
 from mutiai.main import create_app
 from mutiai.models import (
     Artifact,
+    AssistantAction,
     AssistantActionStatus,
     AssistantConversation,
     AssistantEvent,
@@ -229,6 +230,9 @@ def test_feasibility_blocked_action_persists_failure(tmp_path) -> None:
         failed = wait_for_terminal_action(client, action_id)
         assert failed["status"] == "failed"
         assert failed["error_code"] == "FEASIBILITY_BLOCKED"
+        assert failed["error_status_code"] == 409
+        assert failed["error_details"]["outcome"] == "blocked"
+        assert failed["error_details"]["feasibility_check_id"]
 
         checks = client.get(
             "/api/v1/organizations/"
@@ -237,6 +241,75 @@ def test_feasibility_blocked_action_persists_failure(tmp_path) -> None:
         )
         assert checks.status_code == 200
         assert any(check["phase"] == "confirmation" for check in checks.json())
+
+
+def test_failed_action_message_is_localized_when_the_record_is_read(tmp_path) -> None:
+    app = assistant_app(tmp_path)
+    with TestClient(app) as client:
+        owner_user_id = login(client)
+        conversation_id = create_conversation(client)
+        proposal = propose(client, organization_spec())
+        action_id = create_action(
+            app,
+            conversation_id,
+            owner_user_id,
+            {
+                "action_type": "organization.publish",
+                "target_type": "organization_version",
+                "target_id": proposal["spec_version_id"],
+                "payload": {
+                    "organization_id": proposal["organization_id"],
+                    "spec_version_id": proposal["spec_version_id"],
+                },
+            },
+        )
+        confirmed = client.post(
+            f"/api/v1/assistant/actions/{action_id}/decision",
+            headers={"Accept-Language": "zh-CN"},
+            json={"decision": "confirm"},
+        )
+        assert confirmed.status_code == 200
+        wait_for_terminal_action(client, action_id)
+
+        with app.state.database.session() as session:
+            stored = session.get(AssistantAction, action_id)
+            assert stored is not None
+            assert stored.error_code == "ORGANIZATION_VERSION_STATE_CONFLICT"
+            assert stored.error_status_code == 409
+            assert stored.error_details is None
+            assert stored.error_message == "Only a confirmed version can be published."
+
+        english = client.get(
+            f"/api/v1/assistant/actions/{action_id}",
+            headers={"Accept-Language": "en-US"},
+        )
+        chinese = client.get(
+            f"/api/v1/assistant/actions/{action_id}",
+            headers={"Accept-Language": "zh-CN"},
+        )
+        chinese_list = client.get(
+            f"/api/v1/assistant/conversations/{conversation_id}/actions",
+            headers={"Accept-Language": "zh-CN"},
+        )
+
+        assert english.status_code == 200
+        assert english.json()["error_message"] == (
+            "Only a confirmed version can be published."
+        )
+        assert english.headers["content-language"] == "en-US"
+        assert english.headers["vary"] == "Accept-Language"
+
+        assert chinese.status_code == 200
+        assert chinese.json()["error_message"] == "组织版本当前状态不允许此操作。"
+        assert chinese.json()["error_code"] == english.json()["error_code"]
+        assert chinese.json()["error_status_code"] == 409
+        assert chinese.headers["content-language"] == "zh-CN"
+        assert chinese.headers["vary"] == "Accept-Language"
+
+        listed = next(
+            item for item in chinese_list.json() if item["action_id"] == action_id
+        )
+        assert listed["error_message"] == "组织版本当前状态不允许此操作。"
 
 
 def test_task_submit_action_and_product_query_tools_use_persisted_truth(

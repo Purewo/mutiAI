@@ -100,6 +100,12 @@ stable `code` for control flow and display the backend-provided localized
 The response `Content-Language` identifies the selected locale. Network and
 timeout failures without an error envelope remain client-transport states.
 
+`AssistantAction.error_message` is also backend-localized at read time. Always
+send `Accept-Language` when listing, reading, or deciding an Action, and refresh
+the persisted Action after an event. Use `error_code` for control flow;
+`error_status_code` and `error_details` preserve the original structured failure
+context.
+
 Runtime binding responses now include the current versioned
 `capability_profile`. Organization role definitions may declare
 `capability_requirements`, and Task submission may declare the same structured

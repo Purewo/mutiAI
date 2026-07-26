@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -69,6 +70,7 @@ SYSTEM_PROMPT_PATH = (
 SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 SYSTEM_PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
 ASSISTANT_ARTIFACT_CONTENT_MAX_BYTES = 64 * 1024
+logger = logging.getLogger(__name__)
 
 ASSISTANT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -789,6 +791,8 @@ class PlatformAssistantService:
             except ApiError as exc:
                 action.status = AssistantActionStatus.FAILED
                 action.error_code = exc.code
+                action.error_status_code = exc.status_code
+                action.error_details = exc.details
                 action.error_message = exc.message
                 self._append_event(
                     session,
@@ -813,6 +817,8 @@ class PlatformAssistantService:
                     return
                 action.status = AssistantActionStatus.FAILED
                 action.error_code = "ASSISTANT_ACTION_DATABASE_FAILED"
+                action.error_status_code = 500
+                action.error_details = None
                 action.error_message = "The assistant action could not be persisted."
                 self._append_event(
                     session,
@@ -826,10 +832,16 @@ class PlatformAssistantService:
                     },
                     correlation_id=action.action_id,
                 )
-            except Exception as exc:  # noqa: BLE001 - product action boundary
+            except Exception as exc:
+                logger.exception(
+                    "Unhandled platform-assistant Action failure",
+                    exc_info=exc,
+                )
                 action.status = AssistantActionStatus.FAILED
                 action.error_code = "ASSISTANT_ACTION_EXECUTION_FAILED"
-                action.error_message = str(exc)[:4_000]
+                action.error_status_code = 500
+                action.error_details = None
+                action.error_message = "The assistant action could not be completed."
                 self._append_event(
                     session,
                     conversation,
