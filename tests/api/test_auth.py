@@ -74,6 +74,7 @@ def test_invalid_credentials_use_stable_error_envelope(tmp_path) -> None:
 
     assert response.status_code == 401
     assert response.headers["X-Request-ID"] == "test-request-id"
+    assert response.headers["Content-Language"] == "en-US"
     assert response.json() == {
         "code": "AUTH_INVALID_CREDENTIALS",
         "message": "The username or password is invalid.",
@@ -90,6 +91,45 @@ def test_invalid_credentials_use_stable_error_envelope(tmp_path) -> None:
     assert unknown_user.status_code == 401
     assert unknown_user.json()["code"] == "AUTH_INVALID_CREDENTIALS"
     assert unknown_user.json()["message"] == response.json()["message"]
+
+
+def test_error_message_follows_accept_language_without_changing_error_code(
+    tmp_path,
+) -> None:
+    app, _ = auth_app(tmp_path)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/login",
+            headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"},
+            json={"username": "admin", "password": "wrong"},
+        )
+
+    assert response.status_code == 401
+    assert response.headers["Content-Language"] == "zh-CN"
+    assert response.headers["Vary"] == "Accept-Language"
+    assert response.json()["code"] == "AUTH_INVALID_CREDENTIALS"
+    assert response.json()["message"] == "用户名或密码无效。"
+
+
+def test_validation_details_are_localized_without_echoing_input(tmp_path) -> None:
+    app, _ = auth_app(tmp_path)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/login",
+            headers={"Accept-Language": "zh"},
+            json={"username": "admin", "password": ""},
+        )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert response.headers["Content-Language"] == "zh-CN"
+    assert payload["code"] == "INVALID_REQUEST"
+    assert payload["message"] == "请求参数无效。"
+    assert all(item["message"] == "文本长度不足。" for item in payload["details"])
+    assert "input" not in str(payload).lower()
+    assert "password': ''" not in str(payload)
 
 
 def test_validation_error_never_echoes_password(tmp_path) -> None:

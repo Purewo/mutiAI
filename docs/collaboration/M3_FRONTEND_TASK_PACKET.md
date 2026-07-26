@@ -63,6 +63,12 @@ Task submission must send a unique `Idempotency-Key` and set `orchestration_mode
 
 The Artifact content endpoint is owner-scoped and returns the declared media type. Use its default inline response for preview when the browser supports the media type, and add `download=true` for explicit download. Treat 409 integrity or release-state errors as unavailable results rather than attempting a direct filesystem fallback.
 
+Send `Accept-Language: zh-CN` on API requests. For an `ErrorEnvelope`, keep the
+stable `code` for control flow and display the backend-provided localized
+`message`; do not replace business errors with frontend-authored translations.
+The response `Content-Language` identifies the selected locale. Network and
+timeout failures without an error envelope remain client-transport states.
+
 ## State mapping
 
 Treat these as product states, not LangGraph states:

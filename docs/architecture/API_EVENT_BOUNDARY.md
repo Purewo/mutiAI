@@ -159,6 +159,15 @@ request_id
 details (optional)
 ```
 
+`code` is the stable machine-readable contract. `message` is a backend-owned,
+user-visible localization selected by the request's `Accept-Language` header;
+the current web client sends `zh-CN` and displays the returned message without
+replacing it with a frontend-authored translation. Responses include
+`Content-Language` and vary on `Accept-Language`. The default remains `en-US`
+for clients that do not send a locale. Validation details use stable locations
+and types with localized messages, and must not echo secrets or raw Runtime
+diagnostics.
+
 The API must distinguish invalid organization definitions, ownership violations, stale versions, idempotency conflicts, Runtime unavailability, and task terminal-state conflicts. It must not expose raw LangGraph or Codex stack traces to the browser.
 
 Runtime binding failures use stable conflict codes: `RUNTIME_PROVIDER_MISMATCH`, `RUNTIME_SECURITY_MODE_INVALID`, and `RUNTIME_BINDING_INVALID`. The browser must present the product error and must not retry with a broader sandbox policy automatically.
