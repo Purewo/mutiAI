@@ -60,7 +60,7 @@ uv run python scripts/seed_m3_acceptance_task.py --scenario approval
 
 1. Open the printed Task and its pending approval.
 2. Confirm the command is visible so the user can make an informed decision.
-3. Confirm the product UI does not display a host `cwd` or construct a host path.
+3. Confirm the public approval response contains no `cwd`, raw grant root, or other host path, and the product UI does not construct one.
 4. Submit one decision and confirm the approval resource and Task events converge without duplicate resolution events.
 5. Seed a fresh Task before testing another decision because approval decisions are immutable and idempotent.
 

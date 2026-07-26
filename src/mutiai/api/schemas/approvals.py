@@ -32,7 +32,6 @@ class ApprovalResponse(BaseModel):
     item_id: str
     reason: str | None
     command: str | None
-    cwd: str | None
     details: dict
     decision: ApprovalDecision | None
     decided_by_user_id: str | None
@@ -54,8 +53,10 @@ class ApprovalResponse(BaseModel):
             item_id=approval.item_id,
             reason=approval.reason,
             command=approval.command,
-            cwd=approval.cwd,
-            details=approval.details,
+            # Host paths and raw App Server detail objects remain internal audit
+            # facts. Add explicit safe public fields when a future approval kind
+            # requires more context instead of forwarding opaque Runtime data.
+            details={},
             decision=(
                 ApprovalDecision(approval.decision)
                 if approval.decision is not None

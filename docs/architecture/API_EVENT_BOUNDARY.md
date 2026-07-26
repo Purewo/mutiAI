@@ -50,7 +50,7 @@ Task creation must accept an idempotency key. The same key must return the origi
 
 The HTTP header name is `Idempotency-Key`. Reusing a key with a different request payload returns an idempotency conflict.
 
-An approval is a product database entity, not a LangGraph interrupt or a copy of Codex internal state. The Runtime worker waits outside the graph while LangGraph remains checkpointed. V1 decisions apply only to one App Server request; session-wide acceptance and policy amendments are not public API options.
+An approval is a product database entity, not a LangGraph interrupt or a copy of Codex internal state. The Runtime worker waits outside the graph while LangGraph remains checkpointed. V1 decisions apply only to one App Server request; session-wide acceptance and policy amendments are not public API options. The product database retains the Runtime `cwd` and raw request details for internal audit, but public approval responses expose neither host paths nor opaque App Server detail objects. A command approval exposes the command because the user cannot make an informed decision without it. Runtime integrations must treat command text as user-visible and must not inline secret values into it.
 
 Repeating the same approval decision is idempotent. Submitting a different decision after resolution returns a conflict. If the Runtime no longer owns and waits on the request, the API returns a conflict instead of claiming that Codex received the decision.
 

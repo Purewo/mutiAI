@@ -3117,17 +3117,6 @@
             ],
             "title": "Command"
           },
-          "cwd": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cwd"
-          },
           "details": {
             "additionalProperties": true,
             "type": "object",
@@ -3186,7 +3175,6 @@
           "item_id",
           "reason",
           "command",
-          "cwd",
           "details",
           "decision",
           "decided_by_user_id",

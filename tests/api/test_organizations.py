@@ -51,6 +51,7 @@ def organization_app(tmp_path):
         bootstrap_admin_enabled=True,
         bootstrap_admin_username="admin",
         bootstrap_admin_password="123456",
+        assistant_runtime_provider="inherit",
     )
     return create_app(settings), runtime_root
 

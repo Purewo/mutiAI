@@ -854,10 +854,10 @@ def test_codex_runtime_approval_decision_resumes_original_turn(
             assert approval["turn_id"]
             if kind == "command_execution":
                 assert approval["command"] == "python -m pytest"
-                assert approval["details"]["command_actions"][0]["type"] == "unknown"
             else:
                 assert approval["command"] is None
-                assert approval["details"]["grant_root"]
+            assert "cwd" not in approval
+            assert approval["details"] == {}
 
             decision_url = (
                 f"/api/v1/tasks/{task_id}/approvals/"
@@ -874,6 +874,8 @@ def test_codex_runtime_approval_decision_resumes_original_turn(
             assert resolved["decided_by_user_id"]
             assert resolved["thread_id"] == approval["thread_id"]
             assert resolved["turn_id"] == approval["turn_id"]
+            assert "cwd" not in resolved
+            assert resolved["details"] == {}
 
             duplicate = client.post(decision_url, json={"decision": decision})
             assert duplicate.status_code == 200

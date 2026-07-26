@@ -501,6 +501,7 @@ def test_create_app_keeps_explicit_adapter_outside_sidecar_assembly(tmp_path) ->
         runtime_provider="codex",
         codex_app_server_endpoint="ws://127.0.0.1:1",
         bootstrap_admin_enabled=False,
+        assistant_runtime_provider="inherit",
     )
 
     app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
