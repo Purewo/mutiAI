@@ -1,5 +1,10 @@
 """Product-domain contracts."""
 
+from mutiai.domain.feasibility import (
+    FeasibilityFinding,
+    RuntimeCapabilityProfileSpec,
+    WorkloadRequirements,
+)
 from mutiai.domain.organization import AgentRoleSpec, OrganizationSpec
 from mutiai.domain.task_plan import (
     ArtifactContractSpec,
@@ -15,8 +20,11 @@ __all__ = [
     "ArtifactContractSpec",
     "ArtifactDeclaration",
     "AssignmentDelivery",
+    "FeasibilityFinding",
     "LeadReviewResult",
     "OrganizationSpec",
     "PlanStepSpec",
+    "RuntimeCapabilityProfileSpec",
     "TaskExecutionPlanSpec",
+    "WorkloadRequirements",
 ]

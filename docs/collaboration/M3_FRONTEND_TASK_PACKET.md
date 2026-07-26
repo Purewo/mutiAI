@@ -69,6 +69,25 @@ stable `code` for control flow and display the backend-provided localized
 The response `Content-Language` identifies the selected locale. Network and
 timeout failures without an error envelope remain client-transport states.
 
+Runtime binding responses now include the current versioned
+`capability_profile`. Organization role definitions may declare
+`capability_requirements`, and Task submission may declare the same structured
+workload requirements. The backend validates these requirements before
+confirmation, publication, Task submission, and Runtime start.
+
+Use the owner-scoped feasibility resources when rendering the preview and
+execution states:
+
+- `GET /api/v1/feasibility-checks/{feasibility_check_id}`
+- `GET /api/v1/organizations/{organization_id}/versions/{spec_version_id}/feasibility-checks`
+- `GET /api/v1/tasks/{task_id}/feasibility-checks`
+
+The current outcomes are `feasible`, `conditional`, `blocked`, and
+`capability_unknown`. Findings contain stable `reason_code`, affected role and
+binding, required and actual capability values, `alternative_codes`, and
+backend-localized `message` and `alternatives`. Do not infer feasibility from
+the model name or from a successful earlier Runtime execution.
+
 ## State mapping
 
 Treat these as product states, not LangGraph states:

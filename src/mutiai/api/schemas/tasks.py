@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from mutiai.api.schemas.organizations import as_utc
+from mutiai.domain import WorkloadRequirements
 from mutiai.models import (
     Artifact,
     ArtifactInputBinding,
@@ -34,6 +35,9 @@ from mutiai.models.task_plan import (
 class TaskCreateRequest(BaseModel):
     request: str = Field(min_length=1, max_length=10_000)
     orchestration_mode: TaskOrchestrationMode = TaskOrchestrationMode.LEGACY
+    capability_requirements: WorkloadRequirements = Field(
+        default_factory=WorkloadRequirements
+    )
 
 
 class TaskInputArtifactRequest(BaseModel):
@@ -420,6 +424,7 @@ class TaskResponse(BaseModel):
     organization_id: str
     organization_spec_version_id: str
     request: str
+    capability_requirements: WorkloadRequirements
     orchestration_mode: TaskOrchestrationMode
     status: TaskStatus
     result_summary: str | None
@@ -437,6 +442,9 @@ class TaskResponse(BaseModel):
             organization_id=task.organization_id,
             organization_spec_version_id=task.organization_spec_version_id,
             request=task.request_text,
+            capability_requirements=WorkloadRequirements.model_validate(
+                task.capability_requirements or {}
+            ),
             orchestration_mode=TaskOrchestrationMode(task.orchestration_mode),
             status=TaskStatus(task.status),
             result_summary=task.result_summary,

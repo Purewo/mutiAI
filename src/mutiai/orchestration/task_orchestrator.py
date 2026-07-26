@@ -24,6 +24,7 @@ from mutiai.domain import (
     LeadReviewResult,
     OrganizationSpec,
     TaskExecutionPlanSpec,
+    WorkloadRequirements,
 )
 from mutiai.models import (
     Artifact,
@@ -72,6 +73,7 @@ from mutiai.runtime import (
 )
 from mutiai.services.artifacts import ArtifactManager
 from mutiai.services.events import append_task_event
+from mutiai.services.feasibility import FeasibilityGateError, FeasibilityService
 from mutiai.services.linear_scheduler import LinearTaskScheduler
 from mutiai.services.runtime_bindings import (
     RuntimeBindingResolutionError,
@@ -130,6 +132,7 @@ class TaskOrchestrator:
             settings,
             runtime_provider=self.runtime_adapter.provider,
         )
+        self.feasibility = FeasibilityService(settings, self.runtime_bindings)
         self.artifact_manager = (
             ArtifactManager(workspace_provisioner.manager)
             if workspace_provisioner is not None
@@ -2193,6 +2196,38 @@ class TaskOrchestrator:
                     execution=execution,
                 )
             except RuntimeBindingResolutionError as exc:
+                self._record_admission_failure(
+                    session=session,
+                    task=task,
+                    assignment=assignment,
+                    execution=execution,
+                    error=exc,
+                )
+                raise
+
+            version = session.get(
+                OrganizationSpecVersion,
+                task.organization_spec_version_id,
+            )
+            if version is None:
+                raise RuntimeError(
+                    f"task '{task.task_id}' has no OrganizationSpec version"
+                )
+            check = self.feasibility.evaluate_task_request(
+                session,
+                owner_user_id=task.owner_user_id,
+                spec=OrganizationSpec.model_validate(version.spec_payload),
+                request_text=task.request_text,
+                explicit_requirements=WorkloadRequirements.model_validate(
+                    task.capability_requirements or {}
+                ),
+                target_id=task.task_id,
+                phase="runtime_start",
+                role_key=assignment.agent_role_key,
+            )
+            try:
+                self.feasibility.require_feasible(check)
+            except FeasibilityGateError as exc:
                 self._record_admission_failure(
                     session=session,
                     task=task,

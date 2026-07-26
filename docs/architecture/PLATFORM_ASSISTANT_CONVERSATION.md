@@ -1,6 +1,7 @@
 # Platform assistant conversation architecture
 
-Status: Accepted design baseline. Implementation and versioned public contracts remain pending.
+Status: Accepted design baseline. Runtime feasibility implementation is available
+in V1; platform-assistant conversation persistence remains pending.
 
 ## Purpose
 
@@ -177,6 +178,12 @@ Platform-assistant Threads:
 The canonical feasibility policy is sourced from `skills/platform-assistant/references/system-prompt.md` and the detailed rules in `skills/platform-assistant/references/feasibility-rules.md`. The Runtime adapter injects the policy for every Thread generation and records the policy version or hash on each AssistantTurn. Deployment must not rely on a compressed Thread summary to preserve this law.
 
 The product creates a new Thread generation when the previous Thread is unavailable, exceeds the configured compaction policy, or becomes incompatible with the current prompt or tool-contract version. Rotation carries forward only product-owned messages, selected summary, and current resource references.
+
+The current backend exposes owner-scoped feasibility records through
+`/api/v1/feasibility-checks/{id}`, organization-version feasibility lists, and
+Task feasibility lists. These routes expose the persisted profile revisions,
+requirements, stable finding codes, and localized explanations without
+exposing host paths or Runtime transcripts.
 
 ## Skill packaging
 

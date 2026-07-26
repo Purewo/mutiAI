@@ -59,6 +59,10 @@ _ZH_MESSAGES = {
     "RUNTIME_BINDING_INVALID": "Runtime 绑定无效。",
     "RUNTIME_BUDGET_EXCEEDED": "Runtime 预算不足，无法执行此任务。",
     "PROVIDER_RATE_LIMITED": "Runtime Provider 当前受到速率限制，请稍后重试。",
+    "FEASIBILITY_BLOCKED": "运行环境不满足当前组织或任务要求。",
+    "FEASIBILITY_CONDITIONAL": "当前组织或任务需要补充条件后才能运行。",
+    "FEASIBILITY_CAPABILITY_UNKNOWN": "运行环境能力信息不足，已阻止执行。",
+    "FEASIBILITY_CHECK_NOT_FOUND": "未找到可行性校验记录。",
     "INTERNAL_ERROR": "服务器发生未预期的错误。",
     "HTTP_ERROR": "请求无法完成。",
 }

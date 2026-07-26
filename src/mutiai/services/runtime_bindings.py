@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import platform
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mutiai.config import Settings
-from mutiai.domain import OrganizationSpec
-from mutiai.models import RuntimeBinding, RuntimeSecurityMode
+from mutiai.domain import OrganizationSpec, RuntimeCapabilityProfileSpec
+from mutiai.models import (
+    RuntimeBinding,
+    RuntimeCapabilityProfile,
+    RuntimeSecurityMode,
+)
 from mutiai.runtime import RuntimeExecutionConfig
 
 
@@ -28,6 +33,7 @@ class RuntimeBindingInput:
     model: str | None
     reasoning_effort: str | None
     security_mode: RuntimeSecurityMode
+    capability_profile: RuntimeCapabilityProfileSpec | None = None
 
 
 class RuntimeBindingService:
@@ -76,12 +82,27 @@ class RuntimeBindingService:
                 is_active=True,
             )
             session.add(binding)
+            session.flush()
         else:
             binding.provider = data.provider
             binding.model = data.model
             binding.reasoning_effort = data.reasoning_effort
             binding.security_mode = data.security_mode
             binding.is_active = True
+        if data.capability_profile is not None:
+            self._append_profile_if_changed(
+                session,
+                binding=binding,
+                owner_user_id=owner_user_id,
+                profile=data.capability_profile,
+                source="user_declared",
+            )
+        else:
+            self.ensure_profile(
+                session,
+                binding=binding,
+                owner_user_id=owner_user_id,
+            )
         session.commit()
         session.refresh(binding)
         return binding
@@ -102,6 +123,11 @@ class RuntimeBindingService:
             )
         )
         if binding is not None:
+            self.ensure_profile(
+                session,
+                binding=binding,
+                owner_user_id=owner_user_id,
+            )
             return binding
         binding = RuntimeBinding(
             owner_user_id=owner_user_id,
@@ -114,7 +140,102 @@ class RuntimeBindingService:
         )
         session.add(binding)
         session.flush()
+        self.ensure_profile(
+            session,
+            binding=binding,
+            owner_user_id=owner_user_id,
+        )
         return binding
+
+    def current_profile(
+        self,
+        session: Session,
+        *,
+        binding: RuntimeBinding,
+    ) -> RuntimeCapabilityProfile | None:
+        return session.scalar(
+            select(RuntimeCapabilityProfile)
+            .where(
+                RuntimeCapabilityProfile.runtime_binding_id
+                == binding.runtime_binding_id
+            )
+            .order_by(RuntimeCapabilityProfile.revision.desc())
+        )
+
+    def ensure_profile(
+        self,
+        session: Session,
+        *,
+        binding: RuntimeBinding,
+        owner_user_id: str,
+    ) -> RuntimeCapabilityProfile:
+        current = self.current_profile(session, binding=binding)
+        if current is not None:
+            return current
+        return self._append_profile_if_changed(
+            session,
+            binding=binding,
+            owner_user_id=owner_user_id,
+            profile=self._default_profile(binding),
+            source="runtime_default",
+        )
+
+    def _append_profile_if_changed(
+        self,
+        session: Session,
+        *,
+        binding: RuntimeBinding,
+        owner_user_id: str,
+        profile: RuntimeCapabilityProfileSpec,
+        source: str,
+    ) -> RuntimeCapabilityProfile:
+        current = self.current_profile(session, binding=binding)
+        payload = profile.model_dump(mode="json")
+        if current is not None and current.profile_payload == payload:
+            return current
+        latest_revision = session.scalar(
+            select(func.max(RuntimeCapabilityProfile.revision)).where(
+                RuntimeCapabilityProfile.runtime_binding_id
+                == binding.runtime_binding_id
+            )
+        )
+        record = RuntimeCapabilityProfile(
+            owner_user_id=owner_user_id,
+            runtime_binding_id=binding.runtime_binding_id,
+            revision=(latest_revision or 0) + 1,
+            profile_payload=payload,
+            source=source,
+            trusted=True,
+            observed_at=None,
+        )
+        session.add(record)
+        session.flush()
+        return record
+
+    @staticmethod
+    def _default_profile(binding: RuntimeBinding) -> RuntimeCapabilityProfileSpec:
+        system = platform.system().casefold()
+        os_family = (
+            "windows"
+            if system == "windows"
+            else "macos"
+            if system == "darwin"
+            else "linux"
+            if system == "linux"
+            else "unknown"
+        )
+        return RuntimeCapabilityProfileSpec(
+            os_family=os_family,
+            os_version=platform.release() or None,
+            architecture=platform.machine() or None,
+            # Managed Codex work is headless by default even on a Windows dev host.
+            headless=True,
+            cpu_capacity_class="standard",
+            gpu_available=False,
+            network_access=(
+                binding.security_mode == RuntimeSecurityMode.DEMO_FULL_ACCESS
+            ),
+        )
 
     def resolve_for_role(
         self,

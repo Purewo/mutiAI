@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from mutiai.api.dependencies import CurrentUser, DbSession
-from mutiai.api.errors import ErrorEnvelope
+from mutiai.api.dependencies import CurrentUser, DbSession, TaskRunner
+from mutiai.api.errors import ApiError, ErrorEnvelope
 from mutiai.api.schemas.organizations import (
     OrganizationDetailResponse,
     OrganizationProposalRequest,
@@ -15,10 +15,12 @@ from mutiai.api.schemas.organizations import (
 )
 from mutiai.domain import OrganizationSpec
 from mutiai.models import Organization, OrganizationSpecVersion
+from mutiai.services.feasibility import FeasibilityGateError
 from mutiai.services.organizations import (
     confirm_version,
     create_proposal,
     get_owned_organization,
+    get_owned_version,
     publish_version,
 )
 
@@ -31,6 +33,22 @@ ERROR_RESPONSES = {
 }
 
 
+def require_feasible(check, orchestrator: TaskRunner) -> None:
+    try:
+        orchestrator.feasibility.require_feasible(check)
+    except FeasibilityGateError as exc:
+        code = f"FEASIBILITY_{exc.outcome.value.upper()}"
+        raise ApiError(
+            409,
+            code,
+            "The Runtime feasibility gate blocked this organization transition.",
+            details={
+                "feasibility_check_id": exc.check_id,
+                "outcome": exc.outcome.value,
+            },
+        ) from exc
+
+
 @router.post(
     "/proposals",
     response_model=OrganizationVersionResponse,
@@ -41,6 +59,7 @@ def propose_organization(
     payload: OrganizationProposalRequest,
     user: CurrentUser,
     session: DbSession,
+    orchestrator: TaskRunner,
 ) -> OrganizationVersionResponse:
     version = create_proposal(
         session,
@@ -48,6 +67,13 @@ def propose_organization(
         spec=payload.spec,
         organization_id=payload.organization_id,
         source_request=payload.source_request,
+    )
+    orchestrator.feasibility.evaluate_organization_spec(
+        session,
+        owner_user_id=user.user_id,
+        spec=payload.spec,
+        target_id=version.spec_version_id,
+        phase="proposal",
     )
     return OrganizationVersionResponse.from_record(version)
 
@@ -139,7 +165,22 @@ def confirm_organization_version(
     spec_version_id: str,
     user: CurrentUser,
     session: DbSession,
+    orchestrator: TaskRunner,
 ) -> OrganizationVersionResponse:
+    current = get_owned_version(
+        session,
+        organization_id=organization_id,
+        spec_version_id=spec_version_id,
+        owner_user_id=user.user_id,
+    )
+    check = orchestrator.feasibility.evaluate_organization_spec(
+        session,
+        owner_user_id=user.user_id,
+        spec=OrganizationSpec.model_validate(current.spec_payload),
+        target_id=current.spec_version_id,
+        phase="confirmation",
+    )
+    require_feasible(check, orchestrator)
     version = confirm_version(
         session,
         organization_id=organization_id,
@@ -159,7 +200,22 @@ def publish_organization_version(
     spec_version_id: str,
     user: CurrentUser,
     session: DbSession,
+    orchestrator: TaskRunner,
 ) -> OrganizationVersionResponse:
+    current = get_owned_version(
+        session,
+        organization_id=organization_id,
+        spec_version_id=spec_version_id,
+        owner_user_id=user.user_id,
+    )
+    check = orchestrator.feasibility.evaluate_organization_spec(
+        session,
+        owner_user_id=user.user_id,
+        spec=OrganizationSpec.model_validate(current.spec_payload),
+        target_id=current.spec_version_id,
+        phase="publication",
+    )
+    require_feasible(check, orchestrator)
     version = publish_version(
         session,
         organization_id=organization_id,

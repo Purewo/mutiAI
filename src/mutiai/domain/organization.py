@@ -7,6 +7,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from mutiai.domain.feasibility import WorkloadRequirements
+
 
 class AgentRoleSpec(BaseModel):
     """One persistent formal role in an organization definition."""
@@ -23,6 +25,9 @@ class AgentRoleSpec(BaseModel):
     is_lead: bool = False
     reports_to: str | None = None
     runtime_binding_key: str = Field(min_length=1, max_length=64)
+    capability_requirements: WorkloadRequirements = Field(
+        default_factory=WorkloadRequirements
+    )
 
 
 class OrganizationSpec(BaseModel):
@@ -108,4 +113,3 @@ class OrganizationSpec(BaseModel):
                     f"role '{role.role_key}' is not connected to the lead"
                 )
             current = role_by_key[parent_key]
-

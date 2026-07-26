@@ -32,17 +32,22 @@ from mutiai.api.schemas.tasks import (
     TaskResponse,
     TaskTokenUsageResponse,
 )
+from mutiai.domain import OrganizationSpec
 from mutiai.models import (
     ApprovalRequest,
     Artifact,
     Assignment,
+    OrganizationSpecVersion,
     ProductEvent,
     RuntimeExecution,
     Task,
 )
+from mutiai.models.base import new_id
 from mutiai.models.task import TaskStatus
 from mutiai.orchestration import TaskCancellationIncompleteError
 from mutiai.services.artifacts import ArtifactError, ArtifactManager
+from mutiai.services.feasibility import FeasibilityGateError
+from mutiai.services.organizations import get_owned_organization
 from mutiai.services.runtime_bindings import RuntimeBindingResolutionError
 from mutiai.services.runtime_controls import (
     RuntimeBudgetExceededError,
@@ -106,6 +111,22 @@ def run_orchestration(operation: Callable[[], Task]) -> Task:
         raise ApiError(409, "RUNTIME_BINDING_INVALID", str(exc)) from exc
 
 
+def require_feasible(check, orchestrator: TaskRunner) -> None:
+    try:
+        orchestrator.feasibility.require_feasible(check)
+    except FeasibilityGateError as exc:
+        code = f"FEASIBILITY_{exc.outcome.value.upper()}"
+        raise ApiError(
+            409,
+            code,
+            "The Runtime feasibility gate blocked this Task.",
+            details={
+                "feasibility_check_id": exc.check_id,
+                "outcome": exc.outcome.value,
+            },
+        ) from exc
+
+
 @router.post(
     "/organizations/{organization_id}/tasks",
     response_model=TaskResponse,
@@ -128,6 +149,45 @@ def submit_task(
         ),
     ],
 ) -> TaskResponse:
+    existing = session.scalar(
+        select(Task).where(
+            Task.owner_user_id == user.user_id,
+            Task.organization_id == organization_id,
+            Task.idempotency_key == idempotency_key,
+        )
+    )
+    if existing is None:
+        organization = get_owned_organization(
+            session,
+            organization_id=organization_id,
+            owner_user_id=user.user_id,
+        )
+        if organization.current_published_version_id is not None:
+            version = session.get(
+                OrganizationSpecVersion,
+                organization.current_published_version_id,
+            )
+            if version is None:
+                raise ApiError(
+                    409,
+                    "ORGANIZATION_VERSION_MISSING",
+                    "The organization version is unavailable.",
+                )
+            task_id = new_id()
+            check = orchestrator.feasibility.evaluate_task_request(
+                session,
+                owner_user_id=user.user_id,
+                spec=OrganizationSpec.model_validate(version.spec_payload),
+                request_text=payload.request,
+                explicit_requirements=payload.capability_requirements,
+                target_id=task_id,
+                phase="task_submission",
+            )
+            require_feasible(check, orchestrator)
+        else:
+            task_id = None
+    else:
+        task_id = None
     task, created = create_task(
         session,
         owner_user_id=user.user_id,
@@ -135,6 +195,8 @@ def submit_task(
         request_text=payload.request,
         idempotency_key=idempotency_key,
         orchestration_mode=payload.orchestration_mode,
+        capability_requirements=payload.capability_requirements,
+        task_id=task_id,
     )
     if payload.orchestration_mode.value == "planned":
         run_orchestration(lambda: orchestrator.plan(task.task_id))

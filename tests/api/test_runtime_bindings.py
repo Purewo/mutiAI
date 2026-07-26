@@ -59,6 +59,37 @@ def test_runtime_binding_list_lazily_creates_default_and_upsert_is_idempotent(
         assert updated.json()["runtime_binding_id"] == first["runtime_binding_id"]
         assert updated.json()["reasoning_effort"] == "medium"
 
+        profiled_payload = {
+            **payload,
+            "reasoning_effort": "medium",
+            "capability_profile": {
+                "os_family": "linux",
+                "headless": True,
+                "cpu_capacity_class": "heavy",
+                "memory_mb": 32768,
+                "gpu_available": True,
+                "gpu_kind": "test-gpu",
+                "gpu_memory_mb": 16384,
+                "network_access": False,
+            },
+        }
+        profiled = client.put(
+            "/api/v1/runtime/bindings/backend",
+            json=profiled_payload,
+        )
+        assert profiled.status_code == 200
+        assert profiled.json()["capability_profile"]["revision"] == 2
+        assert profiled.json()["capability_profile"]["profile"]["os_family"] == (
+            "linux"
+        )
+
+        replayed_profile = client.put(
+            "/api/v1/runtime/bindings/backend",
+            json=profiled_payload,
+        )
+        assert replayed_profile.status_code == 200
+        assert replayed_profile.json()["capability_profile"]["revision"] == 2
+
 
 def test_runtime_binding_rejects_non_active_provider(tmp_path) -> None:
     app = binding_app(tmp_path)

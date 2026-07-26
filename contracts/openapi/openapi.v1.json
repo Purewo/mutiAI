@@ -123,6 +123,209 @@
         }
       }
     },
+    "/api/v1/feasibility-checks/{feasibility_check_id}": {
+      "get": {
+        "tags": [
+          "feasibility"
+        ],
+        "summary": "Get Feasibility Check",
+        "operationId": "get_feasibility_check_api_v1_feasibility_checks__feasibility_check_id__get",
+        "parameters": [
+          {
+            "name": "feasibility_check_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Feasibility Check Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeasibilityCheckResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organizations/{organization_id}/versions/{spec_version_id}/feasibility-checks": {
+      "get": {
+        "tags": [
+          "feasibility"
+        ],
+        "summary": "List Organization Feasibility Checks",
+        "operationId": "list_organization_feasibility_checks_api_v1_organizations__organization_id__versions__spec_version_id__feasibility_checks_get",
+        "parameters": [
+          {
+            "name": "organization_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Organization Id"
+            }
+          },
+          {
+            "name": "spec_version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Spec Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FeasibilityCheckResponse"
+                  },
+                  "title": "Response List Organization Feasibility Checks Api V1 Organizations  Organization Id  Versions  Spec Version Id  Feasibility Checks Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/feasibility-checks": {
+      "get": {
+        "tags": [
+          "feasibility"
+        ],
+        "summary": "List Task Feasibility Checks",
+        "operationId": "list_task_feasibility_checks_api_v1_tasks__task_id__feasibility_checks_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FeasibilityCheckResponse"
+                  },
+                  "title": "Response List Task Feasibility Checks Api V1 Tasks  Task Id  Feasibility Checks Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/organizations/proposals": {
       "post": {
         "tags": [
@@ -1805,6 +2008,9 @@
             "maxLength": 64,
             "minLength": 1,
             "title": "Runtime Binding Key"
+          },
+          "capability_requirements": {
+            "$ref": "#/components/schemas/WorkloadRequirements"
           }
         },
         "additionalProperties": false,
@@ -2508,6 +2714,172 @@
         ],
         "title": "ErrorEnvelope"
       },
+      "FeasibilityCheckResponse": {
+        "properties": {
+          "feasibility_check_id": {
+            "type": "string",
+            "title": "Feasibility Check Id"
+          },
+          "target_type": {
+            "type": "string",
+            "title": "Target Type"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "validator_version": {
+            "type": "string",
+            "title": "Validator Version"
+          },
+          "input_hash": {
+            "type": "string",
+            "title": "Input Hash"
+          },
+          "requirements": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "profile_revisions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Profile Revisions"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/FeasibilityOutcome"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FeasibilityFindingResponse"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feasibility_check_id",
+          "target_type",
+          "target_id",
+          "phase",
+          "validator_version",
+          "input_hash",
+          "requirements",
+          "profile_revisions",
+          "outcome",
+          "findings",
+          "created_at"
+        ],
+        "title": "FeasibilityCheckResponse"
+      },
+      "FeasibilityFindingResponse": {
+        "properties": {
+          "reason_code": {
+            "type": "string",
+            "title": "Reason Code"
+          },
+          "role_key": {
+            "type": "string",
+            "title": "Role Key"
+          },
+          "binding_key": {
+            "type": "string",
+            "title": "Binding Key"
+          },
+          "capability": {
+            "type": "string",
+            "title": "Capability"
+          },
+          "required": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required"
+          },
+          "actual": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual"
+          },
+          "alternative_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Alternative Codes"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "alternatives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason_code",
+          "role_key",
+          "binding_key",
+          "capability",
+          "required",
+          "actual",
+          "alternative_codes",
+          "message",
+          "alternatives"
+        ],
+        "title": "FeasibilityFindingResponse"
+      },
+      "FeasibilityOutcome": {
+        "type": "string",
+        "enum": [
+          "feasible",
+          "conditional",
+          "blocked",
+          "capability_unknown"
+        ],
+        "title": "FeasibilityOutcome"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
       "HealthResponse": {
         "properties": {
           "status": {
@@ -3013,6 +3385,9 @@
           "security_mode": {
             "$ref": "#/components/schemas/RuntimeSecurityMode"
           },
+          "capability_profile": {
+            "$ref": "#/components/schemas/RuntimeCapabilityProfileResponse"
+          },
           "is_active": {
             "type": "boolean",
             "title": "Is Active"
@@ -3036,6 +3411,7 @@
           "model",
           "reasoning_effort",
           "security_mode",
+          "capability_profile",
           "is_active",
           "created_at",
           "updated_at"
@@ -3078,6 +3454,16 @@
           },
           "security_mode": {
             "$ref": "#/components/schemas/RuntimeSecurityMode"
+          },
+          "capability_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeCapabilityProfileSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3086,6 +3472,283 @@
           "security_mode"
         ],
         "title": "RuntimeBindingUpsertRequest"
+      },
+      "RuntimeCapabilityProfileResponse": {
+        "properties": {
+          "capability_profile_id": {
+            "type": "string",
+            "title": "Capability Profile Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/RuntimeCapabilityProfileSpec"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "trusted": {
+            "type": "boolean",
+            "title": "Trusted"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability_profile_id",
+          "revision",
+          "profile",
+          "source",
+          "trusted",
+          "observed_at",
+          "created_at"
+        ],
+        "title": "RuntimeCapabilityProfileResponse"
+      },
+      "RuntimeCapabilityProfileSpec": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "os_family": {
+            "type": "string",
+            "enum": [
+              "linux",
+              "windows",
+              "macos",
+              "unknown"
+            ],
+            "title": "Os Family",
+            "default": "unknown"
+          },
+          "os_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Version"
+          },
+          "architecture": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Architecture"
+          },
+          "headless": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headless"
+          },
+          "cpu_capacity_class": {
+            "type": "string",
+            "enum": [
+              "light",
+              "standard",
+              "heavy",
+              "unknown"
+            ],
+            "title": "Cpu Capacity Class",
+            "default": "unknown"
+          },
+          "memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Mb"
+          },
+          "gpu_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Available"
+          },
+          "gpu_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Kind"
+          },
+          "gpu_memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Mb"
+          },
+          "installed_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Installed Tools",
+            "default": []
+          },
+          "tool_inventory_complete": {
+            "type": "boolean",
+            "title": "Tool Inventory Complete",
+            "default": false
+          },
+          "network_access": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Network Access"
+          },
+          "external_services": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "External Services",
+            "default": []
+          },
+          "external_service_inventory_complete": {
+            "type": "boolean",
+            "title": "External Service Inventory Complete",
+            "default": false
+          },
+          "attached_hardware": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Attached Hardware",
+            "default": []
+          },
+          "hardware_inventory_complete": {
+            "type": "boolean",
+            "title": "Hardware Inventory Complete",
+            "default": false
+          },
+          "proprietary_software": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Proprietary Software",
+            "default": []
+          },
+          "proprietary_software_inventory_complete": {
+            "type": "boolean",
+            "title": "Proprietary Software Inventory Complete",
+            "default": false
+          },
+          "supported_input_media_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Input Media Types",
+            "default": []
+          },
+          "supported_output_media_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Output Media Types",
+            "default": []
+          },
+          "media_inventory_complete": {
+            "type": "boolean",
+            "title": "Media Inventory Complete",
+            "default": false
+          },
+          "max_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Duration Seconds"
+          },
+          "max_input_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Input Size Bytes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RuntimeCapabilityProfileV1",
+        "description": "Versioned declaration of an effective Runtime environment."
       },
       "RuntimeControlResponse": {
         "properties": {
@@ -3525,6 +4188,9 @@
           "orchestration_mode": {
             "$ref": "#/components/schemas/TaskOrchestrationMode",
             "default": "legacy"
+          },
+          "capability_requirements": {
+            "$ref": "#/components/schemas/WorkloadRequirements"
           }
         },
         "type": "object",
@@ -3724,6 +4390,9 @@
             "type": "string",
             "title": "Request"
           },
+          "capability_requirements": {
+            "$ref": "#/components/schemas/WorkloadRequirements"
+          },
           "orchestration_mode": {
             "$ref": "#/components/schemas/TaskOrchestrationMode"
           },
@@ -3794,6 +4463,7 @@
           "organization_id",
           "organization_spec_version_id",
           "request",
+          "capability_requirements",
           "orchestration_mode",
           "status",
           "result_summary",
@@ -3918,6 +4588,199 @@
           "display_name"
         ],
         "title": "UserResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WorkloadRequirements": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "os_families": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "linux",
+                "windows",
+                "macos"
+              ]
+            },
+            "type": "array",
+            "title": "Os Families",
+            "default": []
+          },
+          "requires_gui": {
+            "type": "boolean",
+            "title": "Requires Gui",
+            "default": false
+          },
+          "requires_gpu": {
+            "type": "boolean",
+            "title": "Requires Gpu",
+            "default": false
+          },
+          "min_gpu_memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Gpu Memory Mb"
+          },
+          "min_cpu_capacity": {
+            "type": "string",
+            "enum": [
+              "light",
+              "standard",
+              "heavy"
+            ],
+            "title": "Min Cpu Capacity",
+            "default": "light"
+          },
+          "min_memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Memory Mb"
+          },
+          "required_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Tools",
+            "default": []
+          },
+          "requires_network": {
+            "type": "boolean",
+            "title": "Requires Network",
+            "default": false
+          },
+          "required_external_services": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required External Services",
+            "default": []
+          },
+          "required_hardware": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Hardware",
+            "default": []
+          },
+          "required_proprietary_software": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Proprietary Software",
+            "default": []
+          },
+          "input_media_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Input Media Types",
+            "default": []
+          },
+          "output_media_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Output Media Types",
+            "default": []
+          },
+          "estimated_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Duration Seconds"
+          },
+          "estimated_input_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Input Size Bytes"
+          },
+          "resource_intensive": {
+            "type": "boolean",
+            "title": "Resource Intensive",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "WorkloadRequirementsV1",
+        "description": "Capabilities required by one role or one submitted workload."
       }
     }
   }

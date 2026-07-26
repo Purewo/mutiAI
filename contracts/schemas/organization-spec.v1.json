@@ -44,6 +44,9 @@
           "minLength": 1,
           "title": "Runtime Binding Key",
           "type": "string"
+        },
+        "capability_requirements": {
+          "$ref": "#/$defs/WorkloadRequirements"
         }
       },
       "required": [
@@ -53,6 +56,163 @@
         "runtime_binding_key"
       ],
       "title": "AgentRoleSpec",
+      "type": "object"
+    },
+    "WorkloadRequirements": {
+      "additionalProperties": false,
+      "description": "Capabilities required by one role or one submitted workload.",
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "os_families": {
+          "default": [],
+          "items": {
+            "enum": [
+              "linux",
+              "windows",
+              "macos"
+            ],
+            "type": "string"
+          },
+          "title": "Os Families",
+          "type": "array"
+        },
+        "requires_gui": {
+          "default": false,
+          "title": "Requires Gui",
+          "type": "boolean"
+        },
+        "requires_gpu": {
+          "default": false,
+          "title": "Requires Gpu",
+          "type": "boolean"
+        },
+        "min_gpu_memory_mb": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Gpu Memory Mb"
+        },
+        "min_cpu_capacity": {
+          "default": "light",
+          "enum": [
+            "light",
+            "standard",
+            "heavy"
+          ],
+          "title": "Min Cpu Capacity",
+          "type": "string"
+        },
+        "min_memory_mb": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Memory Mb"
+        },
+        "required_tools": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Tools",
+          "type": "array"
+        },
+        "requires_network": {
+          "default": false,
+          "title": "Requires Network",
+          "type": "boolean"
+        },
+        "required_external_services": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Required External Services",
+          "type": "array"
+        },
+        "required_hardware": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Hardware",
+          "type": "array"
+        },
+        "required_proprietary_software": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Proprietary Software",
+          "type": "array"
+        },
+        "input_media_types": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Media Types",
+          "type": "array"
+        },
+        "output_media_types": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Output Media Types",
+          "type": "array"
+        },
+        "estimated_duration_seconds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Duration Seconds"
+        },
+        "estimated_input_size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Input Size Bytes"
+        },
+        "resource_intensive": {
+          "default": false,
+          "title": "Resource Intensive",
+          "type": "boolean"
+        }
+      },
+      "title": "WorkloadRequirementsV1",
       "type": "object"
     }
   },

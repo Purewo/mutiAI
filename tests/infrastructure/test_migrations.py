@@ -46,6 +46,8 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "runtime_control_policies",
         "runtime_provider_capacities",
         "runtime_bindings",
+        "runtime_capability_profiles",
+        "feasibility_checks",
         "workspaces",
         "tasks",
         "task_execution_plans",
@@ -53,7 +55,7 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
     } <= tables
     assert "plan_step_id" in assignment_columns
     assert {"assignment_key", "assignment_kind"} <= assignment_columns
-    assert "orchestration_mode" in task_columns
+    assert {"orchestration_mode", "capability_requirements"} <= task_columns
     assert {
         "runtime_binding_id",
         "runtime_binding_key",
@@ -72,4 +74,4 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "last_compacted_at",
         "last_delivery_summary",
     } <= workspace_columns
-    assert revision == "20260725_0010"
+    assert revision == "20260726_0011"

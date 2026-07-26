@@ -22,6 +22,12 @@ the immutable RuntimeExecution policy fields consumed by the frontend. Runtime
 binding values are product configuration; raw LangGraph checkpoints and Codex
 Thread history are not public contract resources.
 
+Runtime binding resources include a versioned `capability_profile`. Organization
+roles and Task requests can declare structured `capability_requirements`. The
+owner-scoped feasibility endpoints expose persisted validator results with
+outcomes `feasible`, `conditional`, `blocked`, and `capability_unknown` before
+the frontend renders or submits a state-changing action.
+
 Regenerate both snapshots with:
 
 ```powershell

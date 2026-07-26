@@ -571,7 +571,9 @@ def test_task_requires_idempotency_key_and_published_organization(tmp_path) -> N
         assert not settings.runtime_workspace_root.exists()
 
 
-def test_task_rejects_unconfigured_role_runtime_binding(tmp_path) -> None:
+def test_organization_confirmation_rejects_unconfigured_role_runtime_binding(
+    tmp_path,
+) -> None:
     settings = task_settings(tmp_path)
     app = create_app(settings, runtime_adapter=FakeRuntimeAdapter())
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -590,15 +592,15 @@ def test_task_rejects_unconfigured_role_runtime_binding(tmp_path) -> None:
             f"/api/v1/organizations/{version['organization_id']}/versions/"
             f"{version['spec_version_id']}"
         )
-        assert client.post(version_url + "/confirm").status_code == 200
-        assert client.post(version_url + "/publish").status_code == 200
-        response = client.post(
-            f"/api/v1/organizations/{version['organization_id']}/tasks",
-            headers={"Idempotency-Key": "missing-runtime-binding"},
-            json={"request": "Reject before Runtime submission."},
-        )
+        response = client.post(version_url + "/confirm")
         assert response.status_code == 409
-        assert response.json()["code"] == "RUNTIME_BINDING_INVALID"
+        assert response.json()["code"] == "FEASIBILITY_BLOCKED"
+        check_id = response.json()["details"]["feasibility_check_id"]
+        check = client.get(f"/api/v1/feasibility-checks/{check_id}")
+        assert check.status_code == 200
+        assert {
+            finding["reason_code"] for finding in check.json()["findings"]
+        } == {"RUNTIME_BINDING_UNAVAILABLE"}
 
 
 def test_failed_parallel_branch_resumes_without_replaying_success(tmp_path) -> None:

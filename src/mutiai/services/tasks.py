@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mutiai.api.errors import ApiError
-from mutiai.domain import OrganizationSpec
+from mutiai.domain import OrganizationSpec, WorkloadRequirements
 from mutiai.models import (
     Assignment,
     OrganizationSpecVersion,
@@ -50,12 +50,16 @@ def _request_hash(
     organization_id: str,
     request_text: str,
     orchestration_mode: str,
+    capability_requirements: WorkloadRequirements,
 ) -> str:
     canonical = json.dumps(
         {
             "organization_id": organization_id,
             "request": request_text,
             "orchestration_mode": orchestration_mode,
+            "capability_requirements": capability_requirements.model_dump(
+                mode="json"
+            ),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -82,16 +86,20 @@ def create_task(
     request_text: str,
     idempotency_key: str,
     orchestration_mode: TaskOrchestrationMode = TaskOrchestrationMode.LEGACY,
+    capability_requirements: WorkloadRequirements | None = None,
+    task_id: str | None = None,
 ) -> tuple[Task, bool]:
     organization = get_owned_organization(
         session,
         organization_id=organization_id,
         owner_user_id=owner_user_id,
     )
+    normalized_requirements = capability_requirements or WorkloadRequirements()
     request_hash = _request_hash(
         organization_id,
         request_text,
         orchestration_mode,
+        normalized_requirements,
     )
     existing = session.scalar(
         select(Task).where(
@@ -103,6 +111,7 @@ def create_task(
     if existing is not None:
         compatible_legacy_hash = (
             orchestration_mode == TaskOrchestrationMode.LEGACY
+            and normalized_requirements == WorkloadRequirements()
             and existing.request_hash == _legacy_request_hash(
                 organization_id,
                 request_text,
@@ -127,10 +136,12 @@ def create_task(
         )
 
     task = Task(
+        **({"task_id": task_id} if task_id is not None else {}),
         owner_user_id=owner_user_id,
         organization_id=organization_id,
         organization_spec_version_id=organization.current_published_version_id,
         request_text=request_text,
+        capability_requirements=normalized_requirements.model_dump(mode="json"),
         request_hash=request_hash,
         idempotency_key=idempotency_key,
         orchestration_mode=orchestration_mode,

@@ -107,6 +107,7 @@ class Task(Base):
         index=True,
     )
     request_text: Mapped[str] = mapped_column(Text)
+    capability_requirements: Mapped[dict] = mapped_column(JSON, default=dict)
     request_hash: Mapped[str] = mapped_column(String(64))
     idempotency_key: Mapped[str] = mapped_column(String(128))
     orchestration_mode: Mapped[str] = mapped_column(

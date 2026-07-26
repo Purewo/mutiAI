@@ -37,13 +37,19 @@ def list_runtime_bindings(
     service = orchestrator.runtime_bindings
     service.ensure_default(session, owner_user_id=user.user_id)
     session.commit()
-    return [
-        RuntimeBindingResponse.from_record(binding)
-        for binding in service.list_for_owner(
+    responses = []
+    for binding in service.list_for_owner(
+        session,
+        owner_user_id=user.user_id,
+    ):
+        profile = service.ensure_profile(
             session,
+            binding=binding,
             owner_user_id=user.user_id,
         )
-    ]
+        responses.append(RuntimeBindingResponse.from_record(binding, profile))
+    session.commit()
+    return responses
 
 
 @router.put(
@@ -75,11 +81,18 @@ def put_runtime_binding(
                 model=payload.model,
                 reasoning_effort=payload.reasoning_effort,
                 security_mode=payload.security_mode,
+                capability_profile=payload.capability_profile,
             ),
         )
     except RuntimeBindingResolutionError as exc:
         raise ApiError(409, "RUNTIME_SECURITY_MODE_INVALID", str(exc)) from exc
-    return RuntimeBindingResponse.from_record(binding)
+    profile = orchestrator.runtime_bindings.ensure_profile(
+        session,
+        binding=binding,
+        owner_user_id=user.user_id,
+    )
+    session.commit()
+    return RuntimeBindingResponse.from_record(binding, profile)
 
 
 @router.get("/runtime/controls", response_model=RuntimeControlResponse)
