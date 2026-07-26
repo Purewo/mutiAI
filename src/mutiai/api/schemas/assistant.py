@@ -8,10 +8,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from mutiai.api.errors import DEFAULT_LOCALE, localize_error_message
+from mutiai.api.schemas.assistant_content import (
+    CONTENT_SCHEMA_VERSION,
+    ContentBlock,
+)
 from mutiai.api.schemas.organizations import as_utc
 from mutiai.models import (
     AssistantAction,
     AssistantActionStatus,
+    AssistantAttachment,
+    AssistantAttachmentStatus,
     AssistantConversation,
     AssistantConversationStatus,
     AssistantEvent,
@@ -63,8 +69,9 @@ class AssistantMessageResponse(BaseModel):
     sequence: int
     role: AssistantMessageRole
     status: AssistantMessageStatus
+    content_schema_version: str
     text: str
-    content_blocks: list[dict]
+    content_blocks: list[ContentBlock]
     attachment_refs: list[dict]
     reply_to_message_id: str | None
     related_resource_type: str | None
@@ -80,6 +87,9 @@ class AssistantMessageResponse(BaseModel):
             sequence=message.sequence,
             role=AssistantMessageRole(message.role),
             status=AssistantMessageStatus(message.status),
+            content_schema_version=(
+                message.content_schema_version or CONTENT_SCHEMA_VERSION
+            ),
             text=message.text_content,
             content_blocks=list(message.content_blocks or []),
             attachment_refs=list(message.attachment_refs or []),
@@ -88,6 +98,38 @@ class AssistantMessageResponse(BaseModel):
             related_resource_id=message.related_resource_id,
             created_at=as_utc(message.created_at),
             completed_at=as_utc(message.completed_at),
+        )
+
+
+class AssistantAttachmentRef(BaseModel):
+    attachment_id: str = Field(min_length=1, max_length=100)
+
+
+class AssistantAttachmentResponse(BaseModel):
+    attachment_id: str
+    conversation_id: str
+    file_name: str
+    media_type: str
+    byte_size: int
+    sha256: str
+    status: AssistantAttachmentStatus
+    created_at: datetime
+    attached_at: datetime | None
+    revoked_at: datetime | None
+
+    @classmethod
+    def from_record(cls, attachment: AssistantAttachment) -> AssistantAttachmentResponse:
+        return cls(
+            attachment_id=attachment.attachment_id,
+            conversation_id=attachment.conversation_id,
+            file_name=attachment.file_name,
+            media_type=attachment.media_type,
+            byte_size=attachment.byte_size,
+            sha256=attachment.sha256,
+            status=AssistantAttachmentStatus(attachment.status),
+            created_at=as_utc(attachment.created_at),
+            attached_at=as_utc(attachment.attached_at),
+            revoked_at=as_utc(attachment.revoked_at),
         )
 
 
@@ -240,7 +282,9 @@ class AssistantEventResponse(BaseModel):
 
 class AssistantUserMessageRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
-    attachment_refs: list[dict] = Field(default_factory=list, max_length=20)
+    attachment_refs: list[AssistantAttachmentRef] = Field(
+        default_factory=list, max_length=20
+    )
 
 
 class AssistantSubmissionResponse(BaseModel):
@@ -269,3 +313,4 @@ class AssistantActionProposal(BaseModel):
 class AssistantRuntimeEnvelope(BaseModel):
     reply: str = Field(min_length=1, max_length=20_000)
     action: AssistantActionProposal | None = None
+    presentation_requests: list[dict] = Field(default_factory=list, max_length=20)

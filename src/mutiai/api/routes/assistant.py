@@ -6,8 +6,8 @@ import json
 from collections.abc import Iterator
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Query, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, File, Header, Query, Request, Response, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 
 from mutiai.api.dependencies import (
@@ -19,6 +19,7 @@ from mutiai.api.errors import ApiError, ErrorEnvelope, resolve_locale
 from mutiai.api.schemas.assistant import (
     AssistantActionDecisionRequest,
     AssistantActionResponse,
+    AssistantAttachmentResponse,
     AssistantConversationResponse,
     AssistantEventResponse,
     AssistantMessagePage,
@@ -35,6 +36,8 @@ ERROR_RESPONSES = {
     404: {"model": ErrorEnvelope},
     409: {"model": ErrorEnvelope},
     422: {"model": ErrorEnvelope},
+    413: {"model": ErrorEnvelope},
+    415: {"model": ErrorEnvelope},
 }
 
 
@@ -126,6 +129,82 @@ def archive_conversation(
     return AssistantConversationResponse.from_record(conversation)
 
 
+@router.post(
+    "/conversations/{conversation_id}/attachments",
+    response_model=AssistantAttachmentResponse,
+    status_code=201,
+    responses=ERROR_RESPONSES,
+)
+def upload_attachment(
+    conversation_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    assistant: PlatformAssistant,
+    file: Annotated[UploadFile, File()],
+) -> AssistantAttachmentResponse:
+    attachment = assistant.upload_attachment(
+        session,
+        conversation_id=conversation_id,
+        owner_user_id=user.user_id,
+        file_name=file.filename,
+        media_type=file.content_type,
+        source=file.file,
+    )
+    return AssistantAttachmentResponse.from_record(attachment)
+
+
+@router.delete(
+    "/conversations/{conversation_id}/attachments/{attachment_id}",
+    response_model=AssistantAttachmentResponse,
+    responses=ERROR_RESPONSES,
+)
+def revoke_attachment(
+    conversation_id: str,
+    attachment_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    assistant: PlatformAssistant,
+) -> AssistantAttachmentResponse:
+    attachment = assistant.revoke_attachment(
+        session,
+        conversation_id=conversation_id,
+        owner_user_id=user.user_id,
+        attachment_id=attachment_id,
+    )
+    return AssistantAttachmentResponse.from_record(attachment)
+
+
+@router.get(
+    "/conversations/{conversation_id}/attachments/{attachment_id}/content",
+    responses=ERROR_RESPONSES,
+)
+def download_attachment(
+    conversation_id: str,
+    attachment_id: str,
+    user: CurrentUser,
+    session: DbSession,
+    assistant: PlatformAssistant,
+    download: bool = False,
+) -> FileResponse:
+    attachment, path = assistant.attachment_path(
+        session,
+        conversation_id=conversation_id,
+        owner_user_id=user.user_id,
+        attachment_id=attachment_id,
+    )
+    return FileResponse(
+        path,
+        media_type=attachment.media_type,
+        filename=attachment.file_name if download else None,
+        content_disposition_type="attachment" if download else "inline",
+        headers={
+            "ETag": f'"{attachment.sha256}"',
+            "X-Content-SHA256": attachment.sha256,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get(
     "/conversations/{conversation_id}/messages",
     response_model=AssistantMessagePage,
@@ -175,7 +254,7 @@ def submit_message(
         conversation_id=conversation_id,
         owner_user_id=user.user_id,
         text=payload.text,
-        attachment_refs=payload.attachment_refs,
+        attachment_refs=[ref.model_dump(mode="json") for ref in payload.attachment_refs],
         idempotency_key=idempotency_key,
     )
     if not created:

@@ -4,6 +4,8 @@ from mutiai.models.approval import ApprovalRequest
 from mutiai.models.assistant import (
     AssistantAction,
     AssistantActionStatus,
+    AssistantAttachment,
+    AssistantAttachmentStatus,
     AssistantConversation,
     AssistantConversationStatus,
     AssistantEvent,
@@ -55,6 +57,8 @@ __all__ = [
     "Assignment",
     "AssistantAction",
     "AssistantActionStatus",
+    "AssistantAttachment",
+    "AssistantAttachmentStatus",
     "AssistantConversation",
     "AssistantConversationStatus",
     "AssistantEvent",

@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     assistant_tool_contract_version: str = Field(
         default="1.1", min_length=1, max_length=20
     )
+    assistant_attachment_root: Path | None = None
+    assistant_attachment_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
     bootstrap_admin_enabled: bool = True
     bootstrap_admin_username: str = "admin"
     bootstrap_admin_password: SecretStr = SecretStr("change-me-before-network-access")
@@ -83,6 +89,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_unsafe_production_bootstrap(self) -> Self:
+        if self.assistant_attachment_root is None:
+            self.assistant_attachment_root = (
+                self.runtime_workspace_root.parent / "mutiAI-assistant-attachments"
+            )
         if self.app_env == "production" and self.database_auto_migrate:
             raise ValueError("production requires DATABASE_AUTO_MIGRATE=false")
         if self.app_env == "production" and self.bootstrap_admin_enabled:

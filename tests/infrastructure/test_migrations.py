@@ -26,6 +26,13 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         assistant_action_columns = {
             column["name"] for column in inspector.get_columns("assistant_actions")
         }
+        assistant_message_columns = {
+            column["name"] for column in inspector.get_columns("assistant_messages")
+        }
+        assistant_attachment_columns = {
+            column["name"]
+            for column in inspector.get_columns("assistant_attachments")
+        }
         with engine.connect() as connection:
             revision = connection.scalar(
                 text("SELECT version_num FROM alembic_version")
@@ -41,6 +48,7 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "assistant_conversations",
         "assistant_events",
         "assistant_messages",
+        "assistant_attachments",
         "assistant_turns",
         "artifact_input_bindings",
         "artifacts",
@@ -83,4 +91,17 @@ def test_migrations_create_current_product_schema(tmp_path) -> None:
         "last_delivery_summary",
     } <= workspace_columns
     assert {"error_status_code", "error_details"} <= assistant_action_columns
-    assert revision == "20260727_0012"
+    assert "content_schema_version" in assistant_message_columns
+    assert {
+        "attachment_id",
+        "conversation_id",
+        "owner_user_id",
+        "message_id",
+        "file_name",
+        "media_type",
+        "byte_size",
+        "sha256",
+        "storage_relative_path",
+        "status",
+    } <= assistant_attachment_columns
+    assert revision == "20260727_0014"

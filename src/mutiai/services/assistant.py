@@ -5,18 +5,31 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event, RLock
 from typing import Any
 
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from mutiai.api.errors import ApiError
 from mutiai.api.schemas.assistant import AssistantActionResponse
+from mutiai.api.schemas.assistant_content import (
+    AttachmentContentBlock,
+    ContentPresentationRequest,
+    DiagramContentBlock,
+    DiagramPresentationRequest,
+    MarkdownContentBlock,
+    OrganizationDiagramSource,
+    ResourceRefContentBlock,
+    ResourceRefPresentationRequest,
+    TaskPlanDiagramSource,
+)
 from mutiai.api.schemas.feasibility import FeasibilityCheckResponse
 from mutiai.api.schemas.organizations import (
     OrganizationSummaryResponse,
@@ -34,6 +47,7 @@ from mutiai.models import (
     Assignment,
     AssistantAction,
     AssistantActionStatus,
+    AssistantAttachment,
     AssistantConversation,
     AssistantConversationStatus,
     AssistantEvent,
@@ -45,8 +59,10 @@ from mutiai.models import (
     FeasibilityCheck,
     Organization,
     OrganizationSpecVersion,
+    RuntimeBinding,
     RuntimeExecution,
     Task,
+    TaskExecutionPlan,
 )
 from mutiai.models.approval import ApprovalDecision
 from mutiai.models.base import new_id, utc_now
@@ -61,6 +77,10 @@ from mutiai.runtime import (
 )
 from mutiai.services.approvals import RuntimeApprovalCoordinator
 from mutiai.services.artifacts import ArtifactError, ArtifactManager
+from mutiai.services.assistant_attachments import (
+    AssistantAttachmentError,
+    AssistantAttachmentManager,
+)
 from mutiai.services.organizations import create_proposal, get_owned_organization
 from mutiai.services.tasks import create_task, get_owned_task
 
@@ -75,6 +95,8 @@ SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 SYSTEM_PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
 ASSISTANT_ARTIFACT_CONTENT_MAX_BYTES = 64 * 1024
 logger = logging.getLogger(__name__)
+CONTENT_PRESENTATION_SCHEMA = TypeAdapter(ContentPresentationRequest).json_schema()
+CONTENT_PRESENTATION_ADAPTER = TypeAdapter(ContentPresentationRequest)
 
 ASSISTANT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -107,8 +129,13 @@ ASSISTANT_OUTPUT_SCHEMA: dict[str, Any] = {
                 "payload_json",
             ],
         },
+        "presentation_requests": {
+            "type": "array",
+            "maxItems": 20,
+            "items": CONTENT_PRESENTATION_SCHEMA,
+        },
     },
-    "required": ["reply", "action"],
+    "required": ["reply", "action", "presentation_requests"],
 }
 
 ASSISTANT_THREAD_CONFIG: dict[str, Any] = {
@@ -289,6 +316,16 @@ ASSISTANT_DYNAMIC_TOOLS: list[dict[str, Any]] = [
         },
     ),
     _tool(
+        "mutiai_get_attachment_content",
+        "Read one owner-scoped UTF-8 JSON or text attachment already attached to a user message.",
+        {
+            "type": "object",
+            "properties": {"attachment_id": {"type": "string"}},
+            "required": ["attachment_id"],
+            "additionalProperties": False,
+        },
+    ),
+    _tool(
         "mutiai_get_task_usage",
         "Read persisted token usage for one owner-scoped Task.",
         {
@@ -337,6 +374,7 @@ class PlatformAssistantService:
         approval_coordinator: RuntimeApprovalCoordinator | None = None,
         *,
         mutation_lock: RLock | None = None,
+        attachment_manager: AssistantAttachmentManager | None = None,
     ) -> None:
         self.database = database
         self.settings = settings
@@ -344,6 +382,7 @@ class PlatformAssistantService:
         self.workspace_manager = workspace_manager
         self.orchestrator = orchestrator
         self.approval_coordinator = approval_coordinator
+        self.attachment_manager = attachment_manager
         self._lock = mutation_lock or RLock()
         self._workers = ThreadPoolExecutor(
             max_workers=max(1, settings.runtime_max_concurrent_executions),
@@ -516,6 +555,127 @@ class PlatformAssistantService:
             .order_by(AssistantEvent.sequence)
         ).all()
 
+    def upload_attachment(
+        self,
+        session: Session,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        file_name: str | None,
+        media_type: str | None,
+        source: Any,
+    ) -> AssistantAttachment:
+        self.get_conversation(
+            session,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+        )
+        if self.attachment_manager is None:
+            raise ApiError(
+                500,
+                "ASSISTANT_ATTACHMENT_STORAGE_FAILED",
+                "The assistant attachment service is unavailable.",
+            )
+        try:
+            attachment = self.attachment_manager.create(
+                session,
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                file_name=file_name,
+                media_type=media_type,
+                source=source,
+            )
+        except AssistantAttachmentError as exc:
+            raise ApiError(exc.status_code, exc.code, str(exc)) from exc
+        session.commit()
+        session.refresh(attachment)
+        return attachment
+
+    def revoke_attachment(
+        self,
+        session: Session,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        attachment_id: str,
+    ) -> AssistantAttachment:
+        self.get_conversation(
+            session,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+        )
+        if self.attachment_manager is None:
+            raise ApiError(
+                500,
+                "ASSISTANT_ATTACHMENT_STORAGE_FAILED",
+                "The assistant attachment service is unavailable.",
+            )
+        try:
+            attachment = self.attachment_manager.revoke(
+                session,
+                conversation_id=conversation_id,
+                owner_user_id=owner_user_id,
+                attachment_id=attachment_id,
+            )
+        except AssistantAttachmentError as exc:
+            raise ApiError(exc.status_code, exc.code, str(exc)) from exc
+        session.commit()
+        session.refresh(attachment)
+        return attachment
+
+    def get_attachment(
+        self,
+        session: Session,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        attachment_id: str,
+    ) -> AssistantAttachment:
+        self.get_conversation(
+            session,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+        )
+        attachment = session.scalar(
+            select(AssistantAttachment).where(
+                AssistantAttachment.attachment_id == attachment_id,
+                AssistantAttachment.conversation_id == conversation_id,
+                AssistantAttachment.owner_user_id == owner_user_id,
+            )
+        )
+        if attachment is None:
+            raise ApiError(404, "ASSISTANT_ATTACHMENT_NOT_FOUND", "Assistant attachment not found.")
+        return attachment
+
+    def attachment_path(
+        self,
+        session: Session,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        attachment_id: str,
+    ) -> tuple[AssistantAttachment, Path]:
+        attachment = self.get_attachment(
+            session,
+            conversation_id=conversation_id,
+            owner_user_id=owner_user_id,
+            attachment_id=attachment_id,
+        )
+        if attachment.status == "revoked" or self.attachment_manager is None:
+            raise ApiError(
+                409,
+                "ASSISTANT_ATTACHMENT_NOT_AVAILABLE",
+                "The assistant attachment is no longer available.",
+            )
+        path = self.attachment_manager.path_for(attachment)
+        if not path.is_file():
+            raise ApiError(
+                409,
+                "ASSISTANT_ATTACHMENT_STORAGE_FAILED",
+                "The assistant attachment file is unavailable.",
+            )
+        return attachment, path
+
     def submit_message(
         self,
         session: Session,
@@ -570,6 +730,45 @@ class PlatformAssistantService:
                     "ASSISTANT_TURN_IN_PROGRESS",
                     "The assistant is still processing the previous message.",
                 )
+            attachments: list[AssistantAttachment] = []
+            if attachment_refs:
+                if self.attachment_manager is None:
+                    raise ApiError(
+                        500,
+                        "ASSISTANT_ATTACHMENT_STORAGE_FAILED",
+                        "The assistant attachment service is unavailable.",
+                    )
+                try:
+                    attachments = self.attachment_manager.validate_refs(
+                        session,
+                        conversation_id=conversation_id,
+                        owner_user_id=owner_user_id,
+                        refs=attachment_refs,
+                    )
+                except AssistantAttachmentError as exc:
+                    raise ApiError(exc.status_code, exc.code, str(exc)) from exc
+            normalized_refs = [
+                {
+                    "attachment_id": attachment.attachment_id,
+                    "file_name": attachment.file_name,
+                    "media_type": attachment.media_type,
+                    "byte_size": attachment.byte_size,
+                    "sha256": attachment.sha256,
+                }
+                for attachment in attachments
+            ]
+            content_blocks = [{"type": "text", "text": text}]
+            content_blocks.extend(
+                AttachmentContentBlock(
+                    attachment_id=attachment.attachment_id,
+                    file_name=attachment.file_name,
+                    media_type=attachment.media_type,
+                    byte_size=attachment.byte_size,
+                    sha256=attachment.sha256,
+                    text=f"Attachment: {attachment.file_name}",
+                ).model_dump(mode="json")
+                for attachment in attachments
+            )
             message = self._new_message(
                 session,
                 conversation,
@@ -577,9 +776,16 @@ class PlatformAssistantService:
                 role=AssistantMessageRole.USER,
                 status=AssistantMessageStatus.ACCEPTED,
                 text=text,
-                attachment_refs=attachment_refs,
+                content_blocks=content_blocks,
+                attachment_refs=normalized_refs,
                 idempotency_key=idempotency_key,
             )
+            if self.attachment_manager is not None:
+                self.attachment_manager.attach_to_message(
+                    session,
+                    message_id=message.message_id,
+                    attachments=attachments,
+                )
             turn = AssistantTurn(
                 conversation_id=conversation_id,
                 owner_user_id=owner_user_id,
@@ -958,6 +1164,12 @@ class PlatformAssistantService:
             conversation = session.get(AssistantConversation, conversation_id)
             if turn is None or conversation is None:
                 return
+            source_message = session.get(AssistantMessage, turn.source_message_id)
+            attachment_refs = (
+                list(source_message.attachment_refs or [])
+                if source_message is not None
+                else []
+            )
             try:
                 workspace = self._ensure_assistant_workspace(conversation)
                 conversation.runtime_workspace_id = conversation.conversation_id
@@ -978,7 +1190,7 @@ class PlatformAssistantService:
                 result = self.runtime_adapter.execute(
                     execution_id=turn.execution_id,
                     role_key="platform-assistant",
-                    instructions=self._build_turn_prompt(text),
+                    instructions=self._build_turn_prompt(text, attachment_refs),
                     workspace_id=conversation.runtime_workspace_id,
                     workspace_path=conversation.runtime_workspace_path,
                     thread_id=conversation.runtime_thread_id,
@@ -1062,7 +1274,15 @@ class PlatformAssistantService:
     ) -> None:
         if turn.status == AssistantTurnStatus.CANCELLED:
             return
-        reply, action_data = self._parse_runtime_summary(result.summary)
+        reply, action_data, presentation_requests = self._parse_runtime_summary(
+            result.summary
+        )
+        content_blocks = self._normalize_assistant_content(
+            session,
+            reply=reply,
+            owner_user_id=turn.owner_user_id,
+            presentation_requests=presentation_requests,
+        )
         message = self._new_message(
             session,
             conversation,
@@ -1070,7 +1290,7 @@ class PlatformAssistantService:
             role=AssistantMessageRole.ASSISTANT,
             status=AssistantMessageStatus.COMPLETED,
             text=reply,
-            content_blocks=[{"type": "text", "text": reply}],
+            content_blocks=content_blocks,
             reply_to_message_id=turn.source_message_id,
         )
         turn.status = AssistantTurnStatus.COMPLETED
@@ -1450,6 +1670,31 @@ class PlatformAssistantService:
                     "byte_size": artifact.byte_size,
                     "status": artifact.status,
                 },
+                "content_format": (
+                    "json" if media_type == "application/json" else "text"
+                ),
+                "content": content,
+                "complete": True,
+            }
+        if tool == "mutiai_get_attachment_content":
+            if self.attachment_manager is None:
+                raise ApiError(
+                    500,
+                    "ASSISTANT_ATTACHMENT_STORAGE_FAILED",
+                    "The assistant attachment service is unavailable.",
+                )
+            try:
+                attachment, content = self.attachment_manager.read_text(
+                    session,
+                    conversation_id=conversation_id,
+                    owner_user_id=owner_user_id,
+                    attachment_id=str(arguments.get("attachment_id", "")),
+                )
+            except AssistantAttachmentError as exc:
+                raise ApiError(exc.status_code, exc.code, str(exc)) from exc
+            media_type = attachment.media_type.partition(";")[0].strip().casefold()
+            return {
+                "attachment": self.attachment_manager.metadata(attachment),
                 "content_format": (
                     "json" if media_type == "application/json" else "text"
                 ),
@@ -2073,31 +2318,249 @@ class PlatformAssistantService:
             close_execution(execution_id)
 
     @staticmethod
-    def _build_turn_prompt(text: str) -> str:
+    def _build_turn_prompt(text: str, attachment_refs: list[dict] | None = None) -> str:
+        attachment_context = ""
+        if attachment_refs:
+            safe_refs = [
+                {
+                    "attachment_id": ref.get("attachment_id"),
+                    "file_name": ref.get("file_name"),
+                    "media_type": ref.get("media_type"),
+                    "byte_size": ref.get("byte_size"),
+                    "sha256": ref.get("sha256"),
+                }
+                for ref in attachment_refs
+                if isinstance(ref, dict)
+            ]
+            attachment_context = (
+                "\nUser attachments are product-owned. Use "
+                "mutiai_get_attachment_content with an attachment_id when you need "
+                "to inspect a supported text or JSON file. Do not infer contents "
+                "from metadata.\n"
+                f"Attachment metadata:\n{json.dumps(safe_refs, ensure_ascii=False)}\n"
+            )
         return (
             "Use the product-owned tools when current product state or a state change is needed. "
             "Do not claim an action completed until its product record says so. "
+            "Set presentation_requests to an empty array unless a validated product resource "
+            "reference or product-backed diagram materially helps the user. "
             "Return only JSON matching the requested output schema.\n\n"
-            f"User message:\n{text}"
+            f"User message:\n{text}{attachment_context}"
         )
+
+    def _normalize_assistant_content(
+        self,
+        session: Session,
+        *,
+        reply: str,
+        owner_user_id: str,
+        presentation_requests: list[Any],
+    ) -> list[dict[str, Any]]:
+        """Build validated product content from prose and resource hints."""
+
+        normalized_reply = re.sub(r"</?[A-Za-z][^>]*>", "", reply.strip())
+        if not normalized_reply:
+            normalized_reply = "The platform assistant returned no displayable content."
+        truncated = len(normalized_reply) > 20_000
+        normalized_reply = normalized_reply[:20_000]
+        blocks: list[dict[str, Any]] = [
+            MarkdownContentBlock(
+                text=normalized_reply,
+                truncated=truncated,
+            ).model_dump(mode="json")
+        ]
+        if not isinstance(presentation_requests, list):
+            return blocks
+        for raw_request in presentation_requests[:20]:
+            try:
+                request = CONTENT_PRESENTATION_ADAPTER.validate_python(raw_request)
+            except ValidationError:
+                logger.warning("Ignored invalid assistant content presentation hint")
+                continue
+            if isinstance(request, ResourceRefPresentationRequest):
+                block = self._resource_ref_block(
+                    session,
+                    owner_user_id=owner_user_id,
+                    request=request,
+                )
+            elif isinstance(request, DiagramPresentationRequest):
+                block = self._diagram_block(
+                    session,
+                    owner_user_id=owner_user_id,
+                    request=request,
+                )
+            else:  # pragma: no cover - the discriminated adapter is exhaustive
+                block = None
+            if block is not None:
+                blocks.append(block)
+        return blocks
+
+    def _resource_ref_block(
+        self,
+        session: Session,
+        *,
+        owner_user_id: str,
+        request: ResourceRefPresentationRequest,
+    ) -> dict[str, Any] | None:
+        resource_type = request.resource_type
+        resource_id = request.resource_id
+        label = request.label
+        exists = False
+        if resource_type == "organization":
+            resource = session.scalar(
+                select(Organization).where(
+                    Organization.organization_id == resource_id,
+                    Organization.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or (resource.name if resource is not None else None)
+        elif resource_type == "organization_spec_version":
+            resource = session.scalar(
+                select(OrganizationSpecVersion).where(
+                    OrganizationSpecVersion.spec_version_id == resource_id,
+                    OrganizationSpecVersion.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or (
+                f"OrganizationSpec v{resource.version_number}"
+                if resource is not None
+                else None
+            )
+        elif resource_type == "task":
+            resource = session.scalar(
+                select(Task).where(
+                    Task.task_id == resource_id,
+                    Task.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or (resource.request_text[:80] if resource else None)
+        elif resource_type == "plan":
+            resource = session.scalar(
+                select(TaskExecutionPlan)
+                .join(Task, Task.task_id == TaskExecutionPlan.task_id)
+                .where(
+                    TaskExecutionPlan.plan_id == resource_id,
+                    Task.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or (resource.summary[:80] if resource else None)
+        elif resource_type == "artifact":
+            resource = session.scalar(
+                select(Artifact)
+                .join(Task, Task.task_id == Artifact.task_id)
+                .where(
+                    Artifact.artifact_id == resource_id,
+                    Task.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or (resource.file_name if resource else None)
+        elif resource_type == "feasibility_check":
+            resource = session.scalar(
+                select(FeasibilityCheck).where(
+                    FeasibilityCheck.feasibility_check_id == resource_id,
+                    FeasibilityCheck.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or "Runtime feasibility check"
+        elif resource_type == "runtime_binding":
+            resource = session.scalar(
+                select(RuntimeBinding).where(
+                    RuntimeBinding.runtime_binding_id == resource_id,
+                    RuntimeBinding.owner_user_id == owner_user_id,
+                )
+            )
+            exists = resource is not None
+            label = label or (resource.binding_key if resource else None)
+        if not exists:
+            logger.warning(
+                "Ignored assistant content reference to unavailable %s %s",
+                resource_type,
+                resource_id,
+            )
+            return None
+        label = (label or f"{resource_type} {resource_id[:8]}").strip()[:120]
+        return ResourceRefContentBlock(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            label=label,
+            text=label,
+        ).model_dump(mode="json")
+
+    def _diagram_block(
+        self,
+        session: Session,
+        *,
+        owner_user_id: str,
+        request: DiagramPresentationRequest,
+    ) -> dict[str, Any] | None:
+        if request.template == "organization_chart":
+            if not isinstance(request.source, OrganizationDiagramSource):
+                return None
+            version = session.scalar(
+                select(OrganizationSpecVersion).where(
+                    OrganizationSpecVersion.spec_version_id
+                    == request.source.spec_version_id,
+                    OrganizationSpecVersion.organization_id
+                    == request.source.organization_id,
+                    OrganizationSpecVersion.owner_user_id == owner_user_id,
+                )
+            )
+            if version is None:
+                logger.warning("Ignored assistant diagram for unavailable organization")
+                return None
+            text = request.text or (
+                f"Organization chart for version {version.version_number}."
+            )
+        else:
+            if not isinstance(request.source, TaskPlanDiagramSource):
+                return None
+            plan = session.scalar(
+                select(TaskExecutionPlan)
+                .join(Task, Task.task_id == TaskExecutionPlan.task_id)
+                .where(
+                    TaskExecutionPlan.plan_id == request.source.plan_id,
+                    TaskExecutionPlan.task_id == request.source.task_id,
+                    Task.owner_user_id == owner_user_id,
+                )
+            )
+            if plan is None:
+                logger.warning("Ignored assistant diagram for unavailable Task plan")
+                return None
+            text = request.text or f"Execution plan {plan.plan_version}."
+        return DiagramContentBlock(
+            template=request.template,
+            source=request.source,
+            text=text,
+        ).model_dump(mode="json")
 
     @staticmethod
     def _parse_runtime_summary(
         summary: str | None,
-    ) -> tuple[str, dict[str, Any] | None]:
+    ) -> tuple[str, dict[str, Any] | None, list[Any]]:
         if not summary:
-            return "小助理没有返回可展示的内容。", None
+            return "小助理没有返回可展示的内容。", None, []
         try:
             value = json.loads(summary)
         except (TypeError, json.JSONDecodeError):
-            return summary, None
+            return summary, None, []
         if not isinstance(value, dict):
-            return summary, None
+            return summary, None, []
         reply = value.get("reply")
         if not isinstance(reply, str) or not reply.strip():
-            return summary, None
+            return summary, None, []
         action = value.get("action")
-        return reply, action if isinstance(action, dict) else None
+        requests = value.get("presentation_requests")
+        return (
+            reply,
+            action if isinstance(action, dict) else None,
+            requests if isinstance(requests, list) else [],
+        )
 
     def _new_message(
         self,

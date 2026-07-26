@@ -1,44 +1,47 @@
 {
   "items": [
     {
-      "message_id": "8f6194d7-f2ff-4eff-bc2c-c5d5b451a55a",
-      "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+      "message_id": "d8bb0658-eac1-45bf-9656-13236f90cb54",
+      "conversation_id": "8739e8d5-093a-4a48-921c-d2e3504273b3",
       "sequence": 1,
       "role": "user",
       "status": "accepted",
+      "content_schema_version": "1.0",
       "text": "List my current organizations.",
       "content_blocks": [
         {
-          "type": "text",
-          "text": "List my current organizations."
+          "text": "List my current organizations.",
+          "type": "text"
         }
       ],
       "attachment_refs": [],
       "reply_to_message_id": null,
       "related_resource_type": null,
       "related_resource_id": null,
-      "created_at": "2026-07-26T20:02:12.449899Z",
+      "created_at": "2026-07-26T21:23:25.349415Z",
       "completed_at": null
     },
     {
-      "message_id": "ea5d81ac-9f68-494e-a8d0-0f25b152e8a6",
-      "conversation_id": "47d23a30-3391-4c1e-8263-fa7607f3ce77",
+      "message_id": "62108f14-e645-4154-b540-041c8bd295fb",
+      "conversation_id": "8739e8d5-093a-4a48-921c-d2e3504273b3",
       "sequence": 2,
       "role": "assistant",
       "status": "completed",
+      "content_schema_version": "1.0",
       "text": "I prepared a product action for confirmation.",
       "content_blocks": [
         {
-          "type": "text",
-          "text": "I prepared a product action for confirmation."
+          "text": "I prepared a product action for confirmation.",
+          "type": "markdown",
+          "truncated": false
         }
       ],
       "attachment_refs": [],
-      "reply_to_message_id": "8f6194d7-f2ff-4eff-bc2c-c5d5b451a55a",
+      "reply_to_message_id": "d8bb0658-eac1-45bf-9656-13236f90cb54",
       "related_resource_type": null,
       "related_resource_id": null,
-      "created_at": "2026-07-26T20:02:12.485440Z",
-      "completed_at": "2026-07-26T20:02:12.485440Z"
+      "created_at": "2026-07-26T21:23:25.385785Z",
+      "completed_at": "2026-07-26T21:23:25.385343Z"
     }
   ],
   "next_cursor": null

@@ -43,6 +43,12 @@ class AssistantMessageStatus(StrEnum):
     FAILED = "failed"
 
 
+class AssistantAttachmentStatus(StrEnum):
+    UPLOADED = "uploaded"
+    ATTACHED = "attached"
+    REVOKED = "revoked"
+
+
 class AssistantTurnStatus(StrEnum):
     QUEUED = "queued"
     SUBMITTED = "submitted"
@@ -130,6 +136,11 @@ class AssistantConversation(Base):
         cascade="all, delete-orphan",
         order_by="AssistantEvent.sequence",
     )
+    attachments: Mapped[list[AssistantAttachment]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="AssistantAttachment.created_at",
+    )
 
 
 class AssistantMessage(Base):
@@ -165,6 +176,9 @@ class AssistantMessage(Base):
     status: Mapped[str] = mapped_column(
         String(20), default=AssistantMessageStatus.ACCEPTED
     )
+    content_schema_version: Mapped[str] = mapped_column(
+        String(20), default="1.0", server_default="1.0"
+    )
     text_content: Mapped[str] = mapped_column(Text, default="")
     content_blocks: Mapped[list] = mapped_column(JSON, default=list)
     attachment_refs: Mapped[list] = mapped_column(JSON, default=list)
@@ -181,6 +195,54 @@ class AssistantMessage(Base):
 
     conversation: Mapped[AssistantConversation] = relationship(
         back_populates="messages"
+    )
+
+
+class AssistantAttachment(Base):
+    __tablename__ = "assistant_attachments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('uploaded', 'attached', 'revoked')",
+            name="valid_status",
+        ),
+        CheckConstraint("byte_size >= 0", name="nonnegative_byte_size"),
+    )
+
+    attachment_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=new_id
+    )
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("assistant_conversations.conversation_id", ondelete="CASCADE"),
+        index=True,
+    )
+    owner_user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.user_id", ondelete="CASCADE"), index=True
+    )
+    message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("assistant_messages.message_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    file_name: Mapped[str] = mapped_column(String(255))
+    media_type: Mapped[str] = mapped_column(String(255))
+    byte_size: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    storage_relative_path: Mapped[str] = mapped_column(String(512), unique=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default=AssistantAttachmentStatus.UPLOADED
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=utc_now
+    )
+    attached_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+
+    conversation: Mapped[AssistantConversation] = relationship(
+        back_populates="attachments"
     )
 
 

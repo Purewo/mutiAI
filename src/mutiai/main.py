@@ -27,6 +27,7 @@ from mutiai.runtime import (
 )
 from mutiai.services.approvals import RuntimeApprovalCoordinator
 from mutiai.services.assistant import PlatformAssistantService
+from mutiai.services.assistant_attachments import AssistantAttachmentManager
 from mutiai.services.workspaces import WorkspaceProvisioner
 
 
@@ -41,6 +42,10 @@ def create_app(
     database = Database(resolved_settings)
     product_mutation_lock = RLock()
     workspace_manager = WorkspaceManager(resolved_settings.runtime_workspace_root)
+    assistant_attachment_manager = AssistantAttachmentManager(
+        resolved_settings.assistant_attachment_root,
+        max_bytes=resolved_settings.assistant_attachment_max_bytes,
+    )
     workspace_provisioner = WorkspaceProvisioner(workspace_manager)
     managed_codex_endpoint: str | None = None
     resolved_runtime_adapter = runtime_adapter
@@ -137,6 +142,7 @@ def create_app(
         task_orchestrator,
         approval_coordinator=approval_coordinator,
         mutation_lock=product_mutation_lock,
+        attachment_manager=assistant_attachment_manager,
     )
 
     @asynccontextmanager
@@ -192,6 +198,7 @@ def create_app(
     app.state.task_orchestrator = task_orchestrator
     app.state.approval_coordinator = approval_coordinator
     app.state.workspace_manager = workspace_manager
+    app.state.assistant_attachment_manager = assistant_attachment_manager
     app.state.workspace_provisioner = workspace_provisioner
     app.state.runtime_supervisor = runtime_supervisor
     install_error_handlers(app)

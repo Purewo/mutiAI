@@ -101,6 +101,49 @@ Required facts:
 
 Runtime tool items, raw commands, hidden reasoning, and private model history are not AssistantMessage records.
 
+#### Rich content ownership
+
+`content_blocks` is the only rendering contract for a message. Each block carries
+a plain-text `text` fallback, and `content_schema_version` is stored on the
+message so clients can choose a compatible renderer. V1 uses validated blocks
+for Markdown, code, errors, attachments, product resource references, and
+product-backed diagrams. The legacy `text` field remains a compatibility
+projection and is not a source from which clients reconstruct structure.
+
+The Runtime output may contain ordinary `reply` Markdown and restricted
+`presentation_requests`. Those requests are hints, not a public rendering
+contract. The backend validates the request, checks the referenced resource's
+ownership, and builds the final block from product database facts. Models cannot
+provide diagram nodes, edges, URLs, storage paths, or copied product state.
+V1 does not accept Mermaid or arbitrary model-defined diagrams. Organization
+charts and execution-plan diagrams identify a persisted
+`OrganizationSpecVersion` or `TaskExecutionPlan`; the frontend renders them
+with the same graph components used by the organization and Task pages.
+
+#### Attachments
+
+Assistant uploads are separate product resources. The upload route returns an
+`attachment_id`; a later user message explicitly references that ID. The
+backend changes the resource from `uploaded` to `attached` in the same product
+transaction as the message. An unreferenced upload can be revoked, while an
+attached resource cannot be silently removed. Chat attachments never become
+Task input bindings. Binding one to a Task requires a future explicit,
+confirmed product Action.
+
+Attachments are stored below the configured assistant-attachment root, outside
+source repositories and all managed Runtime Workspaces. Public responses never
+contain `storage_relative_path`. Access is scoped by both conversation owner and
+conversation identity, and content downloads include the persisted SHA-256
+identity. The content route supports preview and explicit download; it does not
+grant Runtime filesystem access.
+
+The supported upload media types are JSON, PDF, XLSX, JPEG, PNG, WebP, CSV,
+Markdown, plain text, and tab-separated text. Each upload is capped by
+`assistant_attachment_max_bytes` (10 MiB by default). The assistant's
+`mutiai_get_attachment_content` tool is stricter: it reads only attached UTF-8
+JSON or text, refuses binary or malformed content, and refuses content over
+64 KiB without truncation or guessing.
+
 ### AssistantTurn
 
 Represents one product submission to an AssistantRuntimeAdapter.
@@ -150,6 +193,11 @@ The implementation exposes resource-oriented routes under `/api/v1/assistant`:
 - `GET /conversations/{conversation_id}` and `POST /conversations/{conversation_id}/archive`.
 - `GET /conversations/{conversation_id}/messages` with cursor pagination.
 - `POST /conversations/{conversation_id}/messages` with `Idempotency-Key`.
+- `POST /conversations/{conversation_id}/attachments` with multipart upload.
+- `DELETE /conversations/{conversation_id}/attachments/{attachment_id}` to
+  revoke an unreferenced upload.
+- `GET /conversations/{conversation_id}/attachments/{attachment_id}/content`
+  for owner-scoped preview or `?download=true` download.
 - `GET /turns/{turn_id}` and `POST /turns/{turn_id}/cancel`.
 - `GET /conversations/{conversation_id}/actions` and `GET /actions/{action_id}`.
 - `POST /actions/{action_id}/decision` with `confirm` or `decline`.

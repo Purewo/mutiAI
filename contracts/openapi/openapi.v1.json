@@ -326,6 +326,26 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Request Entity Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
@@ -398,6 +418,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -470,6 +510,338 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        }
+      }
+    },
+    "/api/v1/assistant/conversations/{conversation_id}/attachments": {
+      "post": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Upload Attachment",
+        "operationId": "upload_attachment_api_v1_assistant_conversations__conversation_id__attachments_post",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_attachment_api_v1_assistant_conversations__conversation_id__attachments_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantAttachmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        }
+      }
+    },
+    "/api/v1/assistant/conversations/{conversation_id}/attachments/{attachment_id}": {
+      "delete": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Revoke Attachment",
+        "operationId": "revoke_attachment_api_v1_assistant_conversations__conversation_id__attachments__attachment_id__delete",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Attachment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantAttachmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        }
+      }
+    },
+    "/api/v1/assistant/conversations/{conversation_id}/attachments/{attachment_id}/content": {
+      "get": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Download Attachment",
+        "operationId": "download_attachment_api_v1_assistant_conversations__conversation_id__attachments__attachment_id__content_get",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Attachment Id"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Download"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -570,6 +942,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       },
@@ -661,6 +1053,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -733,6 +1145,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -805,6 +1237,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -881,6 +1333,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -953,6 +1425,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -1035,6 +1527,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -1121,6 +1633,26 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           }
         }
       }
@@ -3895,6 +4427,104 @@
         ],
         "title": "AssistantActionStatus"
       },
+      "AssistantAttachmentRef": {
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Attachment Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attachment_id"
+        ],
+        "title": "AssistantAttachmentRef"
+      },
+      "AssistantAttachmentResponse": {
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "title": "Attachment Id"
+          },
+          "conversation_id": {
+            "type": "string",
+            "title": "Conversation Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssistantAttachmentStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "attached_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attached At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attachment_id",
+          "conversation_id",
+          "file_name",
+          "media_type",
+          "byte_size",
+          "sha256",
+          "status",
+          "created_at",
+          "attached_at",
+          "revoked_at"
+        ],
+        "title": "AssistantAttachmentResponse"
+      },
+      "AssistantAttachmentStatus": {
+        "type": "string",
+        "enum": [
+          "uploaded",
+          "attached",
+          "revoked"
+        ],
+        "title": "AssistantAttachmentStatus"
+      },
       "AssistantConversationResponse": {
         "properties": {
           "conversation_id": {
@@ -4028,14 +4658,51 @@
           "status": {
             "$ref": "#/components/schemas/AssistantMessageStatus"
           },
+          "content_schema_version": {
+            "type": "string",
+            "title": "Content Schema Version"
+          },
           "text": {
             "type": "string",
             "title": "Text"
           },
           "content_blocks": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextContentBlock"
+                },
+                {
+                  "$ref": "#/components/schemas/MarkdownContentBlock"
+                },
+                {
+                  "$ref": "#/components/schemas/CodeContentBlock"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorContentBlock"
+                },
+                {
+                  "$ref": "#/components/schemas/AttachmentContentBlock"
+                },
+                {
+                  "$ref": "#/components/schemas/ResourceRefContentBlock"
+                },
+                {
+                  "$ref": "#/components/schemas/DiagramContentBlock"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "attachment": "#/components/schemas/AttachmentContentBlock",
+                  "code": "#/components/schemas/CodeContentBlock",
+                  "diagram": "#/components/schemas/DiagramContentBlock",
+                  "error": "#/components/schemas/ErrorContentBlock",
+                  "markdown": "#/components/schemas/MarkdownContentBlock",
+                  "resource_ref": "#/components/schemas/ResourceRefContentBlock",
+                  "text": "#/components/schemas/TextContentBlock"
+                }
+              }
             },
             "type": "array",
             "title": "Content Blocks"
@@ -4106,6 +4773,7 @@
           "sequence",
           "role",
           "status",
+          "content_schema_version",
           "text",
           "content_blocks",
           "attachment_refs",
@@ -4416,8 +5084,7 @@
           },
           "attachment_refs": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/AssistantAttachmentRef"
             },
             "type": "array",
             "maxItems": 20,
@@ -4429,6 +5096,75 @@
           "text"
         ],
         "title": "AssistantUserMessageRequest"
+      },
+      "AttachmentContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "attachment",
+            "title": "Type",
+            "default": "attachment"
+          },
+          "attachment_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Attachment Id"
+          },
+          "file_name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "File Name"
+          },
+          "media_type": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Media Type"
+          },
+          "byte_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Byte Size"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "attachment_id",
+          "file_name",
+          "media_type",
+          "byte_size",
+          "sha256"
+        ],
+        "title": "AttachmentContentBlock"
+      },
+      "Body_upload_attachment_api_v1_assistant_conversations__conversation_id__attachments_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_attachment_api_v1_assistant_conversations__conversation_id__attachments_post"
       },
       "ChangePasswordRequest": {
         "properties": {
@@ -4456,6 +5192,158 @@
           "new_password"
         ],
         "title": "ChangePasswordRequest"
+      },
+      "CodeContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "code",
+            "title": "Type",
+            "default": "code"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.+_-]{0,31}$",
+            "title": "Language"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "language"
+        ],
+        "title": "CodeContentBlock"
+      },
+      "DiagramContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "diagram",
+            "title": "Type",
+            "default": "diagram"
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "organization_chart",
+              "execution_plan"
+            ],
+            "title": "Template"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/OrganizationDiagramSource"
+              },
+              {
+                "$ref": "#/components/schemas/TaskPlanDiagramSource"
+              }
+            ],
+            "title": "Source",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "organization_spec_version": "#/components/schemas/OrganizationDiagramSource",
+                "task_plan": "#/components/schemas/TaskPlanDiagramSource"
+              }
+            }
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "template",
+          "source"
+        ],
+        "title": "DiagramContentBlock"
+      },
+      "ErrorContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "error",
+            "title": "Type",
+            "default": "error"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Code"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "code"
+        ],
+        "title": "ErrorContentBlock"
       },
       "ErrorEnvelope": {
         "properties": {
@@ -4715,6 +5603,33 @@
         ],
         "title": "LoginResponse"
       },
+      "MarkdownContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "markdown",
+            "title": "Type",
+            "default": "markdown"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "MarkdownContentBlock"
+      },
       "OrganizationDetailResponse": {
         "properties": {
           "organization_id": {
@@ -4772,6 +5687,35 @@
           "current_published_spec"
         ],
         "title": "OrganizationDetailResponse"
+      },
+      "OrganizationDiagramSource": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "organization_spec_version",
+            "title": "Kind"
+          },
+          "organization_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Organization Id"
+          },
+          "spec_version_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Spec Version Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "organization_id",
+          "spec_version_id"
+        ],
+        "title": "OrganizationDiagramSource"
       },
       "OrganizationProposalRequest": {
         "properties": {
@@ -5144,6 +6088,56 @@
           "cancelled"
         ],
         "title": "PlanStepStatus"
+      },
+      "ResourceRefContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "resource_ref",
+            "title": "Type",
+            "default": "resource_ref"
+          },
+          "resource_type": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "organization_spec_version",
+              "task",
+              "plan",
+              "artifact",
+              "feasibility_check",
+              "runtime_binding"
+            ],
+            "title": "Resource Type"
+          },
+          "resource_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Resource Id"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "resource_type",
+          "resource_id",
+          "label"
+        ],
+        "title": "ResourceRefContentBlock"
       },
       "RuntimeBindingResponse": {
         "properties": {
@@ -6239,6 +7233,35 @@
         "title": "TaskOrchestrationMode",
         "description": "Select the compatibility workflow or the planned linear workflow."
       },
+      "TaskPlanDiagramSource": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "task_plan",
+            "title": "Kind"
+          },
+          "task_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Task Id"
+          },
+          "plan_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Plan Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "task_id",
+          "plan_id"
+        ],
+        "title": "TaskPlanDiagramSource"
+      },
       "TaskResponse": {
         "properties": {
           "task_id": {
@@ -6444,6 +7467,28 @@
           "assignments"
         ],
         "title": "TaskTokenUsageResponse"
+      },
+      "TextContentBlock": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 40000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "const": "text",
+            "title": "Type",
+            "default": "text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "TextContentBlock"
       },
       "UpdateUserRequest": {
         "properties": {
