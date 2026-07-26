@@ -113,6 +113,23 @@ The Runtime instructions contain only:
 
 The original user request is available to the organization lead for planning and review. It is not copied verbatim into every specialist Assignment when doing so exposes inputs outside that step's contract.
 
+## Lead review evidence
+
+The organization lead receives only the final Artifact contracts declared by the frozen review step. The product does not broaden that file access to every upstream Artifact merely to prove that orchestration occurred.
+
+Before creating `lead.review`, the scheduler derives a structured `execution_evidence` packet from the product database. The packet contains:
+
+- The immutable plan identity, definition hash, validation result, and source.
+- The completed `lead.plan` Assignment and RuntimeExecution identity.
+- Every completed specialist step, its dependency keys, role owner, and Assignment status.
+- Each exact materialized input binding and released output Artifact identity, contract, hash, size, media type, and validation result.
+- Product-observed Runtime model, security mode, start time, completion time, and run duration.
+- Deterministic checks that declared contracts match materialized inputs and released outputs.
+
+The evidence excludes Workspace paths, upstream file contents not declared for review, Codex transcripts, hidden reasoning, and internal tool events. It attests to product-controlled scheduling, Assignment ownership, bindings, and Artifact validation. Under `demo_full_access`, it does not claim that the operating system prevented every possible undeclared read.
+
+The lead uses this evidence as authoritative for orchestration facts and reviews the supplied final Artifact against the original request. It does not require private Runtime history or repair specialist output.
+
 ## Artifact model
 
 An Artifact record contains:
@@ -237,6 +254,7 @@ The frontend renders the product plan and event stream, not LangGraph internals.
 - Waiting dependency, ready, Runtime, validation, and terminal states.
 - Input and output Artifact IDs and validation status.
 - Runtime binding, Thread, Turn, Workspace, usage, and recovery facts.
+- Per-step dependency wait and active duration, plus per-Assignment Runtime queue, run, and wall duration.
 
 This contract remains usable if LangGraph is replaced by another orchestration engine.
 

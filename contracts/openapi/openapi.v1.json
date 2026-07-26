@@ -3488,6 +3488,34 @@
                 "type": "null"
               }
             ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "wall_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Duration Seconds"
           }
         },
         "type": "object",
@@ -3502,7 +3530,10 @@
           "plan_step_id",
           "status",
           "result_summary",
-          "runtime_execution"
+          "runtime_execution",
+          "created_at",
+          "completed_at",
+          "wall_duration_seconds"
         ],
         "title": "AssignmentResponse"
       },
@@ -5029,6 +5060,28 @@
               }
             ],
             "title": "Completed At"
+          },
+          "dependency_wait_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dependency Wait Seconds"
+          },
+          "active_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Duration Seconds"
           }
         },
         "type": "object",
@@ -5048,7 +5101,9 @@
           "input_bindings",
           "created_at",
           "ready_at",
-          "completed_at"
+          "completed_at",
+          "dependency_wait_seconds",
+          "active_duration_seconds"
         ],
         "title": "PlanStepResponse"
       },
@@ -5843,6 +5898,68 @@
           "context_compactions": {
             "type": "integer",
             "title": "Context Compactions"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "queue_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Duration Seconds"
+          },
+          "run_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Duration Seconds"
+          },
+          "wall_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Duration Seconds"
           }
         },
         "type": "object",
@@ -5874,7 +5991,13 @@
           "output_tokens",
           "reasoning_output_tokens",
           "total_tokens",
-          "context_compactions"
+          "context_compactions",
+          "created_at",
+          "started_at",
+          "completed_at",
+          "queue_duration_seconds",
+          "run_duration_seconds",
+          "wall_duration_seconds"
         ],
         "title": "RuntimeExecutionResponse"
       },
@@ -6177,6 +6300,17 @@
               }
             ],
             "title": "Completed At"
+          },
+          "wall_duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Duration Seconds"
           }
         },
         "type": "object",
@@ -6194,7 +6328,8 @@
           "artifacts",
           "created_at",
           "updated_at",
-          "completed_at"
+          "completed_at",
+          "wall_duration_seconds"
         ],
         "title": "TaskResponse"
       },

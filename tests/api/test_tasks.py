@@ -65,6 +65,7 @@ def task_settings(tmp_path, *, fake_runtime_scenario: str = "default") -> Settin
         database_url=f"sqlite+pysqlite:///{tmp_path / 'tasks.db'}",
         langgraph_checkpoint_path=tmp_path / "checkpoints.db",
         runtime_workspace_root=tmp_path / "runtime-workspaces",
+        runtime_provider="fake",
         bootstrap_admin_enabled=True,
         bootstrap_admin_username="admin",
         bootstrap_admin_password="123456",
@@ -166,6 +167,26 @@ def test_default_fake_planned_task_publishes_downloadable_artifacts(tmp_path) ->
             for step in payload["execution_plan"]["steps"]
         )
         assert len(payload["artifacts"]) == 2
+        assert payload["wall_duration_seconds"] is not None
+        assert payload["wall_duration_seconds"] >= 0
+        assert all(
+            assignment["created_at"]
+            and assignment["runtime_execution"]["created_at"]
+            and assignment["runtime_execution"]["started_at"]
+            and assignment["runtime_execution"]["completed_at"]
+            and assignment["wall_duration_seconds"] >= 0
+            and assignment["runtime_execution"]["queue_duration_seconds"] >= 0
+            and assignment["runtime_execution"]["run_duration_seconds"] >= 0
+            and assignment["runtime_execution"]["wall_duration_seconds"] >= 0
+            for assignment in payload["assignments"]
+        )
+        assert all(
+            step["dependency_wait_seconds"] is not None
+            and step["dependency_wait_seconds"] >= 0
+            and step["active_duration_seconds"] is not None
+            and step["active_duration_seconds"] >= 0
+            for step in payload["execution_plan"]["steps"]
+        )
         assert {
             artifact["contract_key"] for artifact in payload["artifacts"]
         } == {

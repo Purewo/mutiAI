@@ -167,6 +167,7 @@ Render plan topology from `execution_plan.steps[*].plan_step_id` and `dependency
 - Parallel lead review appears only after every specialist result and required Artifact are released.
 - Artifact previews and downloads use only the backend URLs and expose integrity or release errors.
 - Task usage totals match the returned per-Assignment rows, while observed totals and charged budget totals remain visibly distinct.
+- Per-role timing uses backend `RuntimeExecution` queue, run, and wall durations. Step timing distinguishes dependency wait from active duration and preserves null values for unfinished phases.
 - Runtime approval decisions are shown only for an approval record returned by the backend.
 - Completed, failed, cancelled, and needs-revision task states are visibly distinct.
 - Assistant Actions show explicit proposed, pending, completed, failed, and declined states and never treat a chat reply as mutation completion.

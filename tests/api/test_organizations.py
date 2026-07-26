@@ -48,6 +48,7 @@ def organization_app(tmp_path):
         app_env="test",
         database_url=f"sqlite+pysqlite:///{tmp_path / 'organizations.db'}",
         runtime_workspace_root=runtime_root,
+        runtime_provider="fake",
         bootstrap_admin_enabled=True,
         bootstrap_admin_username="admin",
         bootstrap_admin_password="123456",

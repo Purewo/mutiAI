@@ -16,12 +16,19 @@ from mutiai.models import (
     OrganizationSpecVersion,
     PlanStep,
     ProductEvent,
+    RuntimeExecution,
     Task,
     User,
     Workspace,
 )
 from mutiai.models.organization import OrganizationVersionStatus
-from mutiai.models.task import TaskOrchestrationMode, TaskStatus
+from mutiai.models.task import (
+    AssignmentKind,
+    AssignmentStatus,
+    RuntimeExecutionStatus,
+    TaskOrchestrationMode,
+    TaskStatus,
+)
 from mutiai.models.task_plan import ArtifactStatus, PlanStepStatus
 from mutiai.runtime import RuntimeCapacity, RuntimeResult
 from mutiai.services.task_plans import create_task_execution_plan
@@ -73,6 +80,23 @@ class StructuredParallelRuntime:
         assert inputs == ["a.json", "b.json"]
         assert "worker.a.v1" in instructions
         assert "worker.b.v1" in instructions
+        packet = json.loads(instructions.split("Assignment packet:\n", 1)[1])
+        evidence = packet["execution_evidence"]
+        assert evidence["source"] == "product_database"
+        assert evidence["checks"] == {
+            "planning_assignment_completed": True,
+            "predecessor_steps_completed": True,
+            "dependency_order_satisfied": True,
+            "input_bindings_match_declared_contracts": True,
+            "outputs_match_declared_contracts": True,
+            "artifacts_released_and_validated": True,
+        }
+        assert {step["role_key"] for step in evidence["specialist_steps"]} == {
+            "worker_a",
+            "worker_b",
+        }
+        assert "storage_relative_path" not in instructions
+        assert "canonical_path" not in instructions
         return RuntimeResult(
             status="completed",
             runtime_job_id=f"fake:{execution_id}",
@@ -295,6 +319,28 @@ def parallel_environment(tmp_path) -> tuple[Database, Settings, str, str]:
             ),
             source="test",
         )
+        planning_assignment = Assignment(
+            assignment_id=f"planning-{task.task_id}",
+            task_id=task.task_id,
+            assignment_key="lead.plan",
+            assignment_kind=AssignmentKind.LEAD_PLAN,
+            agent_role_key="lead",
+            instructions="Test planning assignment.",
+            acceptance_criteria="Return the persisted test plan.",
+            execution_id=f"planning-execution-{task.task_id}",
+            status=AssignmentStatus.COMPLETED,
+            result_summary="Persisted test plan.",
+        )
+        planning_execution = RuntimeExecution(
+            runtime_execution_id=f"planning-runtime-{task.task_id}",
+            execution_id=planning_assignment.execution_id,
+            assignment_id=planning_assignment.assignment_id,
+            provider="fake",
+            status=RuntimeExecutionStatus.COMPLETED,
+            result_summary="Persisted test plan.",
+        )
+        session.add_all([planning_assignment, planning_execution])
+        session.commit()
         return database, settings, task.task_id, plan.plan_id
 
 
@@ -385,6 +431,7 @@ def test_parallel_graph_converges_sibling_states_after_invalid_delivery(tmp_path
             assignments = session.scalars(
                 select(Assignment)
                 .where(Assignment.task_id == task_id)
+                .where(Assignment.plan_step_id.is_not(None))
                 .order_by(Assignment.agent_role_key)
             ).all()
             by_role = {assignment.agent_role_key: assignment for assignment in assignments}
@@ -436,7 +483,10 @@ def test_parallel_graph_waits_for_every_artifact_before_lead_review(tmp_path) ->
         with app.state.database.session() as session:
             assignments = session.scalars(
                 select(Assignment)
-                .where(Assignment.task_id == task_id)
+                .where(
+                    Assignment.task_id == task_id,
+                    Assignment.agent_role_key.in_(("worker_a", "worker_b")),
+                )
                 .order_by(Assignment.agent_role_key)
             ).all()
             execution_by_role = {
@@ -465,10 +515,11 @@ def test_parallel_graph_waits_for_every_artifact_before_lead_review(tmp_path) ->
         assert still_waiting.status == TaskStatus.WAITING
         with app.state.database.session() as session:
             assert session.scalar(
-                select(Assignment).where(
-                    Assignment.task_id == task_id,
-                    Assignment.agent_role_key == "lead",
-                )
+                    select(Assignment).where(
+                        Assignment.task_id == task_id,
+                        Assignment.agent_role_key == "lead",
+                        Assignment.plan_step_id.is_not(None),
+                    )
             ) is None
             assert session.scalar(
                 select(Artifact).where(Artifact.task_id == task_id)

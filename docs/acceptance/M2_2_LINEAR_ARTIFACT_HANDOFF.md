@@ -21,6 +21,8 @@ M2.2 closes the gap found by the invoice role-boundary acceptance run: specialis
 - Expose plan steps, dependency state, Artifact metadata, and Runtime facts without exposing Codex transcripts or LangGraph checkpoints.
 - For a `planned` Task, complete `lead.plan` before specialist submission, persist the validated plan, and keep the Task ready until all declared initial inputs are released.
 - Resume a waiting `lead.plan` through the same external Runtime event boundary used by specialist steps.
+- Supply `lead.review` with product-owned execution evidence for the frozen plan, completed Assignments, dependencies, exact Artifact bindings, validations, and Runtime timing without materializing undeclared upstream file contents.
+- Require the lead to use product evidence for orchestration facts instead of requesting Codex transcripts or private tool history.
 
 ## Invoice exit condition
 

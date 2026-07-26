@@ -32,6 +32,17 @@ from mutiai.models.task_plan import (
 )
 
 
+def _duration_seconds(
+    started_at: datetime | None,
+    completed_at: datetime | None,
+) -> float | None:
+    """Derive a nonnegative wall-clock duration from persisted timestamps."""
+
+    if started_at is None or completed_at is None:
+        return None
+    return round(max(0.0, (completed_at - started_at).total_seconds()), 6)
+
+
 class TaskCreateRequest(BaseModel):
     request: str = Field(min_length=1, max_length=10_000)
     orchestration_mode: TaskOrchestrationMode = TaskOrchestrationMode.LEGACY
@@ -78,6 +89,12 @@ class RuntimeExecutionResponse(BaseModel):
     reasoning_output_tokens: int | None
     total_tokens: int | None
     context_compactions: int
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    queue_duration_seconds: float | None
+    run_duration_seconds: float | None
+    wall_duration_seconds: float | None
 
     @classmethod
     def from_record(cls, execution: RuntimeExecution) -> RuntimeExecutionResponse:
@@ -110,6 +127,21 @@ class RuntimeExecutionResponse(BaseModel):
             reasoning_output_tokens=execution.reasoning_output_tokens,
             total_tokens=execution.total_tokens,
             context_compactions=execution.context_compactions,
+            created_at=as_utc(execution.created_at),
+            started_at=as_utc(execution.started_at),
+            completed_at=as_utc(execution.completed_at),
+            queue_duration_seconds=_duration_seconds(
+                execution.created_at,
+                execution.started_at,
+            ),
+            run_duration_seconds=_duration_seconds(
+                execution.started_at,
+                execution.completed_at,
+            ),
+            wall_duration_seconds=_duration_seconds(
+                execution.created_at,
+                execution.completed_at,
+            ),
         )
 
 
@@ -125,6 +157,9 @@ class AssignmentResponse(BaseModel):
     status: AssignmentStatus
     result_summary: str | None
     runtime_execution: RuntimeExecutionResponse | None
+    created_at: datetime
+    completed_at: datetime | None
+    wall_duration_seconds: float | None
 
     @classmethod
     def from_record(cls, assignment: Assignment) -> AssignmentResponse:
@@ -143,6 +178,12 @@ class AssignmentResponse(BaseModel):
                 RuntimeExecutionResponse.from_record(assignment.runtime_execution)
                 if assignment.runtime_execution is not None
                 else None
+            ),
+            created_at=as_utc(assignment.created_at),
+            completed_at=as_utc(assignment.completed_at),
+            wall_duration_seconds=_duration_seconds(
+                assignment.created_at,
+                assignment.completed_at,
             ),
         )
 
@@ -191,6 +232,8 @@ class PlanStepResponse(BaseModel):
     created_at: datetime
     ready_at: datetime | None
     completed_at: datetime | None
+    dependency_wait_seconds: float | None
+    active_duration_seconds: float | None
 
     @classmethod
     def from_record(cls, step: PlanStep) -> PlanStepResponse:
@@ -218,6 +261,14 @@ class PlanStepResponse(BaseModel):
             created_at=as_utc(step.created_at),
             ready_at=as_utc(step.ready_at),
             completed_at=as_utc(step.completed_at),
+            dependency_wait_seconds=_duration_seconds(
+                step.created_at,
+                step.ready_at,
+            ),
+            active_duration_seconds=_duration_seconds(
+                step.ready_at,
+                step.completed_at,
+            ),
         )
 
 
@@ -434,6 +485,7 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    wall_duration_seconds: float | None
 
     @classmethod
     def from_record(cls, task: Task) -> TaskResponse:
@@ -463,6 +515,10 @@ class TaskResponse(BaseModel):
             created_at=as_utc(task.created_at),
             updated_at=as_utc(task.updated_at),
             completed_at=as_utc(task.completed_at),
+            wall_duration_seconds=_duration_seconds(
+                task.created_at,
+                task.completed_at,
+            ),
         )
 
 

@@ -80,13 +80,16 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 - Planned Task cancellation now converges the Task, current execution plan, and every unfinished plan step to `cancelled`; completed specialist Assignments remain completed when their result was already observed.
 - Public approval responses retain the user-visible `command` but no longer expose `cwd` or opaque Runtime detail objects. Internal audit records retain those values.
 - Account self-service now exposes `PATCH /api/v1/auth/me` and `POST /api/v1/auth/password`. Password changes preserve the current browser session and revoke other active sessions.
-- The full backend suite passes with `168 passed`, and Ruff passes for `src`, `tests`, and `scripts`.
+- Runtime responses now expose persisted timing facts and derived queue, run, wall, dependency-wait, and active durations for bottleneck analysis.
+- `lead.review` now receives product-owned execution evidence for plan order, Assignment ownership, Artifact bindings, validation, and Runtime timing without undeclared upstream file contents.
+- The first real browser invoice run (`d608a67b-0542-4004-bd4f-588b4d4b7f50`) validated the complete four-Artifact linear chain and workbook values but correctly returned `needs_revision` because the previous review packet lacked execution evidence. That historical Task remains unchanged as a regression record.
+- The full backend suite passes with `168 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the review-evidence and timing fix.
 
 Repository commits move after this handoff. Before relying on the two baseline hashes, compare them with each repository's current `HEAD` and read newer commit messages. The product boundaries and active M3 gate remain authoritative until this file is deliberately updated.
 
 ## Immediate next gate
 
-Fable5 runs the current frontend against the real local backend and completes the remaining M3 browser acceptance. Use the loopback harness to verify `wait-cancel`, `needs-revision`, and `approval` with real browser requests. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
+Fable5 first refreshes the frontend snapshot from the review-evidence/timing backend baseline and displays the returned per-role timing fields. Then run a new real Codex invoice Task and confirm the same four-Artifact chain reaches `completed`, with the lead using product execution evidence rather than undeclared upstream files. After that, complete the remaining M3 browser acceptance with the loopback `wait-cancel`, `needs-revision`, and `approval` scenarios. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals and timing, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
 
 When verification exposes a defect, isolate the failing layer. Fable5 corrects frontend implementation and page behavior. The backend agent corrects backend behavior, contracts, fixtures, or persistence defects. Do not call M3 complete from fixture-only, typecheck-only, or backend-test-only evidence.
 

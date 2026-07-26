@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from datetime import datetime
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
@@ -13,8 +15,17 @@ from mutiai.db import Database
 from mutiai.domain import (
     ArtifactContractSpec,
     AssignmentDelivery,
+    LeadReviewExecutionEvidence,
     LeadReviewResult,
     OrganizationSpec,
+    ReviewArtifactEvidence,
+    ReviewAssignmentEvidence,
+    ReviewEvidenceChecks,
+    ReviewInputBindingEvidence,
+    ReviewPlanEvidence,
+    ReviewRuntimeEvidence,
+    ReviewStepEvidence,
+    ReviewStepTargetEvidence,
 )
 from mutiai.models import (
     Artifact,
@@ -359,6 +370,7 @@ class LinearTaskScheduler:
         instructions = self._build_instructions(
             session,
             task=task,
+            plan=plan,
             step=step,
             bindings=bindings,
         )
@@ -609,6 +621,7 @@ class LinearTaskScheduler:
         session,
         *,
         task: Task,
+        plan: TaskExecutionPlan,
         step: PlanStep,
         bindings: tuple[ArtifactInputBinding, ...],
     ) -> str:
@@ -653,9 +666,21 @@ class LinearTaskScheduler:
         }
         if step.step_kind == "lead_review":
             packet["original_user_request"] = task.request_text
+            packet["execution_evidence"] = self._build_review_execution_evidence(
+                session,
+                task=task,
+                plan=plan,
+                review_step=step,
+            )
             packet["review_rule"] = (
-                "Inspect the delivered Artifacts and report deficiencies. "
-                "Do not repair specialist files or invent missing work."
+                "Inspect the supplied final Artifact against the original request "
+                "and acceptance criteria. Treat execution_evidence as the product's "
+                "authoritative record of the frozen plan, dependency order, input "
+                "bindings, Assignment ownership, and Artifact validation. Do not "
+                "require Codex transcripts, hidden reasoning, or upstream Artifact "
+                "bytes that are not in materialized_inputs. Do not repair specialist "
+                "files, invent missing work, or claim OS-level access prevention "
+                "beyond the attestation_scope."
             )
         else:
             packet["delivery_rule"] = (
@@ -667,6 +692,267 @@ class LinearTaskScheduler:
             "adopt another role's Workspace, or perform another step's responsibility.\n\n"
             f"Assignment packet:\n{json.dumps(packet, ensure_ascii=False, indent=2)}"
         )
+
+    @staticmethod
+    def _duration_seconds(
+        started_at: datetime | None,
+        completed_at: datetime | None,
+    ) -> float | None:
+        if started_at is None or completed_at is None:
+            return None
+        return round(max(0.0, (completed_at - started_at).total_seconds()), 6)
+
+    @staticmethod
+    def _review_artifact_evidence(artifact: Artifact) -> ReviewArtifactEvidence:
+        if artifact.status != "released":
+            raise RuntimeError(
+                f"review evidence requires a released Artifact, got "
+                f"'{artifact.status}' for '{artifact.artifact_id}'"
+            )
+        return ReviewArtifactEvidence(
+            artifact_id=artifact.artifact_id,
+            contract_key=artifact.contract_key,
+            origin=artifact.origin,
+            producer_assignment_id=artifact.producer_assignment_id,
+            producer_plan_step_id=artifact.producer_plan_step_id,
+            schema_version=artifact.schema_version,
+            media_type=artifact.media_type,
+            sha256=artifact.sha256,
+            byte_size=artifact.byte_size,
+            status="released",
+            validation_summary=artifact.validation_summary or "",
+        )
+
+    @classmethod
+    def _review_input_evidence(
+        cls,
+        session,
+        bindings: list[ArtifactInputBinding],
+    ) -> tuple[ReviewInputBindingEvidence, ...]:
+        evidence: list[ReviewInputBindingEvidence] = []
+        for binding in bindings:
+            artifact = session.get(Artifact, binding.artifact_id)
+            if artifact is None:
+                raise RuntimeError(
+                    f"review evidence input Artifact '{binding.artifact_id}' "
+                    "is unavailable"
+                )
+            if binding.status != "materialized":
+                raise RuntimeError(
+                    f"review evidence requires a materialized input binding, got "
+                    f"'{binding.status}' for '{binding.input_binding_id}'"
+                )
+            evidence.append(
+                ReviewInputBindingEvidence(
+                    input_binding_id=binding.input_binding_id,
+                    status="materialized",
+                    artifact_sha256=binding.artifact_sha256,
+                    artifact=cls._review_artifact_evidence(artifact),
+                )
+            )
+        return tuple(evidence)
+
+    @classmethod
+    def _review_assignment_evidence(
+        cls,
+        assignment: Assignment,
+    ) -> ReviewAssignmentEvidence:
+        if assignment.status != AssignmentStatus.COMPLETED:
+            raise RuntimeError(
+                f"review evidence requires completed Assignment "
+                f"'{assignment.assignment_id}'"
+            )
+        execution = assignment.runtime_execution
+        if execution is None or execution.status != RuntimeExecutionStatus.COMPLETED:
+            raise RuntimeError(
+                f"review evidence requires completed RuntimeExecution for "
+                f"'{assignment.assignment_id}'"
+            )
+        return ReviewAssignmentEvidence(
+            assignment_id=assignment.assignment_id,
+            assignment_key=assignment.assignment_key,
+            assignment_kind=assignment.assignment_kind,
+            role_key=assignment.agent_role_key,
+            status="completed",
+            runtime=ReviewRuntimeEvidence(
+                runtime_execution_id=execution.runtime_execution_id,
+                execution_id=execution.execution_id,
+                provider=execution.provider,
+                status="completed",
+                requested_model=execution.requested_model,
+                actual_model=execution.actual_model,
+                reasoning_effort=execution.reasoning_effort,
+                security_mode=execution.security_mode,
+                started_at=execution.started_at,
+                completed_at=execution.completed_at,
+                run_duration_seconds=cls._duration_seconds(
+                    execution.started_at,
+                    execution.completed_at,
+                ),
+            ),
+        )
+
+    @classmethod
+    def _build_review_execution_evidence(
+        cls,
+        session,
+        *,
+        task: Task,
+        plan: TaskExecutionPlan,
+        review_step: PlanStep,
+    ) -> dict[str, Any]:
+        """Build bounded product evidence before submitting lead.review."""
+
+        if plan.status != TaskExecutionPlanStatus.ACTIVE:
+            raise RuntimeError(
+                "lead review evidence requires an active execution plan"
+            )
+        all_steps = session.scalars(
+            select(PlanStep)
+            .where(PlanStep.plan_id == plan.plan_id)
+            .order_by(PlanStep.sequence)
+        ).all()
+        if not all_steps or all_steps[-1].plan_step_id != review_step.plan_step_id:
+            raise RuntimeError("lead review must be the final execution plan step")
+
+        planning_assignment = session.scalar(
+            select(Assignment).where(
+                Assignment.task_id == task.task_id,
+                Assignment.assignment_kind == AssignmentKind.LEAD_PLAN,
+            )
+        )
+        if planning_assignment is None:
+            raise RuntimeError("lead planning Assignment is unavailable")
+        planning_evidence = cls._review_assignment_evidence(planning_assignment)
+
+        step_by_id = {step.plan_step_id: step for step in all_steps}
+        step_by_key = {step.step_key: step for step in all_steps}
+        specialist_evidence: list[ReviewStepEvidence] = []
+        for step in all_steps[:-1]:
+            if step.step_kind != "specialist" or step.status != PlanStepStatus.COMPLETED:
+                raise RuntimeError(
+                    f"review evidence found incomplete specialist step "
+                    f"'{step.step_key}'"
+                )
+            assignment = session.scalar(
+                select(Assignment).where(Assignment.plan_step_id == step.plan_step_id)
+            )
+            if assignment is None:
+                raise RuntimeError(
+                    f"review evidence is missing Assignment for '{step.step_key}'"
+                )
+            assignment_evidence = cls._review_assignment_evidence(assignment)
+            input_bindings = session.scalars(
+                select(ArtifactInputBinding)
+                .where(ArtifactInputBinding.plan_step_id == step.plan_step_id)
+                .order_by(ArtifactInputBinding.created_at)
+            ).all()
+            input_evidence = cls._review_input_evidence(session, input_bindings)
+            declared_inputs = tuple(step.input_contracts)
+            actual_inputs = tuple(
+                item.artifact.contract_key for item in input_evidence
+            )
+            if Counter(declared_inputs) != Counter(actual_inputs):
+                raise RuntimeError(
+                    f"review evidence input contracts do not match '{step.step_key}'"
+                )
+            output_contracts = tuple(
+                str(contract["contract_key"]) for contract in step.output_contracts
+            )
+            outputs = session.scalars(
+                select(Artifact)
+                .where(
+                    Artifact.task_id == task.task_id,
+                    Artifact.producer_plan_step_id == step.plan_step_id,
+                    Artifact.status == "released",
+                )
+                .order_by(Artifact.created_at)
+            ).all()
+            output_evidence = tuple(
+                cls._review_artifact_evidence(artifact) for artifact in outputs
+            )
+            actual_outputs = tuple(item.contract_key for item in output_evidence)
+            if Counter(output_contracts) != Counter(actual_outputs):
+                raise RuntimeError(
+                    f"review evidence outputs do not match '{step.step_key}'"
+                )
+            dependency_keys = tuple(
+                step_by_id[dependency.depends_on_step_id].step_key
+                for dependency in step.dependencies
+            )
+            if any(
+                step_by_key[key].status != PlanStepStatus.COMPLETED
+                for key in dependency_keys
+            ):
+                raise RuntimeError(
+                    f"review evidence found incomplete dependency for '{step.step_key}'"
+                )
+            specialist_evidence.append(
+                ReviewStepEvidence(
+                    plan_step_id=step.plan_step_id,
+                    step_key=step.step_key,
+                    role_key=step.role_key,
+                    sequence=step.sequence,
+                    status="completed",
+                    depends_on_step_keys=dependency_keys,
+                    declared_input_contracts=declared_inputs,
+                    materialized_inputs=input_evidence,
+                    declared_output_contracts=output_contracts,
+                    released_outputs=output_evidence,
+                    assignment=assignment_evidence,
+                )
+            )
+
+        review_bindings = session.scalars(
+            select(ArtifactInputBinding)
+            .where(ArtifactInputBinding.plan_step_id == review_step.plan_step_id)
+            .order_by(ArtifactInputBinding.created_at)
+        ).all()
+        review_inputs = cls._review_input_evidence(session, review_bindings)
+        if Counter(review_step.input_contracts) != Counter(
+            item.artifact.contract_key for item in review_inputs
+        ):
+            raise RuntimeError("review evidence final input contracts do not match")
+        review_dependencies = tuple(
+            step_by_id[dependency.depends_on_step_id].step_key
+            for dependency in review_step.dependencies
+        )
+        return LeadReviewExecutionEvidence(
+            task_id=task.task_id,
+            plan=ReviewPlanEvidence(
+                plan_id=plan.plan_id,
+                plan_version=plan.plan_version,
+                definition_hash=plan.definition_hash,
+                source=plan.source,
+                status="active",
+                validation_summary=plan.validation_summary or "",
+            ),
+            planning_assignment=planning_evidence,
+            specialist_steps=tuple(specialist_evidence),
+            review_step=ReviewStepTargetEvidence(
+                plan_step_id=review_step.plan_step_id,
+                step_key=review_step.step_key,
+                role_key=review_step.role_key,
+                depends_on_step_keys=review_dependencies,
+                declared_input_contracts=tuple(review_step.input_contracts),
+                materialized_inputs=review_inputs,
+            ),
+            checks=ReviewEvidenceChecks(
+                planning_assignment_completed=True,
+                predecessor_steps_completed=True,
+                dependency_order_satisfied=True,
+                input_bindings_match_declared_contracts=True,
+                outputs_match_declared_contracts=True,
+                artifacts_released_and_validated=True,
+            ),
+            attestation_scope=(
+                "The product attests to the frozen plan dependencies, Assignment "
+                "ownership and status, materialized Artifact bindings, and released "
+                "Artifact validation recorded here. This evidence contains no Codex "
+                "transcripts or hidden reasoning and does not claim OS-level prevention "
+                "of every undeclared read under demo_full_access."
+            ),
+        ).model_dump(mode="json")
 
     @staticmethod
     def _work_for_step(assignment: Assignment, step: PlanStep) -> dict[str, Any]:

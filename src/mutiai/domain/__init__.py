@@ -6,6 +6,17 @@ from mutiai.domain.feasibility import (
     WorkloadRequirements,
 )
 from mutiai.domain.organization import AgentRoleSpec, OrganizationSpec
+from mutiai.domain.review_evidence import (
+    LeadReviewExecutionEvidence,
+    ReviewArtifactEvidence,
+    ReviewAssignmentEvidence,
+    ReviewEvidenceChecks,
+    ReviewInputBindingEvidence,
+    ReviewPlanEvidence,
+    ReviewRuntimeEvidence,
+    ReviewStepEvidence,
+    ReviewStepTargetEvidence,
+)
 from mutiai.domain.task_plan import (
     ArtifactContractSpec,
     ArtifactDeclaration,
@@ -21,9 +32,18 @@ __all__ = [
     "ArtifactDeclaration",
     "AssignmentDelivery",
     "FeasibilityFinding",
+    "LeadReviewExecutionEvidence",
     "LeadReviewResult",
     "OrganizationSpec",
     "PlanStepSpec",
+    "ReviewArtifactEvidence",
+    "ReviewAssignmentEvidence",
+    "ReviewEvidenceChecks",
+    "ReviewInputBindingEvidence",
+    "ReviewPlanEvidence",
+    "ReviewRuntimeEvidence",
+    "ReviewStepEvidence",
+    "ReviewStepTargetEvidence",
     "RuntimeCapabilityProfileSpec",
     "TaskExecutionPlanSpec",
     "WorkloadRequirements",

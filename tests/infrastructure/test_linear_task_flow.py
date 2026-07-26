@@ -16,12 +16,18 @@ from mutiai.models import (
     OrganizationSpecVersion,
     PlanStep,
     ProductEvent,
+    RuntimeExecution,
     Task,
     User,
     Workspace,
 )
 from mutiai.models.organization import OrganizationVersionStatus
-from mutiai.models.task import TaskStatus
+from mutiai.models.task import (
+    AssignmentKind,
+    AssignmentStatus,
+    RuntimeExecutionStatus,
+    TaskStatus,
+)
 from mutiai.models.task_plan import ArtifactStatus, PlanStepStatus
 from mutiai.runtime import RuntimeCapacity, RuntimeResult
 from mutiai.services.task_plans import create_task_execution_plan
@@ -207,6 +213,28 @@ def linear_environment(tmp_path) -> tuple[Database, Settings, str, str]:
             ),
             source="test",
         )
+        planning_assignment = Assignment(
+            assignment_id=f"planning-{task.task_id}",
+            task_id=task.task_id,
+            assignment_key="lead.plan",
+            assignment_kind=AssignmentKind.LEAD_PLAN,
+            agent_role_key="lead",
+            instructions="Test planning assignment.",
+            acceptance_criteria="Return the persisted test plan.",
+            execution_id=f"planning-execution-{task.task_id}",
+            status=AssignmentStatus.COMPLETED,
+            result_summary="Persisted test plan.",
+        )
+        planning_execution = RuntimeExecution(
+            runtime_execution_id=f"planning-runtime-{task.task_id}",
+            execution_id=planning_assignment.execution_id,
+            assignment_id=planning_assignment.assignment_id,
+            provider="fake",
+            status=RuntimeExecutionStatus.COMPLETED,
+            result_summary="Persisted test plan.",
+        )
+        session.add_all([planning_assignment, planning_execution])
+        session.commit()
         return database, settings, task.task_id, plan.plan_id
 
 
@@ -220,6 +248,8 @@ def test_linear_graph_releases_artifact_before_lead_review(tmp_path) -> None:
         assert [call[0] for call in runtime.calls] == ["worker", "lead"]
         assert "Create a bounded worker output." not in runtime.calls[0][2]
         assert "Create a bounded worker output." in runtime.calls[1][2]
+        assert '"execution_evidence"' in runtime.calls[1][2]
+        assert '"worker.result.v1"' in runtime.calls[1][2]
 
         with app.state.database.session() as session:
             task = session.get(Task, task_id)
@@ -240,7 +270,10 @@ def test_linear_graph_releases_artifact_before_lead_review(tmp_path) -> None:
             binding = session.scalar(select(ArtifactInputBinding))
             assert binding is not None and binding.artifact_id == artifact.artifact_id
             assignments = session.scalars(
-                select(Assignment).where(Assignment.task_id == task_id)
+                select(Assignment).where(
+                    Assignment.task_id == task_id,
+                    Assignment.plan_step_id.is_not(None),
+                )
             ).all()
             assert [assignment.agent_role_key for assignment in assignments] == [
                 "worker",

@@ -64,6 +64,8 @@ Cancellation is a product workflow operation. The API marks the Task and all unf
 
 The Task resource exposes the immutable RuntimeExecution snapshot: binding identity, requested and App Server-reported model, reasoning effort, security mode, approval policy, sandbox mode, network policy, and observed context-compaction count. Frontends must display these product fields rather than infer policy from raw Codex events.
 
+The Task resource also exposes product-observed timing facts. `RuntimeExecution` returns created, started, and completed timestamps with queue, run, and wall durations. `Assignment` returns its created, completed, and wall duration fields. `PlanStep` returns dependency-wait and active durations derived from its created, ready, and completed timestamps. A null end timestamp or duration means the corresponding phase has not completed. These values measure product-observed wall time, not model compute time, and Runtime run duration can include approval or Provider waiting while a Turn remains active.
+
 ### Organization-lead conversation
 
 - `POST /api/v1/organizations/{organization_id}/lead/messages`: submit a user message to the organization lead flow.
