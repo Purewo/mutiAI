@@ -69,8 +69,8 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Verified starting point
 
-- Backend repository baseline: `b4ce096` (`feat: close platform assistant product read paths`).
-- Frontend repository baseline: `9a5d07b` (`feat: add task execution observation, Artifact access, and usage`).
+- Backend repository baseline: `205a845` (`fix: localize persisted assistant action failures`).
+- Frontend repository baseline: `b898175` (`fix: make graphs and long identifiers usable on narrow screens`).
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
 - The fake planned path now creates deterministic plans, returns valid structured `AssignmentDelivery` envelopes, publishes declared Artifacts, and converges parallel branches to terminal state.
@@ -84,8 +84,9 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 - `lead.review` now receives product-owned execution evidence for plan order, Assignment ownership, Artifact bindings, validation, and Runtime timing without undeclared upstream file contents.
 - The platform assistant now has a persisted Task-feasibility preview tool, owner-scoped Action list/read tools, and a controlled released JSON/text Artifact content reader capped at 64 KiB. It never receives arbitrary URLs, storage paths, Workspace IDs, or binary content through that reader.
 - Failed or terminal Assistant Actions can be proposed again with a new Action and idempotency identity; active duplicate proposals remain deduplicated.
+- Assistant Action failures persist stable codes, original status codes, and structured details. Action list, detail, and decision responses localize `error_message` for each reader's `Accept-Language`; existing English fallback records no longer force an English UI.
 - The first real browser invoice run (`d608a67b-0542-4004-bd4f-588b4d4b7f50`) validated the complete four-Artifact linear chain and workbook values but correctly returned `needs_revision` because the previous review packet lacked execution evidence. That historical Task remains unchanged as a regression record.
-- The full backend suite passes with `171 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the review-evidence, timing, and platform-assistant read-path fixes.
+- The full backend suite passes with `172 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the review-evidence, timing, platform-assistant read-path, and persisted Action localization fixes.
 
 Repository commits move after this handoff. Before relying on the two baseline hashes, compare them with each repository's current `HEAD` and read newer commit messages. The product boundaries and active M3 gate remain authoritative until this file is deliberately updated.
 
