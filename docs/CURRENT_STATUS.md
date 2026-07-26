@@ -1,6 +1,6 @@
 # Nexwork current project status
 
-Status date: 2026-07-26
+Status date: 2026-07-27
 
 This file is the primary handoff for a new AI agent or developer. Read it before selecting work. The architecture documents explain why the system is designed this way; this file identifies the active milestone, current ownership, verified starting point, next gate, and deferred scope.
 
@@ -39,7 +39,7 @@ The first product must prove that an individual user can design an AI organizati
 
 ## Active milestone: M3 web product loop
 
-M3 is the only active product milestone. Do not redirect work to WeChat, a drag-and-drop editor, multi-user collaboration, mixed plan topology, additional Runtime providers, or production distributed scheduling before this web loop passes acceptance.
+M3 implementation is complete for the current frontend slice, and its reference completed Task has passed the main browser flow. M3 acceptance remains active until the three deterministic Runtime scenarios below pass through the real frontend. Do not redirect work to WeChat, a drag-and-drop editor, multi-user collaboration, mixed plan topology, additional Runtime providers, or production distributed scheduling before this web loop passes acceptance.
 
 The required browser flow is:
 
@@ -69,19 +69,24 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Verified starting point
 
-- Backend repository baseline: `1e2f969` (`fix: complete fake planned artifact delivery`).
+- Backend repository baseline: `bc591a7` (`fix: sanitize Runtime approval responses`).
 - Frontend repository baseline: `9a5d07b` (`feat: add task execution observation, Artifact access, and usage`).
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
 - The fake planned path now creates deterministic plans, returns valid structured `AssignmentDelivery` envelopes, publishes declared Artifacts, and converges parallel branches to terminal state.
 - A completed fake Task exposes released Artifact content and downloads through owner-scoped URLs, reports Task and per-Assignment usage, and ends its event sequence with `task.completed`.
-- The frontend has implemented the real assistant conversation transport and the Task observation, Artifact, and usage slices. Completion still requires frontend-owned real-backend browser acceptance.
+- The frontend has implemented the real assistant conversation transport and the Task observation, Artifact, and usage slices on `feat/m3-frontend-foundation`. The reference Task `249abdb4` passed the main completed parallel-flow browser acceptance.
+- The backend now provides isolated loopback harnesses in `docs/acceptance/M3_RUNTIME_SCENARIOS.md` for `wait-cancel`, `needs-revision`, and `approval` states. The harnesses do not add public test endpoints or production switches.
+- Planned Task cancellation now converges the Task, current execution plan, and every unfinished plan step to `cancelled`; completed specialist Assignments remain completed when their result was already observed.
+- Public approval responses retain the user-visible `command` but no longer expose `cwd` or opaque Runtime detail objects. Internal audit records retain those values.
+- Account self-service now exposes `PATCH /api/v1/auth/me` and `POST /api/v1/auth/password`. Password changes preserve the current browser session and revoke other active sessions.
+- The full backend suite passes with `168 passed`, and Ruff passes for `src`, `tests`, and `scripts`.
 
 Repository commits move after this handoff. Before relying on the two baseline hashes, compare them with each repository's current `HEAD` and read newer commit messages. The product boundaries and active M3 gate remain authoritative until this file is deliberately updated.
 
 ## Immediate next gate
 
-Fable5 runs the current frontend against the real local backend and completes M3 browser acceptance. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
+Fable5 runs the current frontend against the real local backend and completes the remaining M3 browser acceptance. Use the loopback harness to verify `wait-cancel`, `needs-revision`, and `approval` with real browser requests. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
 
 When verification exposes a defect, isolate the failing layer. Fable5 corrects frontend implementation and page behavior. The backend agent corrects backend behavior, contracts, fixtures, or persistence defects. Do not call M3 complete from fixture-only, typecheck-only, or backend-test-only evidence.
 
