@@ -1,0 +1,110 @@
+{
+  "feasibility_check_id": "184570ad-1e19-43f0-a25c-d2ff441735ba",
+  "target_type": "task",
+  "target_id": "781e7df0-9186-4238-86ea-9787b365030a",
+  "phase": "task_submission",
+  "validator_version": "1.0",
+  "input_hash": "27dc6b2a237449f68965dbe5e72776402370e5de838124dc89ffd1552673fc9c",
+  "requirements": [
+    {
+      "role_key": "lead",
+      "binding_key": "linux-unknown-gpu",
+      "requirements": {
+        "schema_version": "1.0",
+        "os_families": [],
+        "requires_gui": false,
+        "requires_gpu": true,
+        "min_gpu_memory_mb": null,
+        "min_cpu_capacity": "light",
+        "min_memory_mb": null,
+        "required_tools": [],
+        "requires_network": false,
+        "required_external_services": [],
+        "required_hardware": [],
+        "required_proprietary_software": [],
+        "input_media_types": [],
+        "output_media_types": [],
+        "estimated_duration_seconds": null,
+        "estimated_input_size_bytes": null,
+        "resource_intensive": false
+      }
+    },
+    {
+      "role_key": "specialist",
+      "binding_key": "linux-unknown-gpu",
+      "requirements": {
+        "schema_version": "1.0",
+        "os_families": [],
+        "requires_gui": false,
+        "requires_gpu": true,
+        "min_gpu_memory_mb": null,
+        "min_cpu_capacity": "light",
+        "min_memory_mb": null,
+        "required_tools": [],
+        "requires_network": false,
+        "required_external_services": [],
+        "required_hardware": [],
+        "required_proprietary_software": [],
+        "input_media_types": [],
+        "output_media_types": [],
+        "estimated_duration_seconds": null,
+        "estimated_input_size_bytes": null,
+        "resource_intensive": false
+      }
+    }
+  ],
+  "profile_revisions": [
+    {
+      "role_key": "lead",
+      "binding_key": "linux-unknown-gpu",
+      "runtime_binding_id": "4e723e0f-d4da-4110-8821-f024bb546178",
+      "capability_profile_id": "fa0b9619-8997-4815-a34d-ab11e5804819",
+      "revision": 1
+    },
+    {
+      "role_key": "specialist",
+      "binding_key": "linux-unknown-gpu",
+      "runtime_binding_id": "4e723e0f-d4da-4110-8821-f024bb546178",
+      "capability_profile_id": "fa0b9619-8997-4815-a34d-ab11e5804819",
+      "revision": 1
+    }
+  ],
+  "outcome": "capability_unknown",
+  "findings": [
+    {
+      "reason_code": "GPU_CAPABILITY_UNKNOWN",
+      "role_key": "lead",
+      "binding_key": "linux-unknown-gpu",
+      "capability": "gpu_available",
+      "required": true,
+      "actual": null,
+      "alternative_codes": [
+        "declare_capabilities",
+        "use_capable_binding"
+      ],
+      "message": "Runtime 没有声明 GPU 能力。",
+      "alternatives": [
+        "补充可信的 Runtime 能力档案。",
+        "改用能力档案满足要求的 Runtime binding。"
+      ]
+    },
+    {
+      "reason_code": "GPU_CAPABILITY_UNKNOWN",
+      "role_key": "specialist",
+      "binding_key": "linux-unknown-gpu",
+      "capability": "gpu_available",
+      "required": true,
+      "actual": null,
+      "alternative_codes": [
+        "declare_capabilities",
+        "use_capable_binding"
+      ],
+      "message": "Runtime 没有声明 GPU 能力。",
+      "alternatives": [
+        "补充可信的 Runtime 能力档案。",
+        "改用能力档案满足要求的 Runtime binding。"
+      ]
+    }
+  ],
+  "created_at": "2026-07-26T10:11:56.428876Z"
+}

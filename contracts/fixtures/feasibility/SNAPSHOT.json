@@ -1,0 +1,6 @@
+{
+  "source_commit": "5e88dd8e70effddf09504256433384e9e22d328d",
+  "generator": "scripts/export_feasibility_fixtures.py",
+  "transport": "FastAPI TestClient",
+  "locale": "zh-CN"
+}

@@ -1,0 +1,97 @@
+{
+  "feasibility_check_id": "b264b243-bbcc-4911-a620-e5a3ff3e6ee6",
+  "target_type": "organization_version",
+  "target_id": "0a6cc350-7845-4001-961d-c131392a8bc3",
+  "phase": "proposal",
+  "validator_version": "1.0",
+  "input_hash": "89a44853cd396779d0bbbba20e4721ef6064899932c3ee3fd2c301daa08d0212",
+  "requirements": [
+    {
+      "role_key": "lead",
+      "binding_key": "linux-standard",
+      "requirements": {
+        "schema_version": "1.0",
+        "os_families": [],
+        "requires_gui": false,
+        "requires_gpu": false,
+        "min_gpu_memory_mb": null,
+        "min_cpu_capacity": "light",
+        "min_memory_mb": null,
+        "required_tools": [],
+        "requires_network": false,
+        "required_external_services": [],
+        "required_hardware": [],
+        "required_proprietary_software": [],
+        "input_media_types": [],
+        "output_media_types": [],
+        "estimated_duration_seconds": null,
+        "estimated_input_size_bytes": null,
+        "resource_intensive": false
+      }
+    },
+    {
+      "role_key": "specialist",
+      "binding_key": "linux-standard",
+      "requirements": {
+        "schema_version": "1.0",
+        "os_families": [
+          "windows"
+        ],
+        "requires_gui": false,
+        "requires_gpu": false,
+        "min_gpu_memory_mb": null,
+        "min_cpu_capacity": "light",
+        "min_memory_mb": null,
+        "required_tools": [],
+        "requires_network": false,
+        "required_external_services": [],
+        "required_hardware": [],
+        "required_proprietary_software": [],
+        "input_media_types": [],
+        "output_media_types": [],
+        "estimated_duration_seconds": null,
+        "estimated_input_size_bytes": null,
+        "resource_intensive": false
+      }
+    }
+  ],
+  "profile_revisions": [
+    {
+      "role_key": "lead",
+      "binding_key": "linux-standard",
+      "runtime_binding_id": "e97c237c-31cb-48dc-ae44-33260ff71e3a",
+      "capability_profile_id": "994e210b-dfb4-4e37-a211-2ea71a44abdf",
+      "revision": 1
+    },
+    {
+      "role_key": "specialist",
+      "binding_key": "linux-standard",
+      "runtime_binding_id": "e97c237c-31cb-48dc-ae44-33260ff71e3a",
+      "capability_profile_id": "994e210b-dfb4-4e37-a211-2ea71a44abdf",
+      "revision": 1
+    }
+  ],
+  "outcome": "blocked",
+  "findings": [
+    {
+      "reason_code": "OS_CAPABILITY_MISMATCH",
+      "role_key": "specialist",
+      "binding_key": "linux-standard",
+      "capability": "os_family",
+      "required": [
+        "windows"
+      ],
+      "actual": "linux",
+      "alternative_codes": [
+        "use_linux_native_tool",
+        "use_compatible_binding"
+      ],
+      "message": "任务要求的操作系统与 Runtime 不匹配。",
+      "alternatives": [
+        "改用可在 Linux 上运行的工具或流程。",
+        "改用操作系统兼容的 Runtime binding。"
+      ]
+    }
+  ],
+  "created_at": "2026-07-26T10:11:56.273186Z"
+}

@@ -28,6 +28,14 @@ owner-scoped feasibility endpoints expose persisted validator results with
 outcomes `feasible`, `conditional`, `blocked`, and `capability_unknown` before
 the frontend renders or submits a state-changing action.
 
+Captured, model-validated feasibility responses live under
+`fixtures/feasibility/`. Regenerate them from an isolated temporary database
+with:
+
+```powershell
+uv run python scripts\export_feasibility_fixtures.py
+```
+
 Regenerate both snapshots with:
 
 ```powershell

@@ -1,0 +1,167 @@
+[
+  {
+    "feasibility_check_id": "fac55657-cdc3-4494-8c1e-dd55ed74a521",
+    "target_type": "task",
+    "target_id": "7aba8088-c479-4363-8f05-b1411abe21e2",
+    "phase": "task_submission",
+    "validator_version": "1.0",
+    "input_hash": "cd61543d73f551099b1f23991621a7b14bb513909278c94e3afebcb46f27dfa3",
+    "requirements": [
+      {
+        "role_key": "lead",
+        "binding_key": "linux-standard",
+        "requirements": {
+          "schema_version": "1.0",
+          "os_families": [],
+          "requires_gui": false,
+          "requires_gpu": false,
+          "min_gpu_memory_mb": null,
+          "min_cpu_capacity": "light",
+          "min_memory_mb": null,
+          "required_tools": [],
+          "requires_network": false,
+          "required_external_services": [],
+          "required_hardware": [],
+          "required_proprietary_software": [],
+          "input_media_types": [],
+          "output_media_types": [],
+          "estimated_duration_seconds": null,
+          "estimated_input_size_bytes": null,
+          "resource_intensive": false
+        }
+      },
+      {
+        "role_key": "specialist",
+        "binding_key": "linux-standard",
+        "requirements": {
+          "schema_version": "1.0",
+          "os_families": [],
+          "requires_gui": false,
+          "requires_gpu": false,
+          "min_gpu_memory_mb": null,
+          "min_cpu_capacity": "light",
+          "min_memory_mb": null,
+          "required_tools": [],
+          "requires_network": false,
+          "required_external_services": [],
+          "required_hardware": [],
+          "required_proprietary_software": [],
+          "input_media_types": [],
+          "output_media_types": [],
+          "estimated_duration_seconds": null,
+          "estimated_input_size_bytes": null,
+          "resource_intensive": false
+        }
+      }
+    ],
+    "profile_revisions": [
+      {
+        "role_key": "lead",
+        "binding_key": "linux-standard",
+        "runtime_binding_id": "e97c237c-31cb-48dc-ae44-33260ff71e3a",
+        "capability_profile_id": "994e210b-dfb4-4e37-a211-2ea71a44abdf",
+        "revision": 1
+      },
+      {
+        "role_key": "specialist",
+        "binding_key": "linux-standard",
+        "runtime_binding_id": "e97c237c-31cb-48dc-ae44-33260ff71e3a",
+        "capability_profile_id": "994e210b-dfb4-4e37-a211-2ea71a44abdf",
+        "revision": 1
+      }
+    ],
+    "outcome": "feasible",
+    "findings": [],
+    "created_at": "2026-07-26T10:11:56.534900Z"
+  },
+  {
+    "feasibility_check_id": "5680683b-3e45-40b8-ab02-1bbb516e1b17",
+    "target_type": "task",
+    "target_id": "7aba8088-c479-4363-8f05-b1411abe21e2",
+    "phase": "runtime_start",
+    "validator_version": "1.0",
+    "input_hash": "c6e6ab3b245f553638f7537672b03ad11ef57efc628e0294edb360b89035104f",
+    "requirements": [
+      {
+        "role_key": "specialist",
+        "binding_key": "linux-standard",
+        "requirements": {
+          "schema_version": "1.0",
+          "os_families": [],
+          "requires_gui": false,
+          "requires_gpu": false,
+          "min_gpu_memory_mb": null,
+          "min_cpu_capacity": "light",
+          "min_memory_mb": null,
+          "required_tools": [],
+          "requires_network": false,
+          "required_external_services": [],
+          "required_hardware": [],
+          "required_proprietary_software": [],
+          "input_media_types": [],
+          "output_media_types": [],
+          "estimated_duration_seconds": null,
+          "estimated_input_size_bytes": null,
+          "resource_intensive": false
+        }
+      }
+    ],
+    "profile_revisions": [
+      {
+        "role_key": "specialist",
+        "binding_key": "linux-standard",
+        "runtime_binding_id": "e97c237c-31cb-48dc-ae44-33260ff71e3a",
+        "capability_profile_id": "994e210b-dfb4-4e37-a211-2ea71a44abdf",
+        "revision": 1
+      }
+    ],
+    "outcome": "feasible",
+    "findings": [],
+    "created_at": "2026-07-26T10:11:56.623018Z"
+  },
+  {
+    "feasibility_check_id": "96cfc39f-035c-47ad-9e59-848d9659ccf9",
+    "target_type": "task",
+    "target_id": "7aba8088-c479-4363-8f05-b1411abe21e2",
+    "phase": "runtime_start",
+    "validator_version": "1.0",
+    "input_hash": "18978e3eeae0a195a32e5d8fddf4e69f9dfaae37439ad0de9fdb120645b36e69",
+    "requirements": [
+      {
+        "role_key": "lead",
+        "binding_key": "linux-standard",
+        "requirements": {
+          "schema_version": "1.0",
+          "os_families": [],
+          "requires_gui": false,
+          "requires_gpu": false,
+          "min_gpu_memory_mb": null,
+          "min_cpu_capacity": "light",
+          "min_memory_mb": null,
+          "required_tools": [],
+          "requires_network": false,
+          "required_external_services": [],
+          "required_hardware": [],
+          "required_proprietary_software": [],
+          "input_media_types": [],
+          "output_media_types": [],
+          "estimated_duration_seconds": null,
+          "estimated_input_size_bytes": null,
+          "resource_intensive": false
+        }
+      }
+    ],
+    "profile_revisions": [
+      {
+        "role_key": "lead",
+        "binding_key": "linux-standard",
+        "runtime_binding_id": "e97c237c-31cb-48dc-ae44-33260ff71e3a",
+        "capability_profile_id": "994e210b-dfb4-4e37-a211-2ea71a44abdf",
+        "revision": 1
+      }
+    ],
+    "outcome": "feasible",
+    "findings": [],
+    "created_at": "2026-07-26T10:11:56.692192Z"
+  }
+]
