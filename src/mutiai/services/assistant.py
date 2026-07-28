@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event, RLock
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import func, select
@@ -28,6 +28,7 @@ from mutiai.api.schemas.assistant_content import (
     OrganizationDiagramSource,
     ResourceRefContentBlock,
     ResourceRefPresentationRequest,
+    ResourceType,
     TaskPlanDiagramSource,
 )
 from mutiai.api.schemas.feasibility import FeasibilityCheckResponse
@@ -95,8 +96,37 @@ SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 SYSTEM_PROMPT_VERSION = hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
 ASSISTANT_ARTIFACT_CONTENT_MAX_BYTES = 64 * 1024
 logger = logging.getLogger(__name__)
-CONTENT_PRESENTATION_SCHEMA = TypeAdapter(ContentPresentationRequest).json_schema()
 CONTENT_PRESENTATION_ADAPTER = TypeAdapter(ContentPresentationRequest)
+
+# Codex strict response formats reject ``oneOf``. Keep the Runtime wire shape
+# flat and nullable, then rebuild the product-owned discriminated union before
+# validating or resolving any resource.
+CONTENT_PRESENTATION_OUTPUT_ITEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "kind": {"type": "string", "enum": ["resource_ref", "diagram"]},
+        "resource_type": {
+            "type": ["string", "null"],
+            "enum": [*get_args(ResourceType), None],
+        },
+        "resource_id": {"type": ["string", "null"]},
+        "label": {"type": ["string", "null"]},
+        "template": {
+            "type": ["string", "null"],
+            "enum": ["organization_chart", "execution_plan", None],
+        },
+        "source_kind": {
+            "type": ["string", "null"],
+            "enum": ["organization_spec_version", "task_plan", None],
+        },
+        "organization_id": {"type": ["string", "null"]},
+        "spec_version_id": {"type": ["string", "null"]},
+        "task_id": {"type": ["string", "null"]},
+        "plan_id": {"type": ["string", "null"]},
+        "text": {"type": ["string", "null"]},
+    },
+}
 
 ASSISTANT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -132,7 +162,7 @@ ASSISTANT_OUTPUT_SCHEMA: dict[str, Any] = {
         "presentation_requests": {
             "type": "array",
             "maxItems": 20,
-            "items": CONTENT_PRESENTATION_SCHEMA,
+            "items": CONTENT_PRESENTATION_OUTPUT_ITEM_SCHEMA,
         },
     },
     "required": ["reply", "action", "presentation_requests"],
@@ -2373,7 +2403,10 @@ class PlatformAssistantService:
             return blocks
         for raw_request in presentation_requests[:20]:
             try:
-                request = CONTENT_PRESENTATION_ADAPTER.validate_python(raw_request)
+                canonical_request = self._canonical_presentation_request(raw_request)
+                request = CONTENT_PRESENTATION_ADAPTER.validate_python(
+                    canonical_request
+                )
             except ValidationError:
                 logger.warning("Ignored invalid assistant content presentation hint")
                 continue
@@ -2394,6 +2427,44 @@ class PlatformAssistantService:
             if block is not None:
                 blocks.append(block)
         return blocks
+
+    @staticmethod
+    def _canonical_presentation_request(raw_request: Any) -> Any:
+        """Convert the flat Codex response shape into the product union."""
+
+        if not isinstance(raw_request, dict) or "source" in raw_request:
+            return raw_request
+        kind = raw_request.get("kind")
+        if kind == "resource_ref":
+            return {
+                "kind": kind,
+                "resource_type": raw_request.get("resource_type"),
+                "resource_id": raw_request.get("resource_id"),
+                "label": raw_request.get("label"),
+            }
+        if kind != "diagram":
+            return raw_request
+        source_kind = raw_request.get("source_kind")
+        if source_kind == "organization_spec_version":
+            source = {
+                "kind": source_kind,
+                "organization_id": raw_request.get("organization_id"),
+                "spec_version_id": raw_request.get("spec_version_id"),
+            }
+        elif source_kind == "task_plan":
+            source = {
+                "kind": source_kind,
+                "task_id": raw_request.get("task_id"),
+                "plan_id": raw_request.get("plan_id"),
+            }
+        else:
+            source = {"kind": source_kind}
+        return {
+            "kind": kind,
+            "template": raw_request.get("template"),
+            "source": source,
+            "text": raw_request.get("text"),
+        }
 
     def _resource_ref_block(
         self,

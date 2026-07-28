@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from mutiai.config import Settings
 from mutiai.main import create_app
 from mutiai.runtime import FakeRuntimeAdapter, RuntimeResult
+from mutiai.runtime.codex_app_server import strict_output_schema
+from mutiai.services.assistant import ASSISTANT_OUTPUT_SCHEMA
 
 
 class RichContentFakeRuntime(FakeRuntimeAdapter):
@@ -73,6 +75,48 @@ def wait_for_turn(client: TestClient, turn_id: str) -> None:
     raise AssertionError("assistant Turn did not complete")
 
 
+def presentation_request(**overrides) -> dict:
+    request = {
+        "kind": "resource_ref",
+        "resource_type": None,
+        "resource_id": None,
+        "label": None,
+        "template": None,
+        "source_kind": None,
+        "organization_id": None,
+        "spec_version_id": None,
+        "task_id": None,
+        "plan_id": None,
+        "text": None,
+    }
+    request.update(overrides)
+    return request
+
+
+def test_assistant_response_schema_avoids_codex_unsupported_unions() -> None:
+    schema = strict_output_schema(ASSISTANT_OUTPUT_SCHEMA)
+
+    def unsupported_keywords(value) -> list[str]:
+        if isinstance(value, dict):
+            found = [
+                key for key in ("oneOf", "anyOf", "allOf") if key in value
+            ]
+            for item in value.values():
+                found.extend(unsupported_keywords(item))
+            return found
+        if isinstance(value, list):
+            return [
+                keyword
+                for item in value
+                for keyword in unsupported_keywords(item)
+            ]
+        return []
+
+    assert unsupported_keywords(schema) == []
+    item_schema = schema["properties"]["presentation_requests"]["items"]
+    assert item_schema["required"] == list(item_schema["properties"])
+
+
 def test_runtime_hints_become_owner_checked_content_blocks(tmp_path) -> None:
     runtime = RichContentFakeRuntime()
     app = rich_content_app(tmp_path, runtime)
@@ -99,26 +143,22 @@ def test_runtime_hints_become_owner_checked_content_blocks(tmp_path) -> None:
             "reply": "<script>alert('x')</script>**Organization ready.**",
             "action": None,
             "presentation_requests": [
-                {
-                    "kind": "resource_ref",
-                    "resource_type": "organization",
-                    "resource_id": organization_id,
-                },
-                {
-                    "kind": "diagram",
-                    "template": "organization_chart",
-                    "source": {
-                        "kind": "organization_spec_version",
-                        "organization_id": organization_id,
-                        "spec_version_id": spec_version_id,
-                    },
-                    "text": "The organization lead manages one specialist.",
-                },
-                {
-                    "kind": "resource_ref",
-                    "resource_type": "task",
-                    "resource_id": "00000000-0000-0000-0000-000000000000",
-                },
+                presentation_request(
+                    resource_type="organization",
+                    resource_id=organization_id,
+                ),
+                presentation_request(
+                    kind="diagram",
+                    template="organization_chart",
+                    source_kind="organization_spec_version",
+                    organization_id=organization_id,
+                    spec_version_id=spec_version_id,
+                    text="The organization lead manages one specialist.",
+                ),
+                presentation_request(
+                    resource_type="task",
+                    resource_id="00000000-0000-0000-0000-000000000000",
+                ),
             ],
         }
         conversation = client.post("/api/v1/assistant/conversations")
