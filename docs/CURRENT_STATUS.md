@@ -1,6 +1,6 @@
 # Nexwork current project status
 
-Status date: 2026-07-27
+Status date: 2026-07-28
 
 This file is the primary handoff for a new AI agent or developer. Read it before selecting work. The architecture documents explain why the system is designed this way; this file identifies the active milestone, current ownership, verified starting point, next gate, and deferred scope.
 
@@ -62,15 +62,15 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Ownership during M3
 
-- Fable5 owns all frontend implementation, frontend repository checks, page acceptance, and real-backend browser verification, including console, network, interactions, responsive layout, SSE reconnect behavior, Artifact access, and usage presentation.
-- The backend agent owns architecture, backend implementation, product rules, OpenAPI and JSON Schema contracts, fixtures, backend test coverage, API defect resolution, and cross-layer integration support.
+- The frontend GPT-5.6 agent owns all frontend implementation, frontend repository checks, page acceptance, and real-backend browser verification, including console, network, interactions, responsive layout, SSE reconnect behavior, Artifact access, and usage presentation. The earlier Gemini/Fable5 frontend handoff is historical.
+- The backend GPT-5.6 agent owns architecture, backend implementation, product rules, OpenAPI and JSON Schema contracts, fixtures, backend test coverage, API defect resolution, and cross-layer integration support.
 - `Purewo/mutiAI` is authoritative for product and transport contracts. `Purewo/mutiAI-aistdio-gemini` consumes versioned snapshots and generated types; it must not redefine backend contracts by guesswork.
-- A frontend problem is reported to Fable5 for correction. Backend code is changed only when the failing layer is the backend or published contract.
+- A frontend problem is corrected by the frontend GPT-5.6 agent in the frontend repository. The backend GPT-5.6 agent changes backend code only when the failing layer is the backend or published contract.
 
 ## Verified starting point
 
 - Backend repository baseline: `e177fb3` (`feat: add assistant rich content and attachments`).
-- Frontend repository baseline: `b898175` (`fix: make graphs and long identifiers usable on narrow screens`).
+- Frontend repository baseline: `ad9d659` (`chore: sync assistant rich content contract`) on `feat/m3-frontend-foundation`; compare current `HEAD` before relying on this hash.
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
 - The fake planned path now creates deterministic plans, returns valid structured `AssignmentDelivery` envelopes, publishes declared Artifacts, and converges parallel branches to terminal state.
@@ -95,9 +95,9 @@ Repository commits move after this handoff. Before relying on the two baseline h
 
 ## Immediate next gate
 
-Fable5 first refreshes the frontend snapshot from the review-evidence/timing backend baseline and displays the returned per-role timing fields. Then run a new real Codex invoice Task and confirm the same four-Artifact chain reaches `completed`, with the lead using product execution evidence rather than undeclared upstream files. After that, complete the remaining M3 browser acceptance with the loopback `wait-cancel`, `needs-revision`, and `approval` scenarios. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals and timing, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
+The frontend GPT-5.6 agent continues from the current review-evidence/timing and assistant rich-content baseline. Run a new real Codex invoice Task and confirm the same four-Artifact chain reaches `completed`, with the lead using product execution evidence rather than undeclared upstream files. After that, complete the remaining M3 browser acceptance with the loopback `wait-cancel`, `needs-revision`, and `approval` scenarios. The verification must cover authentication, platform-assistant conversation and actions, organization preview, Runtime binding display, planned Task submission, initial input upload, strict-linear and pure-parallel progress, SSE reconnect and deduplication, Artifact preview and download, usage totals and timing, failure states, approvals, cancellation, console errors, network responses, interactions, and responsive layout.
 
-When verification exposes a defect, isolate the failing layer. Fable5 corrects frontend implementation and page behavior. The backend agent corrects backend behavior, contracts, fixtures, or persistence defects. Do not call M3 complete from fixture-only, typecheck-only, or backend-test-only evidence.
+When verification exposes a defect, isolate the failing layer. The frontend GPT-5.6 agent corrects frontend implementation and page behavior. The backend GPT-5.6 agent corrects backend behavior, contracts, fixtures, or persistence defects. Do not call M3 complete from fixture-only, typecheck-only, or backend-test-only evidence.
 
 The next assistant-specific acceptance must use the real platform-assistant conversation: preflight a Task through the feasibility tool before proposing `task.submit`, confirm that one Turn produces one complete Action even when the Runtime repeats a final envelope, query a failed Action before creating a replacement, and read a small released JSON Artifact through the content tool. Compare every reported value with the product database and confirm that unsupported or oversized content is refused without guessing.
 

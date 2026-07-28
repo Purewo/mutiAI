@@ -143,7 +143,7 @@ Reference: [M2.3 parallel Artifact, result access, and Task usage plan](architec
 
 Status: Active frontend integration and real-backend verification. Frontend task visualization must consume plan, Artifact, and usage resources instead of the temporary unstructured fan-out shape.
 
-Fable5 owns frontend implementation, page acceptance, and real-backend browser verification. The backend side owns architecture, product behavior, authoritative contracts, fixtures, API defect resolution, and cross-layer integration support. The integration gate is:
+The frontend GPT-5.6 agent owns frontend implementation, page acceptance, and real-backend browser verification. The backend GPT-5.6 agent owns architecture, product behavior, authoritative contracts, fixtures, API defect resolution, and cross-layer integration support. The integration gate is:
 
 - Generated or reviewed TypeScript client.
 - Real backend integration.

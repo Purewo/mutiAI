@@ -1,6 +1,6 @@
 # M3 frontend task packet
 
-Status: Ready for Fable5 real-backend integration.
+Status: Active with the frontend GPT-5.6 agent for real-backend integration.
 
 ## Contract source
 
