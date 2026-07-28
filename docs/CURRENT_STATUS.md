@@ -69,7 +69,7 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 
 ## Verified starting point
 
-- Backend repository baseline: `e177fb3` (`feat: add assistant rich content and attachments`).
+- Backend repository baseline: `97e4f7d` (`fix: make assistant presentation schema Codex-compatible`).
 - Frontend repository baseline: `ad9d659` (`chore: sync assistant rich content contract`) on `feat/m3-frontend-foundation`; compare current `HEAD` before relying on this hash.
 - M0, M1, M2, M2.1, M2.2, and M2.3 backend boundaries are complete for the local V1 slice.
 - Persistent platform-assistant Conversation, Message, Turn, Action, event replay, managed Codex Thread, and feasibility-gate APIs are implemented.
@@ -84,12 +84,13 @@ SSE is a resumable change-notification channel, not the sole source of truth. Th
 - `lead.review` now receives product-owned execution evidence for plan order, Assignment ownership, Artifact bindings, validation, and Runtime timing without undeclared upstream file contents.
 - The platform assistant now has a persisted Task-feasibility preview tool, owner-scoped Action list/read tools, and a controlled released JSON/text Artifact content reader capped at 64 KiB. It never receives arbitrary URLs, storage paths, Workspace IDs, or binary content through that reader.
 - Assistant rich content is now versioned on each Message through `content_schema_version` and validated `content_blocks`. The backend converts ordinary Runtime Markdown plus restricted presentation hints into owner-checked resource references and diagrams; product graphs remain sourced from persisted OrganizationSpec and Task plan records.
+- The Codex response-format wire schema for `presentation_requests` is a flat nullable object and contains no `oneOf`, `anyOf`, or `allOf`. The backend reconstructs and validates the strict product-owned `resource_ref` or `diagram` union before resolving any resource.
 - Assistant attachments now have an explicit upload, message-reference, revoke, and owner-scoped content/download lifecycle. Files live outside source and Runtime Workspace roots, are capped at 10 MiB by default, never become Task inputs implicitly, and the assistant content reader accepts only attached UTF-8 JSON/text up to 64 KiB.
 - Each assistant Turn can persist at most one Action. `task.submit` proposals are rejected before `proposed` unless they contain a matching organization target, request, capability requirements, and an owner-scoped feasible Task preview. If a Runtime repeats a shorter final Action after a successful proposal tool call, the first complete Action remains canonical.
 - Failed or terminal Assistant Actions can be proposed again with a new Action and idempotency identity; active duplicate proposals remain deduplicated.
 - Assistant Action failures persist stable codes, original status codes, and structured details. Action list, detail, and decision responses localize `error_message` for each reader's `Accept-Language`; existing English fallback records no longer force an English UI.
 - The first real browser invoice run (`d608a67b-0542-4004-bd4f-588b4d4b7f50`) validated the complete four-Artifact linear chain and workbook values but correctly returned `needs_revision` because the previous review packet lacked execution evidence. That historical Task remains unchanged as a regression record.
-- The full backend suite passes with `180 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the rich-content contract, attachment lifecycle, review-evidence, timing, platform-assistant read-path, and persisted Action localization work.
+- The full backend suite passes with `181 passed`, and Ruff passes for `src`, `tests`, and `scripts` after the Codex response-format compatibility fix, rich-content contract, attachment lifecycle, review-evidence, timing, platform-assistant read-path, and persisted Action localization work.
 
 Repository commits move after this handoff. Before relying on the two baseline hashes, compare them with each repository's current `HEAD` and read newer commit messages. The product boundaries and active M3 gate remain authoritative until this file is deliberately updated.
 
